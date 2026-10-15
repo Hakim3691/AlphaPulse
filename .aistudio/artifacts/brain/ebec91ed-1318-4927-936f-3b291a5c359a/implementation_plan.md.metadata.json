@@ -1,0 +1,6 @@
+{
+  "summary": "Comprehensive implementation plan for AlphaPulse institutional quantitative crypto screener and 24/7 background workstation, incorporating strict 5-decimal price formatting, foreground service with wake lock, real-time WebSocket order-flow telemetry, 4-tab universe CSV export, and complete HTML5 SPA algorithmic parity.",
+  "updatedAt": "2026-10-15T14:52:14.797720602Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

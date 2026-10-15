@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer Shield Halo Ring -->
+    <path
+        android:pathData="M54,26 C69.46,26 82,38.54 82,54 C82,69.46 69.46,82 54,82 C38.54,82 26,69.46 26,54 C26,38.54 38.54,26 54,26 Z"
+        android:strokeWidth="2.5"
+        android:strokeColor="#403B82F6" />
+
+    <!-- Quantitative Trend Diamond / Hexagon Shield -->
+    <path
+        android:pathData="M54,30 L76,43 L76,65 L54,78 L32,65 L32,43 Z"
+        android:fillColor="#183B82F6"
+        android:strokeWidth="1.8">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="32"
+                android:startY="30"
+                android:endX="76"
+                android:endY="78"
+                android:type="linear">
+                <item android:color="#FF3B82F6" android:offset="0.0" />
+                <item android:color="#FF8B5CF6" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Alpha Pulse Waveform (ECG / Market order flow impulse) -->
+    <path
+        android:pathData="M34,54 L44,54 L48,41 L52,67 L57,37 L61,60 L65,54 L74,54"
+        android:strokeWidth="3.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="34"
+                android:startY="54"
+                android:endX="74"
+                android:endY="54"
+                android:type="linear">
+                <item android:color="#FF38BDF8" android:offset="0.0" />
+                <item android:color="#FF818CF8" android:offset="0.5" />
+                <item android:color="#FFA78BFA" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Upper Alpha Node Spark -->
+    <path
+        android:pathData="M57,37 C57,35.34 58.34,34 60,34 C61.66,34 63,35.34 63,37 C63,38.66 61.66,40 60,40 C58.34,40 57,38.66 57,37 Z"
+        android:fillColor="#FF10B981" />
+</vector>
