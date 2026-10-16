@@ -1,0 +1,173 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build Type'
+        required: true
+        type: choice
+        default: 'debug'
+        options:
+          - debug
+          - release
+          - both
+      run_tests:
+        description: 'Run Unit & Robolectric Tests'
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Package APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Accept Android SDK Licenses
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses"
+          echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          yes | sdkmanager --licenses || true
+
+      - name: Provision Secrets & Keystores
+        run: |
+          # 1. Ensure .env exists to satisfy Secrets Gradle Plugin
+          if [ ! -f .env ]; then
+            if [ -f .env.example ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
+          fi
+
+          # 2. Make gradlew executable
+          chmod +x gradlew
+
+          # 3. Provision debug.keystore
+          if [ ! -s debug.keystore ]; then
+            if [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
+              echo "Decoding debug.keystore from base64..."
+              base64 -d debug.keystore.base64 > debug.keystore
+            fi
+          fi
+          if [ ! -s debug.keystore ]; then
+            echo "Generating fresh standard debug.keystore..."
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Android Debug, O=Android, C=US"
+          fi
+
+          # 4. Provision release upload keystore (my-upload-key.jks)
+          if [ ! -s my-upload-key.jks ]; then
+            echo "Generating fallback upload keystore (my-upload-key.jks)..."
+            keytool -genkeypair -v \
+              -keystore my-upload-key.jks \
+              -alias upload \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=AI Phone, OU=Engineering, O=AI Phone, L=Mountain View, ST=CA, C=US"
+          fi
+
+      - name: Run Tests & Build APK
+        run: |
+          # Resolve triggers and inputs safely
+          RAW_TYPE="${{ github.event.inputs.build_type }}"
+          BUILD_TYPE="${RAW_TYPE:-debug}"
+          RAW_TESTS="${{ github.event.inputs.run_tests }}"
+          RUN_TESTS="${RAW_TESTS:-true}"
+
+          echo "=========================================="
+          echo "Build Type: $BUILD_TYPE"
+          echo "Run Tests:  $RUN_TESTS"
+          echo "=========================================="
+
+          # Safe environment variable handling (avoid unconfigured secret empty string issues)
+          SECRET_KEYSTORE="${{ secrets.KEYSTORE_PATH }}"
+          if [ -n "$SECRET_KEYSTORE" ] && [ -f "$SECRET_KEYSTORE" ]; then
+            export KEYSTORE_PATH="$SECRET_KEYSTORE"
+          else
+            export KEYSTORE_PATH="$GITHUB_WORKSPACE/my-upload-key.jks"
+          fi
+
+          SECRET_STORE_PASS="${{ secrets.STORE_PASSWORD }}"
+          export STORE_PASSWORD="${SECRET_STORE_PASS:-android}"
+
+          SECRET_KEY_PASS="${{ secrets.KEY_PASSWORD }}"
+          export KEY_PASSWORD="${SECRET_KEY_PASS:-android}"
+
+          # Run unit & Robolectric tests if enabled
+          if [ "$RUN_TESTS" = "true" ]; then
+            echo "Running unit & Robolectric tests..."
+            ./gradlew :app:testDebugUnitTest --continue
+          fi
+
+          # Execute build task based on build_type
+          case "$BUILD_TYPE" in
+            "debug")
+              echo "Assembling debug APK..."
+              ./gradlew :app:assembleDebug --stacktrace
+              ;;
+            "release")
+              echo "Assembling release APK..."
+              ./gradlew :app:assembleRelease --stacktrace
+              ;;
+            "both")
+              echo "Assembling both debug and release APKs..."
+              ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
+              ;;
+            *)
+              echo "Unknown build_type: $BUILD_TYPE, defaulting to assembleDebug..."
+              ./gradlew :app:assembleDebug --stacktrace
+              ;;
+          esac
+
+      - name: List Generated APKs
+        run: |
+          echo "Listing all generated APK files:"
+          find app/build/outputs/apk -type f -name "*.apk" -exec ls -lh {} +
+
+      - name: Upload APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: alphapulse-apks-${{ github.sha }}
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 30
