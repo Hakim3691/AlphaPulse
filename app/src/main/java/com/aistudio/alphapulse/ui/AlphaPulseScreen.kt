@@ -98,8 +98,10 @@ fun AlphaPulseScreen(
                     bidRatioPct = uiState.bidRatioPct,
                     heatmapSource = uiState.heatmapSource,
                     forecastTargets = uiState.forecastTargets,
-                    chartPoints = uiState.chartPoints,
-                    executiveBrief = uiState.executiveBrief
+                    alphaPoc = uiState.alphaPoc,
+                    alphaVah = uiState.alphaVah,
+                    alphaVal = uiState.alphaVal,
+                    chartPoints = uiState.chartPoints
                 )
 
                 // Prediction Audit Ledger (Always Visible)

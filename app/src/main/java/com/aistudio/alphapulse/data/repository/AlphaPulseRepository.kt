@@ -293,8 +293,12 @@ class AlphaPulseRepository(
                 val variance = dailyReturns.map { (it - mean).pow(2) }.sum() / (dailyReturns.size - 1)
                 val dailyStd = sqrt(variance)
                 val annVol = dailyStd * sqrt(365.0)
-                val annReturn = coin.calmarRatio * coin.maxDrawdown
-                val sharpe = if (annVol > 0) (annReturn - dynamicRf) / annVol else 0.0
+
+                // True Sharpe from the realized daily-return series (mean/σ scaled to,
+                // annualized, Rf from perpetual funding) — NOT derived from Calmar, which
+                // made Sharpe a linear rescale of Calmar rather than an independent metric.
+                val dailyRf = dynamicRf / 365.0
+                val sharpe = if (dailyStd > 0) ((mean - dailyRf) / dailyStd) * sqrt(365.0) else 0.0
 
                 if (sharpe > 0.0) {
                     finalRankedCoins.add(
@@ -486,10 +490,19 @@ class AlphaPulseRepository(
                 )
             }
 
-            // Primary route: Liquidation Heatmap API
+            // Primary route: Liquidation Heatmap API (SmartMoney public no-key endpoint)
             val heatmapPair = client.fetchLiquidityHeatmap(symbol, currentSpot)
             if (heatmapPair != null) {
                 ltfPathData = LiquidityPainPathResult(heatmapPair.first, heatmapPair.second, "API")
+            }
+
+            // Fallback route: local liquidation heat aggregated from the exchange @forceOrder
+            // stream (no-key, spec FR-007 §9) — keeps the tag live when the REST source is cold.
+            if (heatmapPair == null) {
+                val localLiq = wsManager.liquidationTelemetryFlow.value
+                if (localLiq != null && localLiq.symbol.equals(symbol, ignoreCase = true)) {
+                    ltfPathData = LiquidityPainPathResult(localLiq.muPath, localLiq.spreadSkew, "WS Liq")
+                }
             }
         } catch (_: Exception) {}
 
@@ -609,9 +622,13 @@ class AlphaPulseRepository(
             val expectedReturn = combinedDrift * dt
             val predPrice = currentSpot * exp(expectedReturn)
 
+            // Cone width at 1.28σ (≈80% two-sided coverage on gaussian markets — realistic
+            // ~70% under the fat-tailed kurtosis regimes this engine flags). A fixed ±1σ cone
+            // structurally breached longer horizons, biasing LTF hit rates over MTF/HTF.
+            val coneSigmas = 1.28
             val sigmaSpread = effectiveVol * sqrt(dt)
-            val upperPrice = currentSpot * exp(expectedReturn + (sigmaSpread * upperSpreadMultiplier))
-            val lowerPrice = currentSpot * exp(expectedReturn - (sigmaSpread * lowerSpreadMultiplier))
+            val upperPrice = currentSpot * exp(expectedReturn + (sigmaSpread * upperSpreadMultiplier * coneSigmas))
+            val lowerPrice = currentSpot * exp(expectedReturn - (sigmaSpread * lowerSpreadMultiplier * coneSigmas))
 
             val deltaPct = ((predPrice - currentSpot) / currentSpot) * 100.0
 
@@ -631,15 +648,20 @@ class AlphaPulseRepository(
             // Phase-locked target timestamp to candle boundary (:00.000s)
             val targetTimestamp = ((now / 60000L) + h.minutes) * 60000L
 
-            // Universal 20-second pre-expiry throttling
-            val throttleWindow = h.ms - 20000L
+            // Throttle window = full horizon length: a new forecast is only issued once the
+            // previous one for the same horizon has settled (or expired). The previous
+            // `h.ms - 20s` overlap created simultaneous duplicate pending rows at the 40s→60s
+            // boundary and double-counted samples in the online-SGD audit.
+            val throttleWindow = h.ms
             val hasRecentPending = existingPredictions.any {
                 it.horizonId == h.id && !it.settled && (now - it.issuedTimestamp) < throttleWindow
             }
 
             if (!hasRecentPending && currentSpot > 0.0) {
+                // Deterministic id keyed on the phase-locked candle boundary so a re-issued
+                // forecast within the same candle replaces (REPLACE) rather than duplicates.
                 val newEntity = PredictionEntity(
-                    id = "$symbol-${h.id}-$now",
+                    id = "$symbol-${h.id}-$targetTimestamp",
                     symbol = symbol,
                     horizonId = h.id,
                     horizonLabel = h.label,
@@ -846,10 +868,10 @@ class AlphaPulseRepository(
         }
         sb.append("\n")
 
-        // TAB 2: INSTITUTIONAL FILTERED
+        // TAB 2: INSTITUTIONAL FILTERED (sorted by Vol/OI confluence strength)
         sb.append("=== TAB 2: INSTITUTIONAL 4-FILTER PASSING ASSETS ===\n")
         sb.append("Symbol,Last Price,Today Volume,Exact OI,Vol/OI Ratio,Taker Buy %,Displacement %,10D Pass Count,Status\n")
-        for (c in step1Passed) {
+        for (c in step1Passed.sortedByDescending { it.volToOiRatio }) {
             val status = if (c.passedTodayAll) "Passed All Today" else "Passed 10D Rule (${c.daysPassedAll}/10)"
             sb.append("\"${c.symbol}\",${Formatters.formatRawPrice5Dec(c.lastPrice)},${String.format(Locale.US, "%.2f", c.volume)},${String.format(Locale.US, "%.2f", c.exactOI)},${String.format(Locale.US, "%.2f", c.volToOiRatio)},${String.format(Locale.US, "%.2f", c.realTakerBuyRatio)}%,${String.format(Locale.US, "%.2f", c.displacement * 100)}%,${c.daysPassedAll},\"$status\"\n")
         }

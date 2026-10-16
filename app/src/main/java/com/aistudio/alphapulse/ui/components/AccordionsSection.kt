@@ -41,15 +41,16 @@ fun AccordionsSection(
     bidRatioPct: Double,
     heatmapSource: String,
     forecastTargets: List<ForecastTarget>,
-    chartPoints: List<ChartPoint>,
-    executiveBrief: String
+    alphaPoc: Double = 0.0,
+    alphaVah: Double = 0.0,
+    alphaVal: Double = 0.0,
+    chartPoints: List<ChartPoint>
 ) {
     var openRiskAdjusted by remember { mutableStateOf(false) }
     var openMicrostructure by remember { mutableStateOf(false) }
     var openInstitutionalFilters by remember { mutableStateOf(false) }
     var openForecasts by remember { mutableStateOf(true) } // Open by default
     var openChart by remember { mutableStateOf(true) } // Open by default
-    var openExecutiveBrief by remember { mutableStateOf(true) } // Open by default
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -116,9 +117,9 @@ fun AccordionsSection(
                     )
                     DiagnosticBox(
                         modifier = Modifier.weight(1f),
-                        title = "MACD SIGNAL",
+                        title = "EMA CROSS",
                         value = macdSignal,
-                        subtext = "9/21 cross",
+                        subtext = "EMA 9/21 informational cross",
                         valueColor = if (macdSignal.contains("Bullish")) BrandBullish else BrandBearish
                     )
                 }
@@ -138,8 +139,27 @@ fun AccordionsSection(
                         modifier = Modifier.weight(1f),
                         title = "L2 BOOK IMBALANCE",
                         value = if (netImbalanceUsdt >= 0) "+$$formattedOFI" else "-$$formattedOFI",
-                        subtext = "${String.format(Locale.US, "%.1f", bidRatioPct)}% Bid vs ${String.format(Locale.US, "%.1f", 100 - bidRatioPct)}% Ask",
+                        subtext = "Top-20 levels · ${String.format(Locale.US, "%.1f", bidRatioPct)}% Bid vs ${String.format(Locale.US, "%.1f", 100 - bidRatioPct)}% Ask",
                         valueColor = if (netImbalanceUsdt >= 0) BrandBullish else BrandBearish
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    DiagnosticBox(
+                        modifier = Modifier.weight(1f),
+                        title = "VOLUME PROFILE ATC",
+                        value = Formatters.formatPrice5Dec(alphaPoc),
+                        subtext = "VAH ${Formatters.formatPrice5Dec(alphaVah)} · VAL ${Formatters.formatPrice5Dec(alphaVal)}",
+                        valueColor = BrandNeural
+                    )
+                    DiagnosticBox(
+                        modifier = Modifier.weight(1f),
+                        title = "VOL / OI RATIO",
+                        value = selectedCoin?.volToOiRatio?.let { String.format(Locale.US, "%.2fx", it) } ?: "--",
+                        subtext = "Institutional flow confluence",
+                        valueColor = if ((selectedCoin?.volToOiRatio ?: 0.0) > 1.0) BrandBullish else TextPrimary
                     )
                 }
             }
@@ -209,7 +229,7 @@ fun AccordionsSection(
             icon = Icons.Default.GpsFixed,
             iconTint = BrandAccent,
             tag = heatmapSource,
-            tagColor = if (heatmapSource == "API") BrandNeural else TextTertiary,
+            tagColor = if (heatmapSource != "L2 Proxy") BrandNeural else TextTertiary,
             isOpen = openForecasts,
             onToggle = { openForecasts = !openForecasts }
         ) {
@@ -261,34 +281,6 @@ fun AccordionsSection(
                 )
 
                 ForecastTrajectoryChart(chartPoints = chartPoints)
-            }
-        }
-
-        // ACCORDION 6: Quant Cognitive Brief (Needle Framework Institutional Brief)
-        AccordionCard(
-            title = "QUANT COGNITIVE BRIEF (NEEDLE AGENT)",
-            icon = Icons.Default.AutoAwesome,
-            iconTint = BrandNeural,
-            tag = "AI SYNTHESIS",
-            tagColor = BrandNeural,
-            isOpen = openExecutiveBrief,
-            onToggle = { openExecutiveBrief = !openExecutiveBrief }
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(BrandCard)
-                    .border(1.dp, BrandBorder, RoundedCornerShape(6.dp))
-                    .padding(10.dp)
-            ) {
-                Text(
-                    text = executiveBrief.ifBlank { "Initializing institutional execution synthesis..." },
-                    color = TextSecondary,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace,
-                    lineHeight = 16.sp
-                )
             }
         }
     }
@@ -563,8 +555,8 @@ fun ForecastCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("+1σ: ${Formatters.formatPrice5Dec(target.upperPrice)}", color = TextTertiary, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-                Text("-1σ: ${Formatters.formatPrice5Dec(target.lowerPrice)}", color = TextTertiary, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                Text("+80% Cone: ${Formatters.formatPrice5Dec(target.upperPrice)}", color = TextTertiary, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                Text("-80% Cone: ${Formatters.formatPrice5Dec(target.lowerPrice)}", color = TextTertiary, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
             }
         }
     }

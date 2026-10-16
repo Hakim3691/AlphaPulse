@@ -65,50 +65,77 @@ fun PredictionLedgerSection(
             .background(BrandSurface)
             .border(1.dp, BrandBorder, RoundedCornerShape(10.dp))
     ) {
-        // Top Toolbar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        // Top Toolbar (two-line header: title + counters, then filter-scoped cone hit rate)
+        Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = BrandBullish,
-                    modifier = Modifier.size(16.dp)
-                )
-                Text(
-                    text = "PREDICTION AUDIT LEDGER",
-                    color = TextPrimary,
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = BrandBullish,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "PREDICTION AUDIT LEDGER",
+                        color = TextPrimary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Pend: $pendingCount",
+                        color = BrandAmber,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Settled: $settledCount",
+                        color = BrandBullish,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
+            // Action buttons row (second toolbar line of the two-line header)
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth().padding(top = 3.dp, bottom = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // Filter-scoped cone hit rate (uses the active horizon filter, settled rows only)
+                val filteredSettled = filteredList.filter { it.settled }
+                val filteredHit = filteredList.count { it.settled && it.inCone == true }
+                val hitRateText = if (filteredSettled.isEmpty())
+                    "Hit: -- (0/0)"
+                else {
+                    val rate = (filteredHit.toDouble() / filteredSettled.size) * 100.0
+                    "Hit: ${String.format(Locale.US, "%.1f", rate)}% ($filteredHit/${filteredSettled.size})"
+                }
                 Text(
-                    text = "Pend: $pendingCount",
-                    color = BrandAmber,
+                    text = hitRateText,
+                    color = if (filteredSettled.isEmpty()) TextTertiary else if (
+                        (filteredHit.toDouble() / filteredSettled.size) >= 0.6
+                    ) BrandBullish else BrandAmber,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Settled: $settledCount",
-                    color = BrandBullish,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
                 )
 
                 // 4-Tab Universe CSV Button
@@ -155,8 +182,8 @@ fun PredictionLedgerSection(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Share,
-                            contentDescription = "Export Prediction Ledger CSV",
-                            tint = BrandAccent,
+                        contentDescription = "Export Prediction Ledger CSV",
+                        tint = BrandAccent,
                             modifier = Modifier.size(11.dp)
                         )
                         Text(

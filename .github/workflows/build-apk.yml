@@ -107,6 +107,9 @@ jobs:
           fi
 
       - name: Run Tests & Build APK
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          GIT_SHA: ${{ github.sha }}
         run: |
           # Resolve triggers and inputs safely
           RAW_TYPE="${{ github.event.inputs.build_type }}"

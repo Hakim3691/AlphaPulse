@@ -196,9 +196,29 @@ class ResilientBinanceClient {
         return@withContext null
     }
 
+    /**
+     * Provider health tracking.
+     *
+     * SmartMoneyAPI's public (no-key) liquidation-heatmap endpoint returns a JSON object with a
+     * top-level `clusters` array — each entry carrying `price` + `notional` — NOT a bare `data`
+     * array. Requests are documented as `symbol=<ASSET>` with optional `window_minutes` (5-1440)
+     * and `price_buckets` (5-100). Listing "USDT" also resolves. Consecutive failures trip a
+     * health bit so a dead provider is skipped for 5 minutes instead of called-and-ignored on
+     * every 10-second evaluation cycle.
+     */
+    private val heatmapFailures = java.util.concurrent.atomic.AtomicInteger(0)
+    @Volatile private var heatmapCooldownUntil = 0L
+    private val heatmapCooldownMs = 5 * 60 * 1000L
+
     suspend fun fetchLiquidityHeatmap(symbol: String, spotPrice: Double): Pair<Double, Double>? = withContext(Dispatchers.IO) {
+        // Health bit: skip calls for 5 minutes after repeated consecutive failures
+        if (heatmapCooldownUntil > System.currentTimeMillis()) {
+            return@withContext null
+        }
         try {
-            val url = "https://api.smartmoneyapi.com/v1/liquidations/heatmap?symbol=$symbol"
+            val asset = symbol.removeSuffix("USDT").ifBlank { symbol }
+            val url = "https://api.smartmoneyapi.com/v1/liquidations/heatmap" +
+                    "?symbol=$asset&window_minutes=240&price_buckets=100"
             val request = Request.Builder()
                 .url(url)
                 .header("accept", "application/json")
@@ -209,51 +229,80 @@ class ResilientBinanceClient {
                 if (response.isSuccessful) {
                     val body = response.body?.string()
                     if (!body.isNullOrBlank()) {
-                        val clusters: JSONArray = try {
-                            JSONObject(body).optJSONArray("data") ?: JSONArray(body)
+                        // The API nests clusters at top level; older wrappers exposed `data`. Try both.
+                        val root: JSONObject? = try {
+                            JSONObject(body)
                         } catch (_: Exception) {
-                            JSONArray(body)
+                            null
                         }
 
-                        var maxUpperPrice: Double? = null
-                        var maxUpperVol = 0.0
-                        var maxLowerPrice: Double? = null
-                        var maxLowerVol = 0.0
+                        if (root != null) {
+                            val clusters: JSONArray = root.optJSONArray("clusters")
+                                ?: root.optJSONObject("data")?.optJSONArray("clusters")
+                                ?: root.optJSONArray("data")
+                                ?: JSONArray("[]")
 
-                        for (i in 0 until clusters.length()) {
-                            val c = clusters.getJSONObject(i)
-                            val p = c.optDouble("price", c.optDouble("p", c.optDouble("level", Double.NaN)))
-                            val v = c.optDouble("notional", c.optDouble("size", c.optDouble("v", c.optDouble("volume", 1.0))))
-
-                            if (!p.isNaN() && !v.isNaN() && p > 0) {
-                                if (p > spotPrice) {
-                                    if (maxUpperPrice == null || v > maxUpperVol) {
-                                        maxUpperPrice = p
-                                        maxUpperVol = v
-                                    }
-                                } else if (p < spotPrice) {
-                                    if (maxLowerPrice == null || v > maxLowerVol) {
-                                        maxLowerPrice = p
-                                        maxLowerVol = v
-                                    }
-                                }
+                            val pair = pickStrongestLiquidationClusters(clusters, spotPrice)
+                            if (pair != null) {
+                                heatmapFailures.set(0)
+                                return@withContext pair
                             }
                         }
-
-                        if (maxUpperPrice != null && maxLowerPrice != null) {
-                            val distUp = (maxUpperPrice - spotPrice) / spotPrice
-                            val distDown = (spotPrice - maxLowerPrice) / spotPrice
-                            val muPath = (distDown - distUp) * 0.5
-                            val spreadSkew = if (muPath >= 0) 1.15 else 0.85
-                            return@withContext Pair(muPath, spreadSkew)
+                        heatmapFailures.incrementAndGet()
+                        if (heatmapFailures.get() >= 3) {
+                            heatmapCooldownUntil = System.currentTimeMillis() + heatmapCooldownMs
                         }
+                    }
+                } else {
+                    heatmapFailures.incrementAndGet()
+                    if (heatmapFailures.get() >= 3) {
+                        heatmapCooldownUntil = System.currentTimeMillis() + heatmapCooldownMs
                     }
                 }
             }
         } catch (e: Exception) {
             Log.d("ResilientBinanceClient", "Heatmap API error: ${e.message}")
+            heatmapFailures.incrementAndGet()
+            if (heatmapFailures.get() >= 3) {
+                heatmapCooldownUntil = System.currentTimeMillis() + heatmapCooldownMs
+            }
         }
         return@withContext null
+    }
+
+    /** Strongest magnet (max notional) above and below spot from a normalized liquidation-cluster array. */
+    private fun pickStrongestLiquidationClusters(clusters: JSONArray, spotPrice: Double): Pair<Double, Double>? {
+        var maxUpperPrice: Double? = null
+        var maxUpperVol = 0.0
+        var maxLowerPrice: Double? = null
+        var maxLowerVol = 0.0
+
+        for (i in 0 until clusters.length()) {
+            val c = clusters.optJSONObject(i) ?: continue
+            val p = c.optDouble("price", c.optDouble("p", c.optDouble("level", Double.NaN)))
+            val v = c.optDouble("notional", c.optDouble("size", c.optDouble("v", c.optDouble("volume", 1.0))))
+
+            if (!p.isNaN() && !v.isNaN() && p > 0) {
+                if (p > spotPrice) {
+                    if (maxUpperPrice == null || v > maxUpperVol) {
+                        maxUpperPrice = p
+                        maxUpperVol = v
+                    }
+                } else if (p < spotPrice) {
+                    if (maxLowerPrice == null || v > maxLowerVol) {
+                        maxLowerPrice = p
+                        maxLowerVol = v
+                    }
+                }
+            }
+        }
+
+        if (maxUpperPrice == null || maxLowerPrice == null) return null
+        val distUp = (maxUpperPrice - spotPrice) / spotPrice
+        val distDown = (spotPrice - maxLowerPrice) / spotPrice
+        val muPath = (distDown - distUp) * 0.5
+        val spreadSkew = if (muPath >= 0) 1.15 else 0.85
+        return Pair(muPath, spreadSkew)
     }
 
     suspend fun fetchDepth(symbol: String, limit: Int = 50): DepthSnapshot = withContext(Dispatchers.IO) {

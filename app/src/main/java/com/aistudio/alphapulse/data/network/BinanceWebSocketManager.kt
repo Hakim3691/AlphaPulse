@@ -25,6 +25,23 @@ data class LiveStreamTelemetry(
     val lastUpdateTimestamp: Long
 )
 
+/**
+ * Local liquidation heat derived from the exchange's own '<symbol>@forceOrder' stream (no-key,
+ * spec FR-007 §9). muPath/spreadSkew follow the same convention as the remote heatmap:
+ * positive muPath = downside magnet dominates (pull toward lower pain).
+ */
+data class LocalLiquidationTelemetry(
+    val symbol: String,
+    val muPath: Double,
+    val spreadSkew: Double,
+    val upperClusterPrice: Double?,
+    val upperClusterNotional: Double,
+    val lowerClusterPrice: Double?,
+    val lowerClusterNotional: Double,
+    val eventCount: Int,
+    val lastUpdateTimestamp: Long
+)
+
 class BinanceWebSocketManager {
 
     companion object {
@@ -44,6 +61,13 @@ class BinanceWebSocketManager {
     private val _telemetryFlow = MutableStateFlow<LiveStreamTelemetry?>(null)
     val telemetryFlow: StateFlow<LiveStreamTelemetry?> = _telemetryFlow.asStateFlow()
 
+    // Rolling 30-minute window of forced-closure events for the local liquidation heat
+    private data class LiquidationEvent(val price: Double, val notional: Double, val timestamp: Long)
+    private val liquidationBuffer = ArrayList<LiquidationEvent>()
+    private val _liquidationTelemetry = MutableStateFlow<LocalLiquidationTelemetry?>(null)
+    val liquidationTelemetryFlow: StateFlow<LocalLiquidationTelemetry?> = _liquidationTelemetry.asStateFlow()
+    private var liquidationWindowMs: Long = 30 * 60 * 1000L
+
     // 500-element circular buffer for aggTrades to compute 95th percentile empirical shock
     private val aggTradeBuffer = ArrayList<Double>(500)
     private var prevDepthTotal = 0.0
@@ -61,8 +85,8 @@ class BinanceWebSocketManager {
         closeCurrent()
 
         val cleanSym = symbol.lowercase()
-        // Binance Futures combined stream endpoint:
-        val streamUrl = "wss://fstream.binance.com/stream?streams=${cleanSym}@depth20@250ms/${cleanSym}@aggTrade"
+        // Binance Futures combined stream endpoint (depth + trades + forced liquidations):
+        val streamUrl = "wss://fstream.binance.com/stream?streams=${cleanSym}@depth20@250ms/${cleanSym}@aggTrade/${cleanSym}@forceOrder"
 
         val request = Request.Builder()
             .url(streamUrl)
@@ -90,6 +114,26 @@ class BinanceWebSocketManager {
                                     aggTradeBuffer.removeAt(0)
                                 }
                                 aggTradeBuffer.add(notional)
+                            }
+                        }
+                    } else if (stream.contains("@forceOrder") || data.has("forceOrder") || data.optString("e") == "forceOrder") {
+                        // Liquidation event: o.S = side of the FORCED order (SELL = long wiped), o.q/p = qty/price
+                        val order = data.optJSONObject("o") ?: data.optJSONObject("forceOrder")?.optJSONObject("o")
+                        if (order != null) {
+                            val px = order.optDouble("ap", 0.0).takeIf { it > 0.0 }
+                                ?: order.optDouble("p", 0.0).takeIf { it > 0.0 }
+                                ?: order.optDouble("avgPrice", 0.0).takeIf { it > 0.0 }
+                            val qty = order.optDouble("q", 0.0).takeIf { it > 0.0 }
+                                ?: order.optDouble("origQty", 0.0).takeIf { it > 0.0 }
+                            if (px != null && qty != null && px > 0.0 && qty > 0.0) {
+                                val nowMs = order.optLong("T", System.currentTimeMillis())
+                                synchronized(liquidationBuffer) {
+                                    liquidationBuffer.add(LiquidationEvent(px, px * qty, nowMs))
+                                    while (liquidationBuffer.isNotEmpty() && nowMs - liquidationBuffer.first().timestamp > liquidationWindowMs) {
+                                        liquidationBuffer.removeAt(0)
+                                    }
+                                    rebuildLocalLiquidationTelemetryLocked(nowMs)
+                                }
                             }
                         }
                     } else if (stream.contains("@depth20") || data.has("bids")) {
@@ -178,6 +222,47 @@ class BinanceWebSocketManager {
                 if (!isClosed) scheduleReconnect()
             }
         })
+    }
+
+    /** Caller must hold the lock on liquidationBuffer. */
+    private fun rebuildLocalLiquidationTelemetryLocked(nowMs: Long) {
+        if (liquidationBuffer.isEmpty() || latestSpotPrice <= 0.0) return
+
+        var maxUpperPrice: Double? = null
+        var maxUpperVol = 0.0
+        var maxLowerPrice: Double? = null
+        var maxLowerVol = 0.0
+        for (ev in liquidationBuffer) {
+            if (ev.price > latestSpotPrice) {
+                if (maxUpperPrice == null || ev.notional > maxUpperVol) {
+                    maxUpperPrice = ev.price
+                    maxUpperVol = ev.notional
+                }
+            } else if (ev.price < latestSpotPrice) {
+                if (maxLowerPrice == null || ev.notional > maxLowerVol) {
+                    maxLowerPrice = ev.price
+                    maxLowerVol = ev.notional
+                }
+            }
+        }
+
+        if (maxUpperPrice == null || maxLowerPrice == null) return
+        val distUp = (maxUpperPrice - latestSpotPrice) / latestSpotPrice
+        val distDown = (latestSpotPrice - maxLowerPrice) / latestSpotPrice
+        val muPath = (distDown - distUp) * 0.5
+        val spreadSkew = if (muPath >= 0) 1.15 else 0.85
+
+        _liquidationTelemetry.value = LocalLiquidationTelemetry(
+            symbol = activeSymbol,
+            muPath = muPath,
+            spreadSkew = spreadSkew,
+            upperClusterPrice = maxUpperPrice,
+            upperClusterNotional = maxUpperVol,
+            lowerClusterPrice = maxLowerPrice,
+            lowerClusterNotional = maxLowerVol,
+            eventCount = liquidationBuffer.size,
+            lastUpdateTimestamp = nowMs
+        )
     }
 
     private fun scheduleReconnect() {

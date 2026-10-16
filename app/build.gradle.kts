@@ -16,8 +16,12 @@ android {
     applicationId = "com.aistudio.alphapulse.kxmpzq"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+
+    // Release stamping: CI supplies BUILD_NUMBER (GitHub run_number) and GIT_SHA so every
+    // produced APK is uniquely versioned and traceable to its exact commit.
+    versionCode = System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 1
+    val buildSha = System.getenv("GIT_SHA") ?: "dev"
+    versionName = "1.0.$versionCode+$buildSha"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

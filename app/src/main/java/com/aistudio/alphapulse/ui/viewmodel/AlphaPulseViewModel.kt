@@ -46,6 +46,12 @@ data class AlphaPulseUiState(
     val netImbalanceUsdt: Double = 0.0,
     val bidRatioPct: Double = 50.0,
     val heatmapSource: String = "--",
+    val alphaPoc: Double = 0.0,
+    val alphaVah: Double = 0.0,
+    val alphaVal: Double = 0.0,
+    val ltfHitRate: Double? = null,
+    val mtfHitRate: Double? = null,
+    val htfHitRate: Double? = null,
     val forecastTargets: List<ForecastTarget> = emptyList(),
     val chartPoints: List<ChartPoint> = emptyList(),
     val executiveBrief: String = "",
@@ -121,21 +127,40 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                         (settled.count { it.inCone == true }.toDouble() / settled.size) * 100.0
                     } else null
 
-                    // Readiness telemetry
+                    // Per-tier cone hit rate (LTF=1m+5m, MTF=15m+30m, HTF=1h). The global rate is
+                    // dominated by high-frequency 1m settlements and overstated MTF/HTF readiness.
+                    fun tierRate(horizons: Set<String>): Pair<Double?, Int> {
+                        val tierSettled = settled.filter { it.horizonId in horizons }
+                        val rate = if (tierSettled.isEmpty()) null else
+                            (tierSettled.count { it.inCone == true }.toDouble() / tierSettled.size) * 100.0
+                        return Pair(rate, tierSettled.size)
+                    }
+                    val (ltfRate, ltfN) = tierRate(setOf("1m", "5m"))
+                    val (mtfRate, mtfN) = tierRate(setOf("15m", "30m"))
+                    val (htfRate, htfN) = tierRate(setOf("1h"))
+
+                    // Readiness telemetry: original count-based gates OR cone hit rate ≥ 60% with a
+                    // minimum sample of 10 settled predictions in that tier (guards against short-
+                    // history tiers lighting up on one lucky hit).
                     val count1m = settled.count { it.horizonId == "1m" }
                     val count5m = settled.count { it.horizonId == "5m" }
                     val count15m = settled.count { it.horizonId == "15m" }
                     val count30m = settled.count { it.horizonId == "30m" }
                     val count1h = settled.count { it.horizonId == "1h" }
 
-                    val isLTF = count1m >= 2 && count5m >= 1
-                    val isMTF = count15m >= 2 && count30m >= 1
-                    val isHTF = count30m >= 2 && count1h >= 1
+                    fun passesHitGate(rate: Double?, n: Int): Boolean = rate != null && n >= 10 && rate >= 60.0
+
+                    val isLTF = (count1m >= 2 && count5m >= 1) || passesHitGate(ltfRate, ltfN)
+                    val isMTF = (count15m >= 2 && count30m >= 1) || passesHitGate(mtfRate, mtfN)
+                    val isHTF = (count30m >= 2 && count1h >= 1) || passesHitGate(htfRate, htfN)
 
                     state.copy(
                         predictions = coinList,
                         totalSettledForCoin = settled.size,
                         coneHitRateForCoin = hitRate,
+                        ltfHitRate = ltfRate,
+                        mtfHitRate = mtfRate,
+                        htfHitRate = htfRate,
                         isLTFReady = isLTF,
                         isMTFReady = isMTF,
                         isHTFReady = isHTF
@@ -262,8 +287,11 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                                 markovRegime = result.markovRegime,
                                 netImbalanceUsdt = result.netImbalanceUsdt,
                                 bidRatioPct = result.bidRatioPct,
-                                heatmapSource = result.heatmapSource,
-                                forecastTargets = result.forecastTargets,
+                            heatmapSource = result.heatmapSource,
+                            alphaPoc = result.alphaMetrics.poc,
+                            alphaVah = result.alphaMetrics.vah,
+                            alphaVal = result.alphaMetrics.valPrice,
+                            forecastTargets = result.forecastTargets,
                                 chartPoints = result.chartPoints,
                                 executiveBrief = result.executiveBrief,
                                 modelState = currentModel.copy()
