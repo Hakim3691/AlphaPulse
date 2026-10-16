@@ -4,7 +4,11 @@
 AlphaPulse is a native Android institutional quantitative workstation that streams high-frequency Level-2 order book depth, screens 250+ Binance USDT perpetual futures contracts across a 3-stage quantitative pipeline, evaluates intraday Tri-Factor prediction cones (1m, 5m, 15m, 30m, 1h), and maintains non-stop 24/7 background execution with live telemetry notifications.
 
 > [!IMPORTANT]
-> **HTML5 Functional Parity Specification**: The current Android application release of AlphaPulse (v14.3) is designed and engineered to reflect the full feature set, microstructural order book logic, and quantitative prediction functionality specified in **[`AlphaPulse_HTML5_IMPL_V14-3.md`](./AlphaPulse_HTML5_IMPL_V14-3.md)**.
+> **Functional Specifications & Architecture References**:
+> - **HTML5 Specification (V14.3)**: [`AlphaPulse_HTML5_SPEC_V14-3.md`](./AlphaPulse_HTML5_SPEC_V14-3.md)
+> - **Android Specification (V14.3)**: [`AlphaPulse_Android_SPEC_V14-3.md`](./AlphaPulse_Android_SPEC_V14-3.md)
+> - **Native Android Master PRD & Architecture**: [`AlphaPulse_Native_Android_PRD.md`](./AlphaPulse_Native_Android_PRD.md)
+> - **HTML5 Baseline Implementations**: [`AlphaPulse_HTML5_IMPL_V14-3.md`](./AlphaPulse_HTML5_IMPL_V14-3.md), [`AlphaPulse_HTML5_IMPL_V14-2.md`](./AlphaPulse_HTML5_IMPL_V14-2.md), [`AlphaPulse_HTML5_IMPL_V14-0.md`](./AlphaPulse_HTML5_IMPL_V14-0.md)
 
 
 ---
