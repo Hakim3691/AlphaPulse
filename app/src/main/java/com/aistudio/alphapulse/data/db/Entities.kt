@@ -58,3 +58,46 @@ data class ScreenedCoinEntity(
     val filter4Val: String,
     val rank: Int
 )
+
+@Entity(tableName = "trade_buffer")
+data class TradeBufferEntity(
+    @PrimaryKey val tradeId: Long,
+    val symbol: String,
+    val price: Double,
+    val quantity: Double,
+    val quoteVolume: Double,
+    val buyerMaker: Boolean,
+    val timestamp: Long
+)
+
+@Entity(tableName = "order_book_deltas")
+data class OrderBookDeltaEntity(
+    @PrimaryKey val id: String,
+    val symbol: String,
+    val updateId: Long,
+    val side: String,
+    val price: Double,
+    val quantity: Double,
+    val timestamp: Long
+)
+
+@Entity(tableName = "liquidation_heatmap")
+data class LiquidationHeatmapEntity(
+    @PrimaryKey val id: String,
+    val symbol: String,
+    val price: Double,
+    val notional: Double,
+    val side: String,
+    val timestamp: Long
+)
+
+@Entity(tableName = "volume_profile_snapshots")
+data class VolumeProfileSnapshotEntity(
+    @PrimaryKey val id: String,
+    val symbol: String,
+    val pocPrice: Double,
+    val vahPrice: Double,
+    val valPrice: Double,
+    val vwap: Double,
+    val timestamp: Long
+)

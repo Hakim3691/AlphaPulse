@@ -96,10 +96,22 @@ object QuantMath {
 
         val vwap = if (cumulativeVolume > 0) cumulativeVolumePrice / cumulativeVolume else currentSpot
 
-        // 50-Bin Fixed Range Volume Profile (FRVP)
-        val binsCount = 50
+        // Freedman-Diaconis bin width for Volume Profile
+        var binsCount = 50
         val spanTotal = max(0.0001, maxPrice - minPrice)
-        val binSize = spanTotal / binsCount
+        var binSize = spanTotal / binsCount
+        if (klines.size >= 20) {
+            val prices = klines.map { (it.high + it.low + it.close) / 3.0 }.sorted()
+            val q1 = prices[prices.size / 4]
+            val q3 = prices[(3 * prices.size) / 4]
+            val iqr = max(0.0001, q3 - q1)
+            val fdBinWidth = 2.0 * iqr / (prices.size.toDouble().pow(1.0 / 3.0))
+            if (fdBinWidth > 0) {
+                binSize = max(spanTotal / 200.0, min(spanTotal / 10.0, fdBinWidth))
+                binsCount = max(10, min(100, (spanTotal / binSize).toInt()))
+                binSize = spanTotal / binsCount
+            }
+        }
         val profileBins = DoubleArray(binsCount)
 
         for (k in klines) {
@@ -158,10 +170,10 @@ object QuantMath {
             val prev1 = klines[klines.size - 2].close
             val curr = currentSpot
 
-            if (prev2 > vah && prev1 in valPrice..vah && curr in valPrice..vah) {
+            if (prev2 > vah && prev1 >= valPrice && prev1 <= vah && curr >= valPrice && curr <= vah) {
                 rotationTarget = valPrice
                 rotationRuleTriggered = true
-            } else if (prev2 < valPrice && prev1 in valPrice..vah && curr in valPrice..vah) {
+            } else if (prev2 < valPrice && prev1 >= valPrice && prev1 <= vah && curr >= valPrice && curr <= vah) {
                 rotationTarget = vah
                 rotationRuleTriggered = true
             }

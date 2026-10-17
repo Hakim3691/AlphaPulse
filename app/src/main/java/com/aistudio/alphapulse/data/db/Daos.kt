@@ -51,3 +51,57 @@ interface ScreenedCoinDao {
     @Query("DELETE FROM screened_coins")
     suspend fun clearAll()
 }
+
+@Dao
+interface TradeBufferDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTrade(trade: TradeBufferEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTrades(trades: List<TradeBufferEntity>)
+
+    @Query("SELECT * FROM trade_buffer WHERE symbol = :symbol ORDER BY tradeId DESC LIMIT :limit")
+    suspend fun getLatestTrades(symbol: String, limit: Int): List<TradeBufferEntity>
+
+    @Query("DELETE FROM trade_buffer")
+    suspend fun clearAll()
+
+    @Query("DELETE FROM trade_buffer WHERE symbol = :symbol")
+    suspend fun clearBySymbol(symbol: String)
+}
+
+@Dao
+interface OrderBookDeltaDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrderBookDelta(delta: OrderBookDeltaEntity)
+
+    @Query("SELECT * FROM order_book_deltas WHERE symbol = :symbol ORDER BY updateId DESC LIMIT :limit")
+    suspend fun getLatestOrderBookDeltas(symbol: String, limit: Int): List<OrderBookDeltaEntity>
+
+    @Query("DELETE FROM order_book_deltas")
+    suspend fun clearAll()
+}
+
+@Dao
+interface LiquidationHeatmapDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLiquidationHeat(lh: LiquidationHeatmapEntity)
+
+    @Query("SELECT * FROM liquidation_heatmap WHERE symbol = :symbol ORDER BY id DESC LIMIT :limit")
+    suspend fun getLatestLiquidationHeat(symbol: String, limit: Int): List<LiquidationHeatmapEntity>
+
+    @Query("DELETE FROM liquidation_heatmap")
+    suspend fun clearAll()
+}
+
+@Dao
+interface VolumeProfileSnapshotDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertVolumeProfileSnapshot(vps: VolumeProfileSnapshotEntity)
+
+    @Query("SELECT * FROM volume_profile_snapshots WHERE symbol = :symbol ORDER BY id DESC LIMIT :limit")
+    suspend fun getLatestVolumeProfileSnapshots(symbol: String, limit: Int): List<VolumeProfileSnapshotEntity>
+
+    @Query("DELETE FROM volume_profile_snapshots")
+    suspend fun clearAll()
+}

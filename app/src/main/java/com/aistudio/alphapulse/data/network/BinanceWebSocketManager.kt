@@ -1,6 +1,11 @@
 package com.aistudio.alphapulse.data.network
 
 import android.util.Log
+import com.aistudio.alphapulse.data.db.AppDatabase
+import com.aistudio.alphapulse.data.db.TradeBufferDao
+import com.aistudio.alphapulse.data.db.TradeBufferEntity
+import com.aistudio.alphapulse.data.db.OrderBookDeltaEntity
+import com.aistudio.alphapulse.data.db.LiquidationHeatmapEntity
 import com.aistudio.alphapulse.domain.quant.DepthTier
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,7 +47,9 @@ data class LocalLiquidationTelemetry(
     val lastUpdateTimestamp: Long
 )
 
-class BinanceWebSocketManager {
+class BinanceWebSocketManager(
+    private val database: com.aistudio.alphapulse.data.db.AppDatabase? = null
+) {
 
     companion object {
         private const val TAG = "BinanceWS"
@@ -106,16 +113,33 @@ class BinanceWebSocketManager {
                     if (stream.contains("@aggTrade") || data.has("p")) {
                         val p = data.optDouble("p", 0.0)
                         val q = data.optDouble("q", 0.0)
-                        if (p > 0.0) {
-                            latestSpotPrice = p
-                            val notional = p * q
-                            synchronized(aggTradeBuffer) {
-                                if (aggTradeBuffer.size >= 500) {
-                                    aggTradeBuffer.removeAt(0)
-                                }
-                                aggTradeBuffer.add(notional)
-                            }
+                if (p > 0.0) {
+                    latestSpotPrice = p
+                    val notional = p * q
+                    val quoteVolume = p * q
+                    synchronized(aggTradeBuffer) {
+                        if (aggTradeBuffer.size >= 500) {
+                            aggTradeBuffer.removeAt(0)
                         }
+                        aggTradeBuffer.add(notional)
+                    }
+                    // Persist trade to Room (500-trade rolling buffer)
+                    database?.let { db ->
+                        coroutineScope.launch {
+                            db.tradeBufferDao().insertTrade(
+                                TradeBufferEntity(
+                                    tradeId = System.currentTimeMillis(),
+                                    symbol = activeSymbol,
+                                    price = p,
+                                    quantity = q,
+                                    quoteVolume = quoteVolume,
+                                    buyerMaker = false, // @aggTrade doesn't specify maker/taker
+                                    timestamp = System.currentTimeMillis()
+                                )
+                            )
+                        }
+                    }
+                }
                     } else if (stream.contains("@forceOrder") || data.has("forceOrder") || data.optString("e") == "forceOrder") {
                         // Liquidation event: o.S = side of the FORCED order (SELL = long wiped), o.q/p = qty/price
                         val order = data.optJSONObject("o") ?: data.optJSONObject("forceOrder")?.optJSONObject("o")
@@ -134,6 +158,22 @@ class BinanceWebSocketManager {
                                     }
                                     rebuildLocalLiquidationTelemetryLocked(nowMs)
                                 }
+                                // Persist liquidation event
+                                database?.let { db ->
+                                    coroutineScope.launch {
+                                        val side = order.optString("S", "")
+                                        db.liquidationHeatmapDao().insertLiquidationHeat(
+                                            LiquidationHeatmapEntity(
+                                                id = "LQ_${activeSymbol}_${nowMs}_${px}",
+                                                symbol = activeSymbol,
+                                                price = px,
+                                                notional = px * qty,
+                                                side = if (side == "SELL") "LONG_WIPED" else if (side == "BUY") "SHORT_WIPED" else "UNKNOWN",
+                                                timestamp = nowMs
+                                            )
+                                        )
+                                    }
+                                }
                             }
                         }
                     } else if (stream.contains("@depth20") || data.has("bids")) {
@@ -151,6 +191,38 @@ class BinanceWebSocketManager {
                             for (i in 0 until asksArr.length()) {
                                 val item = asksArr.getJSONArray(i)
                                 asks.add(DepthTier(item.getDouble(0), item.getDouble(1)))
+                            }
+                            // Persist order book deltas (top levels)
+                            database?.let { db ->
+                                val nowTs = System.currentTimeMillis()
+                                coroutineScope.launch {
+                                    bids.take(5).forEach { b ->
+                                        db.orderBookDeltaDao().insertOrderBookDelta(
+                                            OrderBookDeltaEntity(
+                                                id = "B_${activeSymbol}_${nowTs}_${b.price}",
+                                                symbol = activeSymbol,
+                                                updateId = nowTs,
+                                                side = "BUY",
+                                                price = b.price,
+                                                quantity = b.quantity,
+                                                timestamp = nowTs
+                                            )
+                                        )
+                                    }
+                                    asks.take(5).forEach { a ->
+                                        db.orderBookDeltaDao().insertOrderBookDelta(
+                                            OrderBookDeltaEntity(
+                                                id = "A_${activeSymbol}_${nowTs}_${a.price}",
+                                                symbol = activeSymbol,
+                                                updateId = nowTs,
+                                                side = "SELL",
+                                                price = a.price,
+                                                quantity = a.quantity,
+                                                timestamp = nowTs
+                                            )
+                                        )
+                                    }
+                                }
                             }
 
                             // Compute OFI, Bid Ratio, and Lambda
