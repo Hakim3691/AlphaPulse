@@ -168,6 +168,45 @@ d975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-
               ;;
           esac
 
+      - name: Capture Build Environment Debug Info
+        if: always()
+        run: |
+          echo "=== BUILD ENVIRONMENT DEBUG INFO ==="
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+          echo "PATH: $PATH"
+          echo "JAVA_HOME: $JAVA_HOME"
+          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
+          echo "RUNNER_OS: $RUNNER_OS"
+          echo "RUNNER_ARCH: $RUNNER_ARCH"
+          echo "API_LEVEL: $API_LEVEL"
+          echo "BUILD_NUMBER: $BUILD_NUMBER"
+          echo "GIT_SHA: $GIT_SHA"
+          echo "WORKFLOW: $GITHUB_WORKFLOW"
+          echo "JOB: $GITHUB_JOB"
+          echo "STEP: $GITHUB_STEP_NUMBER"
+          echo "==========================================="
+
+      - name: Publish Test Reports
+          case "$BUILD_TYPE" in
+            "debug")
+              echo "Assembling debug APK..."
+              ./gradlew :app:assembleDebug --stacktrace
+              ;;
+            "release")
+              echo "Assembling release APK..."
+              ./gradlew :app:assembleRelease --stacktrace
+              ;;
+            "both")
+              echo "Assembling both debug and release APKs..."
+              ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
+              ;;
+            *)
+              echo "Unknown build_type: $BUILD_TYPE, defaulting to assembleDebug..."
+              ./gradlew :app:assembleDebug --stacktrace
+              ;;
+          esac
+
       - name: Publish Test Reports
         if: always()
         uses: actions/upload-artifact@v4
