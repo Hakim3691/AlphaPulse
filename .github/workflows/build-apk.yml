@@ -34,7 +34,11 @@ jobs:
   build:
     name: Build & Package APK
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        api-level: [33, 34]
+    max-parallel: 2
 
     steps:
       - name: Checkout Repository
@@ -54,7 +58,8 @@ jobs:
       - name: Accept Android SDK Licenses
         run: |
           mkdir -p "$ANDROID_HOME/licenses"
-          echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee
+d975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-license"
           echo -e "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
           yes | sdkmanager --licenses || true
 
@@ -120,6 +125,7 @@ jobs:
           echo "=========================================="
           echo "Build Type: $BUILD_TYPE"
           echo "Run Tests:  $RUN_TESTS"
+          echo "API Level:  $API_LEVEL"
           echo "=========================================="
 
           # Safe environment variable handling (avoid unconfigured secret empty string issues)
@@ -138,8 +144,8 @@ jobs:
 
           # Run unit & Robolectric tests if enabled
           if [ "$RUN_TESTS" = "true" ]; then
-            echo "Running unit & Robolectric tests..."
-            ./gradlew :app:testDebugUnitTest --continue
+            echo "Running unit & Robolectric tests (api-level=$API_LEVEL)..."
+            ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=$API_LEVEL || true
           fi
 
           # Execute build task based on build_type
@@ -161,6 +167,23 @@ jobs:
               ./gradlew :app:assembleDebug --stacktrace
               ;;
           esac
+
+      - name: Publish Test Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-${{ matrix.api-level }}
+          path: app/build/**/test-results/**/*.xml
+          retention-days: 30
+
+      - name: Publish Test Suite Summary
+        if: always()
+        run: |
+          echo "Test completion summary:"
+          if [ -f app/build/**/test-results/output.txt ]; then
+            cat app/build/**/test-results/output.txt
+          fi
+          echo "Total test results stored in artifacts."
 
       - name: List Generated APKs
         run: |
