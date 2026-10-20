@@ -8,8 +8,9 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [PredictionEntity::class, ScreenedCoinEntity::class,
         TradeBufferEntity::class, OrderBookDeltaEntity::class,
-        LiquidationHeatmapEntity::class, VolumeProfileSnapshotEntity::class],
-    version = 2,
+        LiquidationHeatmapEntity::class, VolumeProfileSnapshotEntity::class,
+        ModelRegistryEntity::class, SessionEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -19,6 +20,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun orderBookDeltaDao(): OrderBookDeltaDao
     abstract fun liquidationHeatmapDao(): LiquidationHeatmapDao
     abstract fun volumeProfileSnapshotDao(): VolumeProfileSnapshotDao
+    abstract fun modelRegistryDao(): ModelRegistryDao
+    abstract fun sessionDao(): SessionDao
 
     companion object {
         @Volatile

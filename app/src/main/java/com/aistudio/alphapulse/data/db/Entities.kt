@@ -3,6 +3,11 @@ package com.aistudio.alphapulse.data.db
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
+/***
+ * PredictionEntity - Links every prediction to ModelVersion for scientific reproducibility.
+ * See §55: Per-component model versioning. Each prediction records which version of
+ * Quant Engine, TSFM, LOB Model, Decision Router, SLM, and Feature Schema produced it.
+ */
 @Entity(tableName = "predictions")
 data class PredictionEntity(
     @PrimaryKey val id: String,
@@ -25,8 +30,11 @@ data class PredictionEntity(
     val errorDollar: Double? = null,
     val errorPct: Double? = null,
     val inCone: Boolean? = null,
-    val learningAction: String = "Pending Settlement"
+    val learningAction: String = "Pending Settlement",
+    val versionTag: String = "" // Links to ModelVersion for §55 reproducibility
 )
+
+/*** Remaining entities ***/
 
 @Entity(tableName = "screened_coins")
 data class ScreenedCoinEntity(
@@ -100,4 +108,37 @@ data class VolumeProfileSnapshotEntity(
     val valPrice: Double,
     val vwap: Double,
     val timestamp: Long
+)
+
+/*** New entities for §47-48, §54, §55 ***/
+
+@Entity(tableName = "model_registry")
+data class ModelRegistryEntity(
+    @PrimaryKey val modelId: String,
+    val version: String,
+    val checksumSha256: String,
+    val parameterCount: Int,
+    val sizeBytes: Long,
+    val quantization: String,
+    val backend: String,
+    val latencyMs: Int,
+    val accuracyPct: Double,
+    val isActive: Boolean = false,
+    val licenseStatus: String = "pending",
+    val downloadTimestamp: Long = System.currentTimeMillis(),
+    val lastActivated: Long = 0L,
+    val notes: String = ""
+)
+
+@Entity(tableName = "session")
+data class SessionEntity(
+    @PrimaryKey val sessionId: String = "current",
+    val startedAt: Long = System.currentTimeMillis(),
+    val lastActive: Long = System.currentTimeMillis(),
+    val weightsSnapshot: String = "",
+    val predictionsSnapshot: String = "",
+    val orderBookStateSnapshot: String = "",
+    val regimeState: String = "Mean-Reverting",
+    val symbol: String = "",
+    val versionTag: String = "1.0"
 )

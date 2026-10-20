@@ -105,3 +105,47 @@ interface VolumeProfileSnapshotDao {
     @Query("DELETE FROM volume_profile_snapshots")
     suspend fun clearAll()
 }
+
+/*** New DAOs for Model Registry and Session management ***/
+
+@Dao
+interface ModelRegistryDao {
+    @Query("SELECT * FROM model_registry WHERE modelId = :modelId")
+    fun getModelById(modelId: String): ModelRegistryEntity?
+
+    @Query("SELECT * FROM model_registry ORDER BY downloadTimestamp DESC")
+    fun getAllModelsFlow(): Flow<List<ModelRegistryEntity>>
+
+    @Query("SELECT * FROM model_registry ORDER BY downloadTimestamp DESC")
+    suspend fun getAllModels(): List<ModelRegistryEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(model: ModelRegistryEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(models: List<ModelRegistryEntity>)
+
+    @Query("DELETE FROM model_registry WHERE modelId = :modelId")
+    suspend fun clearByModelId(modelId: String)
+
+    @Query("DELETE FROM model_registry")
+    suspend fun clearAll()
+}
+
+@Dao
+interface SessionDao {
+    @Query("SELECT * FROM session WHERE sessionId = :sessionId")
+    fun getSession(sessionId: String): SessionEntity?
+
+    @Query("SELECT * FROM session ORDER BY lastActive DESC LIMIT 1")
+    fun getLatestSession(): SessionEntity?
+
+    @Query("DELETE FROM session")
+    suspend fun clearAll()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSession(session: SessionEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun updateSession(session: SessionEntity)
+}

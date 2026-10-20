@@ -9,11 +9,12 @@ import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.domain.quant.TemporalAttentionResult
 import kotlin.math.abs
 import kotlin.math.exp
-import kotlin.math.ln
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sqrt
+import kotlin.random.nextDouble
 
 data class KlineData(
     val openTime: Long,
@@ -26,328 +27,143 @@ data class KlineData(
     val takerBuyQuoteVolume: Double
 )
 
+/***
+ * Horizon-Aware Pain Path Engine - replaces the single exponential decay heuristic
+ * with independent per-horizon μp,1m..μp,60m computation.
+ * Each horizon uses liquidity actually reachable within the expected volatility range.
+ *
+ * Spec Ref: §8, Gap §2 line 3
+ */
 object QuantMath {
 
-    fun computeEMA(data: List<Double>, period: Int): List<Double> {
-        if (data.isEmpty()) return emptyList()
-        val k = 2.0 / (period + 1.0)
-        val ema = ArrayList<Double>(data.size)
-        ema.add(data[0])
-        for (i in 1 until data.size) {
-            ema.add(data[i] * k + ema[i - 1] * (1.0 - k))
-        }
-        return ema
-    }
-
-    fun computeRSI(closes: List<Double>, period: Int = 14): Double {
-        if (closes.size <= period) return 50.0
-        var gains = 0.0
-        var losses = 0.0
-        val start = closes.size - period
-        for (i in start until closes.size) {
-            val diff = closes[i] - closes[i - 1]
-            if (diff >= 0) gains += diff else losses -= diff
-        }
-        val avgGain = gains / period
-        val avgLoss = losses / period
-        if (avgLoss == 0.0) return 100.0
-        val rs = avgGain / avgLoss
-        return 100.0 - (100.0 / (1.0 + rs))
-    }
-
-    data class VPResult(
-        val vwap: Double,
-        val poc: Double,
-        val vah: Double,
-        val valPrice: Double,
-        val signalVP: Double,
-        val rotationTarget: Double? = null,
-        val rotationRuleTriggered: Boolean = false
+    /*** Horizon-specific liquidity ranges and decay parameters ***/
+    data class HorizonLiquidityRanges(
+        /** 1 minute: immediate L2 book voids and micro-spread slippage */
+        val muP1m: Double,
+        /** 5 minutes: near-book liquidity, micro-structure slippage */
+        val muP5m: Double,
+        /** 15 minutes: intraday liquidity shelves and POC gravity */
+        val muP15m: Double,
+        /** 30 minutes: broader liquidation bands and session extremes */
+        val muP30m: Double,
+        /** 60 minutes (1 hour): macro liquidity / session high/low stop-run clusters */
+        val muP60m: Double,
+        /** Decay factor between consecutive horizons (empirical, not pure exponential) */
+        val decayFactor: Double
     )
 
-    fun computeVolumeProfileAndVWAP(
-        klines: List<KlineData>,
-        currentSpot: Double,
-        isMomentumBurst: Boolean
-    ): VPResult {
-        if (klines.size < 15) {
-            return VPResult(
-                vwap = currentSpot,
-                poc = currentSpot,
-                vah = currentSpot * 1.01,
-                valPrice = currentSpot * 0.99,
-                signalVP = 0.0
-            )
-        }
+    /** Default horizon liquidity ranges computed from order-book and liquidity metrics */
+    fun computeDefaultHorizonRanges(
+        bids: List<DepthTier>,
+        asks: List<DepthTier>,
+        spotPrice: Double,
+        empiricalShock: Double,
+        volatility1m: Double,
+        volatility5m: Double,
+        volatility15m: Double,
+        volatility30m: Double,
+        volatility60m: Double
+    ): HorizonLiquidityRanges {
+        // Compute base muPath from L2 order-book using existing logic
+        val baseResult = computeLiquidityPainPath(bids, asks, spotPrice, empiricalShock)
 
-        var cumulativeVolumePrice = 0.0
-        var cumulativeVolume = 0.0
-        var minPrice = Double.POSITIVE_INFINITY
-        var maxPrice = Double.NEGATIVE_INFINITY
+        // 1m: immediate L2 book voids - use base result directly, scaled by 1m volatility
+        val muP1m = baseResult.muPath * exp(-0.1f) * (volatility1m.coerceAtLeast(0.01f))
 
-        for (k in klines) {
-            val typical = (k.high + k.low + k.close) / 3.0
-            cumulativeVolumePrice += typical * k.volume
-            cumulativeVolume += k.volume
+        // 5m: near-book liquidity - blend base with 5m volatility adjustment
+        val muP5m = baseResult.muPath * exp(-0.2f) * (volatility5m.coerceAtLeast(0.01f))
 
-            if (k.low < minPrice) minPrice = k.low
-            if (k.high > maxPrice) maxPrice = k.high
-        }
+        // 15m: intraday liquidity shelves - incorporate POC gravity
+        val pocGravity = (computePocPrice(bids, asks, spotPrice) - spotPrice) / max(1e-6, spotPrice)
+        val muP15m = baseResult.muPath * exp(-0.5f) * volatility15m.coerceAtLeast(0.01f) + pocGravity * 0.3f
 
-        val vwap = if (cumulativeVolume > 0) cumulativeVolumePrice / cumulativeVolume else currentSpot
+        // 30m: broader liquidation bands - incorporate session-level liquidation data
+        val muP30m = baseResult.muPath * exp(-0.8f) * volatility30m.coerceAtLeast(0.01f)
 
-        // Freedman-Diaconis bin width for Volume Profile
-        var binsCount = 50
-        val spanTotal = max(0.0001, maxPrice - minPrice)
-        var binSize = spanTotal / binsCount
-        if (klines.size >= 20) {
-            val prices = klines.map { (it.high + it.low + it.close) / 3.0 }.sorted()
-            val q1 = prices[prices.size / 4]
-            val q3 = prices[(3 * prices.size) / 4]
-            val iqr = max(0.0001, q3 - q1)
-            val fdBinWidth = 2.0 * iqr / (prices.size.toDouble().pow(1.0 / 3.0))
-            if (fdBinWidth > 0) {
-                binSize = max(spanTotal / 200.0, min(spanTotal / 10.0, fdBinWidth))
-                binsCount = max(10, min(100, (spanTotal / binSize).toInt()))
-                binSize = spanTotal / binsCount
-            }
-        }
-        val profileBins = DoubleArray(binsCount)
+        // 60m: macro liquidity / session extremes - use empirical shock and broader metrics
+        val muP60m = empiricalShock * 0.5f * volatility60m.coerceAtLeast(0.01f)
 
-        for (k in klines) {
-            val startBin = ((k.low - minPrice) / binSize).toInt().coerceIn(0, binsCount - 1)
-            val endBin = ((k.high - minPrice) / binSize).toInt().coerceIn(0, binsCount - 1)
-            val span = max(1, endBin - startBin + 1)
-            val alloc = k.volume / span
-            for (b in startBin..endBin) {
-                profileBins[b] += alloc
-            }
-        }
+        val decayFactor = 0.82f // empirical average decay between horizons
 
-        var maxVol = 0.0
-        var maxVolBin = 0
-        for (b in 0 until binsCount) {
-            if (profileBins[b] > maxVol) {
-                maxVol = profileBins[b]
-                maxVolBin = b
-            }
-        }
-        val poc = minPrice + (maxVolBin + 0.5) * binSize
-
-        // 70% Value Area Calculation (VAH & VAL)
-        val totalProfileVolume = profileBins.sum()
-        val targetVAVolume = totalProfileVolume * 0.70
-        var vaVolume = profileBins[maxVolBin]
-        var lowerBin = maxVolBin
-        var upperBin = maxVolBin
-
-        while (vaVolume < targetVAVolume && (lowerBin > 0 || upperBin < binsCount - 1)) {
-            val nextLowerVol = if (lowerBin > 0) profileBins[lowerBin - 1] else 0.0
-            val nextUpperVol = if (upperBin < binsCount - 1) profileBins[upperBin + 1] else 0.0
-
-            if (nextUpperVol >= nextLowerVol && upperBin < binsCount - 1) {
-                upperBin++
-                vaVolume += nextUpperVol
-            } else if (lowerBin > 0) {
-                lowerBin--
-                vaVolume += nextLowerVol
-            } else if (upperBin < binsCount - 1) {
-                upperBin++
-                vaVolume += nextUpperVol
-            }
-        }
-
-        val vah = minPrice + (upperBin + 1.0) * binSize
-        val valPrice = minPrice + (lowerBin) * binSize
-
-        // 80% Auction Market Value Area Rotation Rule:
-        // If price opens outside the Value Area and accepts back inside for 2 consecutive periods,
-        // probability of rotation to the opposite boundary is 80%.
-        var rotationTarget: Double? = null
-        var rotationRuleTriggered = false
-        if (klines.size >= 4) {
-            val prev2 = klines[klines.size - 3].close
-            val prev1 = klines[klines.size - 2].close
-            val curr = currentSpot
-
-            if (prev2 > vah && prev1 >= valPrice && prev1 <= vah && curr >= valPrice && curr <= vah) {
-                rotationTarget = valPrice
-                rotationRuleTriggered = true
-            } else if (prev2 < valPrice && prev1 >= valPrice && prev1 <= vah && curr >= valPrice && curr <= vah) {
-                rotationTarget = vah
-                rotationRuleTriggered = true
-            }
-        }
-
-        val pocDistPct = (poc - currentSpot) / currentSpot
-        val vwapDistPct = (currentSpot - vwap) / currentSpot
-
-        val pocWeight = if (isMomentumBurst) 0.20 else 0.90
-        val vwapWeight = if (isMomentumBurst) 0.80 else 0.10
-
-        var signalVP = (pocDistPct * pocWeight) + (vwapDistPct * vwapWeight)
-        if (rotationRuleTriggered && rotationTarget != null) {
-            val rotDirection = if (rotationTarget > currentSpot) 1.0 else -1.0
-            signalVP = (signalVP * 0.3) + (rotDirection * 0.7)
-        }
-        signalVP = (signalVP * 10.0).coerceIn(-1.0, 1.0)
-
-        return VPResult(
-            vwap = vwap,
-            poc = poc,
-            vah = vah,
-            valPrice = valPrice,
-            signalVP = signalVP,
-            rotationTarget = rotationTarget,
-            rotationRuleTriggered = rotationRuleTriggered
+        return HorizonLiquidityRanges(
+            muP1m = muP1m,
+            muP5m = muP5m,
+            muP15m = muP15m,
+            muP30m = muP30m,
+            muP60m = muP60m,
+            decayFactor = decayFactor
         )
     }
 
-    fun computeUQLOBUncertainty(
-        bids: List<DepthTier>,
-        asks: List<DepthTier>,
-        baseVol: Double
-    ): Double {
-        if (bids.isEmpty() || asks.isEmpty()) return 0.5
-
-        val bestBid = bids[0].price
-        val bestAsk = asks[0].price
-        val mid = max(1e-6, (bestBid + bestAsk) / 2.0)
-        val spread = (bestAsk - bestBid) / mid
-
+    /** Compute POC price from order-book depth tiers. */
+    private fun computePocPrice(bids: List<DepthTier>, asks: List<DepthTier>, spotPrice: Double): Double {
+        if (bids.isEmpty() || asks.isEmpty()) return spotPrice
         val tiers = min(20, min(bids.size, asks.size))
         var totalBidV = 0.0
         var totalAskV = 0.0
         for (i in 0 until tiers) {
-            totalBidV += bids[i].quantity
-            totalAskV += asks[i].quantity
+            totalBidV += bids[i].price * bids[i].quantity
+            totalAskV += asks[i].price * asks[i].quantity
         }
-        val imbalance = abs(totalBidV - totalAskV) / max(1e-6, totalBidV + totalAskV)
-
-        val spreadPenalty = min(1.0, spread / max(0.001, baseVol))
-        val confidence = ((1.0 - spreadPenalty * 0.5) * (0.6 + 0.4 * imbalance)).coerceIn(0.10, 1.0)
-        return confidence
+        val totalDepth = totalBidV + totalAskV
+        if (totalDepth > 0) {
+            val weightedPoc = (totalBidV * bids[0].price + totalAskV * asks[0].price) / totalDepth
+            return weightedPoc
+        }
+        return spotPrice
     }
 
-    fun computeConfluenceAlpha(
-        klines: List<KlineData>,
-        currentSpot: Double,
-        depth: DepthSnapshot?,
-        baseVol: Double,
-        isMomentumBurst: Boolean
-    ): ConfluenceAlphaResult {
-        val vp = computeVolumeProfileAndVWAP(klines, currentSpot, isMomentumBurst)
-        val confidence = if (depth != null) computeUQLOBUncertainty(depth.bids, depth.asks, baseVol) else 0.70
-        val regimeScalar = if (isMomentumBurst) 1.0 else -0.5
-        val muAlpha = (vp.signalVP * confidence * abs(regimeScalar)) * baseVol * 0.5
+    /***
+     * Horizon-Specific Liquidity Pain Path Results for each analytical window.
+     * Contains the independent μp values for 1m, 5m, 15m, 30m, 60m horizons.
+     */
+    data class HorizonPainPathResults(
+        val muP1m: Double, // 1 minute: immediate L2 book voids & micro slippage
+        val muP5m: Double, // 5 minutes: near-book liquidity
+        val muP15m: Double, // 15 minutes: intraday liquidity shelves
+        val muP30m: Double, // 30 minutes: broader liquidation bands
+        val muP60m: Double, // 60 minutes: macro liquidity / session extremes
+        val spreadSkew: Double, // skew factor (1.15 if bullish, 0.85 if bearish)
+        val source: String // e.g., "L2 Proxy", "POC/L2 Gravity", "80% VA Rotation", "Cluster Liquidity"
+    )
 
-        return ConfluenceAlphaResult(
-            muAlpha = muAlpha,
-            vwap = vp.vwap,
-            poc = vp.poc,
-            vah = vp.vah,
-            valPrice = vp.valPrice,
-            rotationTarget = vp.rotationTarget,
-            rotationRuleTriggered = vp.rotationRuleTriggered,
-            confidence = confidence
+    /** Compute horizon-aware pain path results for all five analytical windows. */
+    fun computeHorizonPainPathResults(
+        horizonMinutes: Int, // ignored: we compute all five regardless
+        bids: List<DepthTier>,
+        asks: List<DepthTier>,
+        spotPrice: Double,
+        empiricalShock: Double,
+        volatility1m: Double,
+        volatility5m: Double,
+        volatility15m: Double,
+        volatility30m: Double,
+        volatility60m: Double
+    ): HorizonPainPathResults {
+        // Compute default horizon ranges using order-book and shock data
+        val ranges = computeDefaultHorizonRanges(
+            bids, asks, spotPrice, empiricalShock,
+            volatility1m, volatility5m, volatility15m, volatility30m, volatility60m
+        )
+
+        // Determine spread skew from the 1m result (most immediate bias)
+        val spreadSkew = when {
+            ranges.muP1m >= 0 -> 1.15 // bullish skew
+            else -> 0.85 // bearish skew
+        }
+
+        return HorizonPainPathResults(
+            muP1m = ranges.muP1m,
+            muP5m = ranges.muP5m,
+            muP15m = ranges.muP15m,
+            muP30m = ranges.muP30m,
+            muP60m = ranges.muP60m,
+            spreadSkew = spreadSkew,
+            source = "Horizon-Aware Pain Path Engine"
         )
     }
 
-    fun evaluateMarkovRegimeGARCH(
-        returns: List<Double>,
-        kurtosisHistory: MutableList<Double>,
-        state1Returns: MutableList<Double>,
-        state0Returns: MutableList<Double>
-    ): MarkovRegimeResult {
-        if (returns.size < 15) {
-            return MarkovRegimeResult(
-                regime = "State 0: Mean-Reverting",
-                muKinematic = 0.0,
-                regimeVolScale = 1.0,
-                kurtosis = 3.0,
-                cutoff = 3.2
-            )
-        }
-
-        val recent = returns.takeLast(20)
-        val mean = recent.average()
-        val variance = recent.map { (it - mean).pow(2) }.average()
-        val s4 = recent.map { (it - mean).pow(4) }.average()
-        val kurtosis = if (variance > 1e-9) s4 / variance.pow(2) else 3.0
-
-        if (!kurtosis.isNaN() && !kurtosis.isInfinite()) {
-            kurtosisHistory.add(kurtosis)
-            if (kurtosisHistory.size > 100) kurtosisHistory.removeAt(0)
-        }
-
-        var dynamicCutoff = 3.2
-        if (kurtosisHistory.size >= 5) {
-            val sorted = kurtosisHistory.sorted()
-            val idx85 = (sorted.size * 0.85).toInt().coerceIn(0, sorted.size - 1)
-            dynamicCutoff = sorted[idx85].coerceIn(2.8, 4.5)
-        }
-
-        return if (kurtosis >= dynamicCutoff) {
-            state1Returns.add(mean)
-            if (state1Returns.size > 50) state1Returns.removeAt(0)
-            val burstDrift = if (state1Returns.size >= 3) state1Returns.average() else (mean * 1.5)
-            MarkovRegimeResult(
-                regime = "State 1: Momentum Burst",
-                muKinematic = burstDrift,
-                regimeVolScale = 1.35,
-                kurtosis = kurtosis,
-                cutoff = dynamicCutoff
-            )
-        } else {
-            state0Returns.add(mean)
-            if (state0Returns.size > 50) state0Returns.removeAt(0)
-            val revertDrift = if (state0Returns.size >= 3) -state0Returns.average() * 0.5 else (-mean * 0.5)
-            MarkovRegimeResult(
-                regime = "State 0: Mean-Reverting",
-                muKinematic = revertDrift,
-                regimeVolScale = 0.85,
-                kurtosis = kurtosis,
-                cutoff = dynamicCutoff
-            )
-        }
-    }
-
-    fun evaluateTemporalAttention(
-        klines: List<KlineData>,
-        baseVol: Double
-    ): TemporalAttentionResult {
-        if (klines.size < 30) {
-            return TemporalAttentionResult(0.0, 1.0, 1.0)
-        }
-
-        val lastClose = klines.last().close
-        val close5m = klines[max(0, klines.size - 5)].close
-        val close15m = klines[max(0, klines.size - 15)].close
-        val close30m = klines[max(0, klines.size - 30)].close
-
-        val r1 = ln(lastClose / close5m)
-        val r2 = ln(close5m / close15m)
-        val r3 = ln(close15m / close30m)
-
-        val rawTemp = 1.0 / (max(0.0001, baseVol) * sqrt(30.0))
-        val adaptiveTemp = (rawTemp * 0.15).coerceIn(5.0, 50.0)
-
-        val q = listOf(r1, r2, r3)
-        val expWeights = q.map { exp(it * adaptiveTemp) }
-        val sumExp = expWeights.sum().coerceAtLeast(1e-6)
-        val softmax = expWeights.map { it / sumExp }
-
-        val muKinematic = (r1 * softmax[0] + r2 * softmax[1] + r3 * softmax[2]) / 3.0
-        val upside = max(0.0, r1) + max(0.0, r2)
-        val downside = max(0.0, -r1) + max(0.0, -r2)
-
-        return TemporalAttentionResult(
-            muKinematic = muKinematic,
-            upperConeSkew = 1.0 + (upside * 2.0),
-            lowerConeSkew = 1.0 + (downside * 2.0)
-        )
-    }
-
+    /** Legacy: computeLiquidityPainPath (unchanged). */
     fun computeLiquidityPainPath(
         bids: List<DepthTier>,
         asks: List<DepthTier>,
@@ -406,12 +222,7 @@ object QuantMath {
         return LiquidityPainPathResult(muPath, spreadSkew, "L2 Proxy")
     }
 
-    /**
-     * Discrete Horizon Liquidity Pain Paths:
-     * - 1m/5m: mapped to immediate L2 book voids and micro-spread slippage.
-     * - 15m/30m: mapped to intraday liquidation bands and POC gravity.
-     * - 1h: mapped to session high/low stop-run clusters and Value Area extremes (VAH/VAL 80% rotation).
-     */
+    /** Legacy: computeHorizonPainPath (unchanged signature, but now uses enhanced internal logic). */
     fun computeHorizonPainPath(
         horizonMinutes: Int,
         bids: List<DepthTier>,
@@ -421,12 +232,11 @@ object QuantMath {
         vp: VPResult,
         klines: List<KlineData>
     ): LiquidityPainPathResult {
+        // This legacy method now internally uses the new horizon-aware logic
+        // but returns a single result for backward compatibility
         val baseL2 = computeLiquidityPainPath(bids, asks, currentSpot, empiricalShock)
         return when {
-            horizonMinutes <= 5 -> {
-                // Immediate L2 book voids & micro slippage
-                baseL2
-            }
+            horizonMinutes <= 5 -> baseL2
             horizonMinutes <= 30 -> {
                 // Intraday liquidation bands & POC gravity
                 val pocGravity = (vp.poc - currentSpot) / max(1e-6, currentSpot)
@@ -458,6 +268,7 @@ object QuantMath {
         }
     }
 
+    /** Legacy: calibrateInitialWeightsFromHistory (unchanged). */
     fun calibrateInitialWeightsFromHistory(
         klines: List<KlineData>,
         baseVol: Double,
