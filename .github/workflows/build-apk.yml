@@ -115,6 +115,7 @@ d975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-
         env:
           BUILD_NUMBER: ${{ github.run_number }}
           GIT_SHA: ${{ github.sha }}
+          API_LEVEL: ${{ matrix.api-level }}
         run: |
           # Resolve triggers and inputs safely
           RAW_TYPE="${{ github.event.inputs.build_type }}"
@@ -188,22 +189,17 @@ d975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-
           echo "==========================================="
 
       - name: Publish Test Reports
-          case "$BUILD_TYPE" in
-            "debug")
-              echo "Assembling debug APK..."
-              ./gradlew :app:assembleDebug --stacktrace
+        if: always()
+        run: |
+          case "${{ matrix.api-level }}" in
+            33)
+              echo "Publishing reports for API 33"
               ;;
-            "release")
-              echo "Assembling release APK..."
-              ./gradlew :app:assembleRelease --stacktrace
-              ;;
-            "both")
-              echo "Assembling both debug and release APKs..."
-              ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
+            34)
+              echo "Publishing reports for API 34"
               ;;
             *)
-              echo "Unknown build_type: $BUILD_TYPE, defaulting to assembleDebug..."
-              ./gradlew :app:assembleDebug --stacktrace
+              echo "Unknown API level"
               ;;
           esac
 
