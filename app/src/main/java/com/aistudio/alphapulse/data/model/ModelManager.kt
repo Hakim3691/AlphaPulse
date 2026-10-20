@@ -141,15 +141,62 @@ object ModelManager {
         }
     }
 
-    /** Recover session state on app restart */
-    fun recoverSession(): Triple<String, String, String>? {
+    /** Recover session state on app restart - full recovery per §54 */
+    fun recoverSession(): RecoveryData? {
         val session = sessionDao.getLatestSession()
-        return session?.let { Triple(
-            it.weightsSnapshot,
-            it.predictionsSnapshot,
-            it.orderBookStateSnapshot
-        ) }
+        return session?.let { session ->
+            // Recover active predictions associated with this session
+            val predictions = predictionDao.getPredictionsBySymbol(session.symbol)
+                .filter { it.issuedTimestamp >= session.startedAt && it.issuedTimestamp <= session.lastActive }
+                .sortedByDescending { it.issuedTimestamp }
+
+            // Recover ensemble weights from session
+            val weights = session.weightsSnapshot
+                .let { parseEnsembleWeights(it) }
+                .orElseGet(ModelState::new)
+
+            // Recover order-book state snapshot
+            val orderBookState = session.orderBookStateSnapshot
+
+            RecoveryData(
+                weights = weights,
+                predictions = predictions,
+                orderBookState = orderBookState,
+                regimeState = session.regimeState,
+                symbol = session.symbol
+            )
+        }
     }
+
+    /** Parse ensemble weights from string snapshot */
+    private fun parseEnsembleWeights(weightsStr: String): ModelState? {
+        try {
+            // Expected format: "weightK=0.30;weightP=0.35;weightAlpha=0.35;mode=Baseline Init"
+            val parts = weightsStr.split(";").associate { it.split("=") }
+            return ModelState(
+                weightK = parts["weightK"]?.toDouble() ?: 0.30,
+                weightP = parts["weightP"]?.toDouble() ?: 0.35,
+                weightAlpha = parts["weightAlpha"]?.toDouble() ?: 0.35,
+                mode = parts["mode"] ?: "Baseline Init"
+            )
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    /** Save ensemble weights to string snapshot */
+    private fun ensembleWeightsToString(weights: ModelState): String {
+        return "weightK=${weights.weightK};weightP=${weights.weightP};weightAlpha=${weights.weightAlpha};mode=${weights.mode}"
+    }
+
+    /** Recover all state needed for app restart per §54 */
+    data class RecoveryData(
+        val weights: ModelState,
+        val predictions: List<PredictionEntity>,
+        val orderBookState: String,
+        val regimeState: String,
+        val symbol: String
+    )
 
     /** Calculate SHA-256 checksum for a file */
     private fun calculateSha256(file: File): String {

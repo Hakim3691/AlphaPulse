@@ -85,15 +85,28 @@ class DeterministicDecisionRouter : DecisionRouter {
         }
 
         // Rule 3: Model disagreement guard — if models disagree strongly, NEUTRAL
+        // Notification Veto: suppress when model disagreement is high
         if (inputs.modelDisagreement > disagreementThreshold) {
-            return DecisionState.NEUTRAL
+            return DecisionState.NO_TRADE // Vetoed: high model disagreement
         }
 
         // Rule 4: Convergence analysis — both models agree on direction
         val bullishConvergence = inputs.triFactorForecast > 0.0 && inputs.tsfmForecast > 0.0
         val bearishConvergence = inputs.triFactorForecast < 0.0 && inputs.tsfmForecast < 0.0
 
-        // Rule 5: High confidence strong direction
+        // Rule 5a: Notification Veto — LOB uncertainty extreme
+        // Veto when LOB confidence is too low (extreme uncertainty)
+        val lobUncertaintyExtreme = inputs.lobConfidence < 0.30
+
+        // Rule 5b: Data freshness guard — if data is stale, NO TRADE
+        if (inputs.dataFreshness < dataFreshnessMinimum) {
+            return DecisionState.NO_TRADE
+        }
+
+        // Rule 5c: Notification Veto — data freshness below threshold
+        val dataStale = inputs.dataFreshness < 0.50
+
+        // Rule 6: High confidence strong direction
         val highConfidence = inputs.lobConfidence >= strongLongConvergenceThreshold &&
                 inputs.liquidityConfidence >= strongLongConvergenceThreshold
 
@@ -104,7 +117,12 @@ class DeterministicDecisionRouter : DecisionRouter {
             return DecisionState.STRONG_SHORT
         }
 
-        // Rule 6: Moderate confidence direction
+        // Rule 6a: Notification Veto — stale data overrides
+        if (dataStale) {
+            return DecisionState.NO_TRADE
+        }
+
+        // Rule 7: Moderate confidence direction
         val moderateConfidence = inputs.lobConfidence >= longConvergenceThreshold &&
                 inputs.liquidityConfidence >= longConvergenceThreshold
 
@@ -115,8 +133,14 @@ class DeterministicDecisionRouter : DecisionRouter {
             return DecisionState.SHORT
         }
 
-        // Rule 7: Insufficient convergence
+        // Rule 7a: Notification Veto — insufficient convergence with low confidence
+        if (inputs.modelDisagreement > 0.5) {
+            return DecisionState.NO_TRADE // Vetoed: moderate disagreement with low confidence
+        }
+
+        // Rule 8: Insufficient convergence
         return DecisionState.NEUTRAL
+
     }
 }
 

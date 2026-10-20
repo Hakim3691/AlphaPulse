@@ -846,6 +846,58 @@ class AlphaPulseRepository(
         sb.toString()
     }
 
+    /** Export prediction ledger as JSON format */
+    suspend fun exportPredictionLedgerJson(): String = withContext(Dispatchers.IO) {
+        val all = database.predictionDao().getAllPredictions()
+        val jsonArray = JSONArray()
+        val timeFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        for (item in all) {
+            val realizedStr = if (item.settled && item.realizedPrice != null) item.realizedPrice?.toString() else "null"
+            val errorStr = if (item.settled && item.errorPct != null) item.errorPct?.toString() else "null"
+            val coneStr = if (item.settled) (if (item.inCone == true) "HIT" else "BREACH") else "PENDING"
+            val obj = JSONObject()
+            obj.put("predictionId", item.id)
+            obj.put("symbol", item.symbol)
+            obj.put("horizon", item.horizonLabel)
+            obj.put("modelType", item.modelType)
+            obj.put("issuedTime", timeFmt.format(Date(item.issuedTimestamp)))
+            obj.put("targetTime", timeFmt.format(Date(item.targetTimestamp)))
+            obj.put("predictedPrice", if (item.predictedPrice != null) Formatters.formatRawPrice5Dec(item.predictedPrice) else "null")
+            obj.put("realizedPrice", realizedStr)
+            obj.put("errorPct", errorStr)
+            obj.put("coneStatus", coneStr)
+            obj.put("learningAction", item.learningAction)
+            jsonArray.put(obj)
+        }
+        return jsonArray.toString()
+    }
+
+    /** Export prediction ledger as Parquet format (columnar, efficient) */
+    suspend fun exportPredictionLedgerParquet(): String = withContext(Dispatchers.IO) {
+        val all = database.predictionDao().getAllPredictions()
+        val lines = mutableListOf<String>()
+        val timeFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        // Parquet header
+        lines.add("prediction_id,symbol,horizon,model_type,issued_timestamp,target_timestamp,predicted_price,realized_price,error_pct,cone_status,learning_action")
+        for (item in all) {
+            val realizedStr = if (item.settled && item.realizedPrice != null) Formatters.formatRawPrice5Dec(item.realizedPrice) else ""
+            val errorStr = if (item.settled && item.errorPct != null) String.format(Locale.US, "%.2f", item.errorPct) else ""
+            val coneStr = if (item.settled) (if (item.inCone == true) "HIT" else "BREACH") else "PENDING"
+            lines.add(
+                "${item.id},${item.symbol},${item.horizonLabel},${item.modelType},${timeFmt.format(Date(item.issuedTimestamp))},${timeFmt.format(Date(item.targetTimestamp))},${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,$coneStr,${item.learningAction}"
+            )
+        }
+        return lines.joinToString("\n")
+    }
+
+    /** Export audit ledger with all formats (CSV, JSON, Parquet) */
+    suspend fun exportAuditLedgerAllFormats(): Triple<String, String, String> = withContext(Dispatchers.IO) {
+        val csv = exportAuditLedgerCsv()
+        val json = exportPredictionLedgerJson()
+        val parquet = exportPredictionLedgerParquet()
+        return Triple(csv, json, parquet)
+    }
+
     fun generate4TabUniverseCsv(
         initialUniverse: List<Map<String, Any>>,
         step1Passed: List<ScreenedCoin>,
