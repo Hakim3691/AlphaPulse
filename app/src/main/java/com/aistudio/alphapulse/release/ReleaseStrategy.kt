@@ -86,13 +86,13 @@ data class RoadmapMilestone(
 )
 
 /** Roadmap for all 4 releases */
-val RELEASE_ROADMAP = listOf(
+val RELEASE_ROADMAP = listOf<RoadmapMilestone>(
     RoadmapMilestone(
         release = 1,
         name = "Native Parity",
         description = "Reproduce HTML5 functionality: institutional scanner, Calmar, Sharpe, Tri-Factor, L2, five horizons, prediction ledger, RMSE calibration, background service, Room, CSV export",
         targetSprint = "Sprint 1-4",
-        exitCriteria = listOf(
+        exitCriteria = listOf<String>(
             "Institutional universe scanner functional",
             "Calmar ratio and Sharpe ratio calculated",
             "Tri-Factor model operational across 5 horizons",
@@ -109,7 +109,7 @@ val RELEASE_ROADMAP = listOf(
         name = "Quant Upgrade",
         description = "Add full order-book reconstruction, liquidation heatmap, institutional trade tape, horizon-specific pain paths, 24h FRVP, VAH/VAL/LVN, neural UQ-LOB, improved regime model",
         targetSprint = "Sprint 5-8",
-        exitCriteria = listOf(
+        exitCriteria = listOf<String>(
             "Full L2/L3 order book reconstruction",
             "Liquidation heatmap with attraction scores",
             "Institutional trade tape (rolling buffer)",
@@ -125,7 +125,7 @@ val RELEASE_ROADMAP = listOf(
         name = "Multi-Model Intelligence",
         description = "Add Kronos, FinText Chronos, TimesFM, model benchmarking, fourth-factor ensemble, persistent per-coin/per-horizon learning",
         targetSprint = "Sprint 9-12",
-        exitCriteria = listOf(
+        exitCriteria = listOf<String>(
             "Kronos Small model integrated and benchmarked",
             "FinText Chronos checkpoints deployed",
             "TimesFM model with licensing validated",
@@ -141,7 +141,7 @@ val RELEASE_ROADMAP = listOf(
         name = "Edge Intelligence",
         description = "Add Edge SLM, decision router, agent DAG, model disagreement, autonomous quantitative briefs, advanced notifications",
         targetSprint = "Sprint 13-16",
-        exitCriteria = listOf(
+        exitCriteria = listOf<String>(
             "Edge SLM (Llama 3.2 1B / Gemma 2 2B / Phi-3.5 Mini) on-device",
             "Decision Router interface with deterministic + neural modes",
             "Agent DAG abstraction (Ingestion → Market-State → Quant → TSFM → Router → Risk → Narrator)",
@@ -159,7 +159,7 @@ val DEFAULT_PIPELINE = ReleasePipeline()
 
 /** Get progress for each release */
 fun calculateProgress(pipeline: ReleasePipeline): List<ReleaseProgress> {
-    return listOf(
+    return listOf<ReleaseProgress>(
         ReleaseProgress(
             release = "Release 1: Native Parity",
             completedFeatures = pipeline.release1.let { countTrue(it) },
