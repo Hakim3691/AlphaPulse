@@ -74,25 +74,17 @@ jobs:
       - name: Accept Android SDK Licenses
         run: |
           mkdir -p "$ANDROID_HOME/licenses"
-          echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-license"
-          echo -e "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          printf "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16\n" > "$ANDROID_HOME/licenses/android-sdk-license"
+          printf "84831b9409646a918e30573bab4c9c91346d8abd\n" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
           yes | sdkmanager --licenses || true
 
       - name: Provision Secrets & Keystores (Test Environment)
         run: |
-          # 1. Satisfy Secrets Gradle Plugin
           if [ ! -f .env ]; then
-            if [ -f .env.example ]; then
-              cp .env.example .env
-            else
-              touch .env
-            fi
+            [ -f .env.example ] && cp .env.example .env || touch .env
           fi
-
-          # 2. Make gradlew executable
           chmod +x gradlew
 
-          # 3. Provision debug.keystore
           if [ ! -s debug.keystore ]; then
             if [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
               base64 -d debug.keystore.base64 > debug.keystore
@@ -110,7 +102,6 @@ jobs:
               -dname "CN=Android Debug, O=Android, C=US"
           fi
 
-          # 4. Provision fallback upload keystore
           if [ ! -s my-upload-key.jks ]; then
             keytool -genkeypair -v \
               -keystore my-upload-key.jks \
@@ -126,23 +117,93 @@ jobs:
       - name: Execute Unit & Robolectric Tests
         run: |
           echo "Running unit & Robolectric tests (API Level: ${{ matrix.api-level }})..."
-          ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=${{ matrix.api-level }} --stacktrace
+          # Log output simultaneously to console and local test log file
+          ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=${{ matrix.api-level }} --stacktrace 2>&1 | tee test-output.log
 
-      - name: Surface Test Failures in Job Summary
+      - name: Surface Detailed Failures in Summary & Annotations
         if: failure()
         run: |
-          echo "### ❌ Failed Tests (API ${{ matrix.api-level }})" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          python3 - << 'EOF'
+          import os, glob, re, xml.etree.ElementTree as ET
 
-          FAILED_TESTS=$(find app/build/test-results -name "*.xml" -exec grep -H "<failure" {} + 2>/dev/null || true)
+          summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+          workspace = os.getenv("GITHUB_WORKSPACE", "")
 
-          if [ -n "$FAILED_TESTS" ]; then
-            echo '```text' >> $GITHUB_STEP_SUMMARY
-            find app/build/test-results -name "*.xml" -exec grep -B 1 -A 2 "<failure" {} + 2>/dev/null | sed 's/<[^>]*>//g' >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          else
-            echo "Tests failed during Gradle configuration or compilation. Inspect raw step logs above." >> $GITHUB_STEP_SUMMARY
-          fi
+          errors_found = False
+          output_md = []
+
+          # -------------------------------------------------------------
+          # 1. Parse Kotlin/Java Compiler Errors from console output
+          # -------------------------------------------------------------
+          compiler_errors = []
+          if os.path.isfile("test-output.log"):
+              with open("test-output.log", "r", encoding="utf-8", errors="ignore") as f:
+                  for line in f:
+                      m = re.match(r"^e:\s+(?:file://)?([^:]+):(\d+):(\d+)\s+(.+)$", line.strip())
+                      if m:
+                          full_path, line_no, col_no, msg = m.groups()
+                          rel_path = os.path.relpath(full_path, workspace) if full_path.startswith(workspace) else full_path
+                          compiler_errors.append((rel_path, line_no, col_no, msg))
+                          # Emit GitHub Annotation for file/line highlighting
+                          print(f"::error file={rel_path},line={line_no},col={col_no},title=Compiler Error::{msg}")
+
+          if compiler_errors:
+              errors_found = True
+              output_md.append("### 🚨 Compilation Errors\n")
+              output_md.append("| File | Line | Col | Message |")
+              output_md.append("| :--- | :--- | :--- | :--- |")
+              for path, line_no, col_no, msg in compiler_errors:
+                  output_md.append(f"| `{path}` | **{line_no}** | {col_no} | `{msg}` |")
+              output_md.append("\n")
+
+          # -------------------------------------------------------------
+          # 2. Parse Unit Test Failures from JUnit XML reports
+          # -------------------------------------------------------------
+          test_xmls = glob.glob("app/build/**/test-results/**/*.xml", recursive=True)
+          test_failures = []
+
+          for xml_file in test_xmls:
+              try:
+                  tree = ET.parse(xml_file)
+                  root = tree.getroot()
+                  for testcase in root.findall(".//testcase"):
+                      failure = testcase.find("failure")
+                      if failure is None:
+                          failure = testcase.find("error")
+                      if failure is not None:
+                          cls = testcase.attrib.get("classname", "UnknownClass")
+                          name = testcase.attrib.get("name", "UnknownTest")
+                          msg = failure.attrib.get("message", "Test assertion failed")
+                          stack = failure.text or ""
+
+                          # Extract file and line number from stacktrace
+                          match = re.search(r"at ([\w\.]+)\(([\w]+\.kt):(\d+)\)", stack)
+                          file_ref = match.group(2) if match else "Unknown"
+                          line_ref = match.group(3) if match else "N/A"
+
+                          test_failures.append((cls, name, file_ref, line_ref, msg))
+                          print(f"::error title=Test Failed: {cls}.{name}::{msg} (at {file_ref}:{line_ref})")
+              except Exception:
+                  pass
+
+          if test_failures:
+              errors_found = True
+              output_md.append("### ❌ Failed Unit Tests\n")
+              output_md.append("| Test Class | Test Method | Source Ref | Failure Message |")
+              output_md.append("| :--- | :--- | :--- | :--- |")
+              for cls, name, f_ref, l_ref, msg in test_failures:
+                  clean_msg = msg.replace("\n", " ").replace("|", "/")[:120]
+                  output_md.append(f"| `{cls.split('.')[-1]}` | **`{name}`** | `{f_ref}:{l_ref}` | {clean_msg} |")
+              output_md.append("\n")
+
+          if not errors_found:
+              output_md.append("### ⚠️ Task Failure\n")
+              output_md.append("Execution failed during Gradle configuration or setup. Inspect raw step logs for details.\n")
+
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as f:
+                  f.write("\n".join(output_md))
+          EOF
 
       - name: Upload Test Reports Artifact
         if: always()
@@ -190,33 +251,23 @@ jobs:
       - name: Accept Android SDK Licenses
         run: |
           mkdir -p "$ANDROID_HOME/licenses"
-          echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-license"
-          echo -e "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          printf "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16\n" > "$ANDROID_HOME/licenses/android-sdk-license"
+          printf "84831b9409646a918e30573bab4c9c91346d8abd\n" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
           yes | sdkmanager --licenses || true
 
       - name: Provision Secrets & Keystores
         run: |
-          # 1. Ensure .env exists to satisfy Secrets Gradle Plugin
           if [ ! -f .env ]; then
-            if [ -f .env.example ]; then
-              cp .env.example .env
-            else
-              touch .env
-            fi
+            [ -f .env.example ] && cp .env.example .env || touch .env
           fi
-
-          # 2. Make gradlew executable
           chmod +x gradlew
 
-          # 3. Provision debug.keystore
           if [ ! -s debug.keystore ]; then
             if [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
-              echo "Decoding debug.keystore from base64..."
               base64 -d debug.keystore.base64 > debug.keystore
             fi
           fi
           if [ ! -s debug.keystore ]; then
-            echo "Generating fresh standard debug.keystore..."
             keytool -genkeypair -v \
               -keystore debug.keystore \
               -alias androiddebugkey \
@@ -228,9 +279,7 @@ jobs:
               -dname "CN=Android Debug, O=Android, C=US"
           fi
 
-          # 4. Provision release upload keystore (my-upload-key.jks)
           if [ ! -s my-upload-key.jks ]; then
-            echo "Generating fallback upload keystore (my-upload-key.jks)..."
             keytool -genkeypair -v \
               -keystore my-upload-key.jks \
               -alias upload \
@@ -244,7 +293,6 @@ jobs:
 
       - name: Build APK Packages
         run: |
-          # Priority: Manual Dispatch Input -> Tag Push (release) -> Branch Push (debug)
           RAW_TYPE="${{ github.event.inputs.build_type }}"
           if [ -n "$RAW_TYPE" ]; then
             BUILD_TYPE="$RAW_TYPE"
@@ -254,11 +302,8 @@ jobs:
             BUILD_TYPE="${RAW_TYPE:-debug}"
           fi
 
-          echo "=========================================="
           echo "Target Build Type: $BUILD_TYPE"
-          echo "=========================================="
 
-          # Safe environment variable handling to avoid "Cannot convert '' to File"
           SECRET_KEYSTORE="${{ secrets.KEYSTORE_PATH }}"
           if [ -n "$SECRET_KEYSTORE" ] && [ -f "$SECRET_KEYSTORE" ]; then
             export KEYSTORE_PATH="$SECRET_KEYSTORE"
@@ -272,29 +317,53 @@ jobs:
           SECRET_KEY_PASS="${{ secrets.KEY_PASSWORD }}"
           export KEY_PASSWORD="${SECRET_KEY_PASS:-android}"
 
-          # Execute build task based on build_type
           case "$BUILD_TYPE" in
             "debug")
-              echo "Assembling debug APK..."
-              ./gradlew :app:assembleDebug --stacktrace
+              ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee build-output.log
               ;;
             "release")
-              echo "Assembling release APK..."
-              ./gradlew :app:assembleRelease --stacktrace
+              ./gradlew :app:assembleRelease --stacktrace 2>&1 | tee build-output.log
               ;;
             "both")
-              echo "Assembling both debug and release APKs..."
-              ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
+              ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace 2>&1 | tee build-output.log
               ;;
             *)
-              echo "Unknown build_type: $BUILD_TYPE, defaulting to assembleDebug..."
-              ./gradlew :app:assembleDebug --stacktrace
+              ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee build-output.log
               ;;
           esac
 
+      - name: Surface Detailed Compilation Failures
+        if: failure()
+        run: |
+          python3 - << 'EOF'
+          import os, re
+
+          summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+          workspace = os.getenv("GITHUB_WORKSPACE", "")
+          compiler_errors = []
+
+          if os.path.isfile("build-output.log"):
+              with open("build-output.log", "r", encoding="utf-8", errors="ignore") as f:
+                  for line in f:
+                      m = re.match(r"^e:\s+(?:file://)?([^:]+):(\d+):(\d+)\s+(.+)$", line.strip())
+                      if m:
+                          full_path, line_no, col_no, msg = m.groups()
+                          rel_path = os.path.relpath(full_path, workspace) if full_path.startswith(workspace) else full_path
+                          compiler_errors.append((rel_path, line_no, col_no, msg))
+                          print(f"::error file={rel_path},line={line_no},col={col_no},title=Build Compiler Error::{msg}")
+
+          if compiler_errors and summary_path:
+              with open(summary_path, "a", encoding="utf-8") as f:
+                  f.write("### 🚨 Build Compilation Errors\n\n")
+                  f.write("| File | Line | Col | Message |\n")
+                  f.write("| :--- | :--- | :--- | :--- |\n")
+                  for path, line_no, col_no, msg in compiler_errors:
+                      f.write(f"| `{path}` | **{line_no}** | {col_no} | `{msg}` |\n")
+                  f.write("\n")
+          EOF
+
       - name: List Generated APKs
         run: |
-          echo "Listing all generated APK files:"
           if [ -d "app/build/outputs/apk" ]; then
             find app/build/outputs/apk -type f -name "*.apk" -exec ls -lh {} +
           else
