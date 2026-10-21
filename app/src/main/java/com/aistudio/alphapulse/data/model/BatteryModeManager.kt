@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
-import kotlin.coroutines.experimental.CoroutineContext
 
 /** BatteryMode - The three operating modes based on battery state. */
 enum class BatteryMode {
@@ -62,7 +61,6 @@ object BatteryModeManager {
 
             val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
             val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-            val present = intent.getBooleanExtra(isCharging = false, false)
             val technology = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 intent.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "unknown"
             } else "unknown"
