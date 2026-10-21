@@ -38,6 +38,17 @@ data class TemporalAttentionResult(
     val lowerConeSkew: Double
 )
 
+/** Result of a volume-profile + VWAP computation over a set of klines. */
+data class VPResult(
+    val poc: Double = 0.0,
+    val vwap: Double = 0.0,
+    val vah: Double = 0.0,
+    val valPrice: Double = 0.0,
+    val rotationTarget: Double? = null,
+    val rotationRuleTriggered: Boolean = false,
+    val signalVP: Double = 0.0
+)
+
 data class ConfluenceAlphaResult(
     val muAlpha: Double,
     val vwap: Double,

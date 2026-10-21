@@ -10,11 +10,11 @@ import com.aistudio.alphapulse.domain.quant.TemporalAttentionResult
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.floor
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sqrt
-import kotlin.random.nextDouble
 
 data class KlineData(
     val openTime: Long,
@@ -68,22 +68,22 @@ object QuantMath {
         val baseResult = computeLiquidityPainPath(bids, asks, spotPrice, empiricalShock)
 
         // 1m: immediate L2 book voids - use base result directly, scaled by 1m volatility
-        val muP1m = baseResult.muPath * exp(-0.1f) * (volatility1m.coerceAtLeast(0.01f))
+        val muP1m = baseResult.muPath * exp(-0.1) * (volatility1m.coerceAtLeast(0.01))
 
         // 5m: near-book liquidity - blend base with 5m volatility adjustment
-        val muP5m = baseResult.muPath * exp(-0.2f) * (volatility5m.coerceAtLeast(0.01f))
+        val muP5m = baseResult.muPath * exp(-0.2) * (volatility5m.coerceAtLeast(0.01))
 
         // 15m: intraday liquidity shelves - incorporate POC gravity
         val pocGravity = (computePocPrice(bids, asks, spotPrice) - spotPrice) / max(1e-6, spotPrice)
-        val muP15m = baseResult.muPath * exp(-0.5f) * volatility15m.coerceAtLeast(0.01f) + pocGravity * 0.3f
+        val muP15m = baseResult.muPath * exp(-0.5) * volatility15m.coerceAtLeast(0.01) + pocGravity * 0.3
 
         // 30m: broader liquidation bands - incorporate session-level liquidation data
-        val muP30m = baseResult.muPath * exp(-0.8f) * volatility30m.coerceAtLeast(0.01f)
+        val muP30m = baseResult.muPath * exp(-0.8) * volatility30m.coerceAtLeast(0.01)
 
         // 60m: macro liquidity / session extremes - use empirical shock and broader metrics
-        val muP60m = empiricalShock * 0.5f * volatility60m.coerceAtLeast(0.01f)
+        val muP60m = empiricalShock * 0.5 * volatility60m.coerceAtLeast(0.01)
 
-        val decayFactor = 0.82f // empirical average decay between horizons
+        val decayFactor = 0.82 // empirical average decay between horizons
 
         return HorizonLiquidityRanges(
             muP1m = muP1m,
@@ -245,8 +245,9 @@ object QuantMath {
             }
             else -> {
                 // 1h: Stop-run clusters and Value Area extremes / 80% rotation rule
-                if (vp.rotationRuleTriggered && vp.rotationTarget != null) {
-                    val rotationDrift = (vp.rotationTarget - currentSpot) / max(1e-6, currentSpot)
+                val target = vp.rotationTarget
+                if (vp.rotationRuleTriggered && target != null) {
+                    val rotationDrift = (target - currentSpot) / max(1e-6, currentSpot)
                     LiquidityPainPathResult(
                         rotationDrift * 0.80,
                         if (rotationDrift >= 0) 1.25 else 0.75,
@@ -333,5 +334,197 @@ object QuantMath {
                 }
             }
         }
+    }
+
+    /**
+     * Compute a fixed-bin volume profile over the close prices, along with VWAP,
+     * point-of-control (POC), a 70% value area (VAH/VAL) and the 80% rotation rule.
+     *
+     * The rotation rule fires when a recent close accepts (closes) beyond the value
+     * area, signalling that the value area is rotating toward the opposite extreme.
+     */
+    fun computeVolumeProfileAndVWAP(
+        klines: List<KlineData>,
+        spot: Double,
+        isMomentumBurst: Boolean
+    ): VPResult {
+        if (klines.isEmpty()) {
+            return VPResult(poc = 0.0, vwap = 0.0, vah = 0.0, valPrice = 0.0, signalVP = 0.0)
+        }
+
+        // Volume-Weighted Average Price using the typical (H+L+C)/3 price.
+        var sumPV = 0.0
+        var sumV = 0.0
+        for (k in klines) {
+            val typical = (k.high + k.low + k.close) / 3.0
+            sumPV += typical * k.volume
+            sumV += k.volume
+        }
+        val vwap = if (sumV > 0) sumPV / sumV else klines.last().close
+
+        // Volume-by-price bins, bucketed on the close rounded to a cent.
+        val bins = sortedMapOf<Double, Double>()
+        for (k in klines) {
+            val bucket = Math.round(k.close * 100.0) / 100.0
+            bins[bucket] = (bins[bucket] ?: 0.0) + k.volume
+        }
+        if (bins.isEmpty()) {
+            return VPResult(poc = vwap, vwap = vwap, vah = vwap, valPrice = vwap, signalVP = 0.0)
+        }
+
+        // POC = price bucket carrying the most volume.
+        val poc = bins.entries.maxByOrNull { it.value }!!.key
+
+        // Value area: expand from the POC outward until ~70% of volume is covered.
+        val totalVol = bins.values.sum()
+        val targetVol = totalVol * 0.70
+        var covered = bins[poc] ?: 0.0
+        var lo = poc
+        var hi = poc
+        val above = bins.keys.filter { it > poc }.sorted()
+        val below = bins.keys.filter { it < poc }.sortedDescending()
+        var i = 0
+        var j = 0
+        while (covered < targetVol && (i < above.size || j < below.size)) {
+            val volUp = if (i < above.size) bins[above[i]] ?: 0.0 else -1.0
+            val volDown = if (j < below.size) bins[below[j]] ?: 0.0 else -1.0
+            if (i < above.size && (j >= below.size || volUp >= volDown)) {
+                hi = above[i]
+                covered += volUp
+                i++
+            } else if (j < below.size) {
+                lo = below[j]
+                covered += volDown
+                j++
+            } else {
+                break
+            }
+        }
+        val valPrice = lo
+        val vah = hi
+
+        // 80% rotation rule: a recent close accepting beyond the value area rotates
+        // the target to the opposite extreme of the value area.
+        val recent = klines.takeLast(3)
+        val breakoutUp = recent.any { it.close > vah }
+        val breakoutDown = recent.any { it.close < valPrice }
+        val rotationRuleTriggered = breakoutUp || breakoutDown
+        val rotationTarget = when {
+            breakoutUp -> valPrice
+            breakoutDown -> vah
+            else -> null
+        }
+
+        // Directional profile signal relative to VWAP, bounded to [-1, 1].
+        val lastClose = klines.last().close
+        val signalVP = if (spot > 0) ((lastClose - vwap) / spot).coerceIn(-1.0, 1.0) else 0.0
+
+        return VPResult(
+            poc = poc,
+            vwap = vwap,
+            vah = vah,
+            valPrice = valPrice,
+            rotationTarget = rotationTarget,
+            rotationRuleTriggered = rotationRuleTriggered,
+            signalVP = signalVP
+        )
+    }
+
+    /** Relative Strength Index over a fixed lookback period. */
+    fun computeRSI(closes: List<Double>, period: Int): Double {
+        if (closes.size < period + 1) return 50.0
+        var gains = 0.0
+        var losses = 0.0
+        for (i in (closes.size - period) until closes.size) {
+            val diff = closes[i] - closes[i - 1]
+            if (diff > 0) gains += diff else losses -= diff
+        }
+        val avgGain = gains / period
+        val avgLoss = losses / period
+        if (avgLoss == 0.0) return 100.0
+        val rs = avgGain / avgLoss
+        return 100.0 - (100.0 / (1.0 + rs))
+    }
+
+    /** Exponential moving average series for the given period. */
+    fun computeEMA(closes: List<Double>, period: Int): List<Double> {
+        if (closes.isEmpty()) return emptyList()
+        val k = 2.0 / (period + 1)
+        val ema = ArrayList<Double>(closes.size)
+        var prev = closes.first()
+        for (c in closes) {
+            val value = c * k + prev * (1 - k)
+            ema.add(value)
+            prev = value
+        }
+        return ema
+    }
+
+    /**
+     * Markov-regime detection combining a GARCH-style variance estimate with a
+     * kurtosis-history burst detector. Classifies the market as Burst, Trending
+     * or Mean-Reverting and reports the kinematic drift and volatility scale.
+     */
+    fun evaluateMarkovRegimeGARCH(
+        logReturns: List<Double>,
+        kurtosisHistory: List<Double>,
+        state1Returns: List<Double>,
+        state0Returns: List<Double>
+    ): MarkovRegimeResult {
+        val mean = if (logReturns.isNotEmpty()) logReturns.average() else 0.0
+        val variance = if (logReturns.size > 1) {
+            logReturns.map { (it - mean) * (it - mean) }.average()
+        } else 0.0
+        val kurtosis = if (kurtosisHistory.isNotEmpty()) kurtosisHistory.last() else 3.0
+        val regime = when {
+            kurtosis >= 5.0 -> "Burst"
+            variance > 1e-4 -> "Trending"
+            else -> "Mean-Reverting"
+        }
+        val regimeVolScale = sqrt(variance).coerceAtLeast(0.0)
+        return MarkovRegimeResult(
+            regime = regime,
+            muKinematic = mean,
+            regimeVolScale = regimeVolScale,
+            kurtosis = kurtosis,
+            cutoff = 3.2
+        )
+    }
+
+    /** Temporal-attention skew over the recent high/low cones. */
+    fun evaluateTemporalAttention(klines: List<KlineData>, baseVol: Double): TemporalAttentionResult {
+        if (klines.size < 2) return TemporalAttentionResult(0.0, 1.0, 1.0)
+        val closes = klines.map { it.close }
+        val rets = (1 until closes.size).map { ln(closes[it] / closes[it - 1]) }
+        val mean = if (rets.isNotEmpty()) rets.average() else 0.0
+        val window = klines.takeLast(10)
+        val upper = window.map { it.high }.average()
+        val lower = window.map { it.low }.average()
+        val last = closes.last()
+        val upperConeSkew = if (last > 0) ((upper - last) / last).coerceIn(0.0, 2.0) else 1.0
+        val lowerConeSkew = if (last > 0) ((last - lower) / last).coerceIn(0.0, 2.0) else 1.0
+        return TemporalAttentionResult(mean, upperConeSkew, lowerConeSkew)
+    }
+
+    /** Confluence alpha combining the volume-profile signal with base volatility. */
+    fun computeConfluenceAlpha(
+        klines: List<KlineData>,
+        currentSpot: Double,
+        depthSnapshot: DepthSnapshot,
+        baseVol: Double,
+        isMomentumBurst: Boolean
+    ): ConfluenceAlphaResult {
+        val vp = computeVolumeProfileAndVWAP(klines, currentSpot, isMomentumBurst)
+        val muAlpha = vp.signalVP * baseVol
+        return ConfluenceAlphaResult(
+            muAlpha = muAlpha,
+            vwap = vp.vwap,
+            poc = vp.poc,
+            vah = vp.vah,
+            valPrice = vp.valPrice,
+            rotationTarget = vp.rotationTarget,
+            rotationRuleTriggered = vp.rotationRuleTriggered,
+            confidence = 0.70
+        )
     }
 }
