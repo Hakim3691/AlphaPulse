@@ -18,6 +18,9 @@ package com.aistudio.alphapulse.domain.decision
 
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 /** DecisionState - The six possible trade signal outcomes from the DecisionRouter. */
 enum class DecisionState {
@@ -189,7 +192,7 @@ class NeuralDecisionRouter : DecisionRouter {
         }
 
         // Low confidence — check if at least one model is bullish/bearish
-        if (inputs.triFactorForecast.abs() > inputs.tsfmForecast.abs()) {
+        if (abs(inputs.triFactorForecast) > abs(inputs.tsfmForecast)) {
             // Tri-Factor dominates direction
             return if (inputs.triFactorForecast > 0.0) DecisionState.LONG else DecisionState.SHORT
         } else {
