@@ -24,6 +24,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -575,7 +576,7 @@ class AlphaPulseRepository(
 
         val mtfMetrics = QuantMath.evaluateMarkovRegimeGARCH(logReturns, kurtosisHistory, state1Returns, state0Returns)
         val htfMetrics = QuantMath.evaluateTemporalAttention(klines, baseVol)
-        val alphaMetrics = QuantMath.computeConfluenceAlpha(klines, currentSpot, depthSnapshot, baseVol, mtfMetrics.regime.contains("Burst"))
+        val alphaMetrics = QuantMath.computeConfluenceAlpha(klines, currentSpot, depthSnapshot ?: DepthSnapshot(bids = emptyList(), asks = emptyList()), baseVol, mtfMetrics.regime.contains("Burst"))
         val vp = QuantMath.computeVolumeProfileAndVWAP(klines, currentSpot, mtfMetrics.regime.contains("Burst"))
 
         // Generate forecasts for 5 horizons with discrete horizon pain paths & candle boundary phase-locking
@@ -869,7 +870,7 @@ class AlphaPulseRepository(
             obj.put("learningAction", item.learningAction)
             jsonArray.put(obj)
         }
-        return jsonArray.toString()
+        return@withContext jsonArray.toString()
     }
 
     /** Export prediction ledger as Parquet format (columnar, efficient) */
@@ -887,7 +888,7 @@ class AlphaPulseRepository(
                 "${item.id},${item.symbol},${item.horizonLabel},${item.modelType},${timeFmt.format(Date(item.issuedTimestamp))},${timeFmt.format(Date(item.targetTimestamp))},${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,$coneStr,${item.learningAction}"
             )
         }
-        return lines.joinToString("\n")
+        return@withContext lines.joinToString("\n")
     }
 
     /** Export audit ledger with all formats (CSV, JSON, Parquet) */
@@ -895,7 +896,7 @@ class AlphaPulseRepository(
         val csv = exportAuditLedgerCsv()
         val json = exportPredictionLedgerJson()
         val parquet = exportPredictionLedgerParquet()
-        return Triple(csv, json, parquet)
+        return@withContext Triple(csv, json, parquet)
     }
 
     fun generate4TabUniverseCsv(
