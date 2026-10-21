@@ -14,21 +14,24 @@ import com.aistudio.alphapulse.domain.data.AggTradeEvent
 import com.aistudio.alphapulse.domain.data.FundingRateEvent
 import com.aistudio.alphapulse.domain.data.LiquidationEvent
 import com.aistudio.alphapulse.domain.data.OpenInterestEvent
-import com.aistudio.alphapulse.domain.data.DepthSnapshot
-import com.aistudio.alphapulse.domain.data.watchedSymbols
-import com.aistudio.alphapulse.domain.quant.*
+import com.aistudio.alphapulse.domain.quant.DepthSnapshot
+import com.aistudio.alphapulse.domain.quant.DepthTier
+import com.aistudio.alphapulse.domain.quant.KlineData
+import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlin.coroutines.resumeWith
-import kotlin.coroutines.resume
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.suspendCoroutine
 import java.util.*
 import java.util.Locale
 
@@ -37,8 +40,8 @@ class BinanceProvider(
 ) : ExchangeDataProvider {
 
     // --- Watched symbols tracking ---
-    private val _watchedSymbols = MutableStateFlow(emptyList<String>())
-    override val watchedSymbols: StateFlow<List<String>> = _watchedSymbols
+    private val _watchedSymbols = MutableStateFlow<List<String>>(emptyList())
+    override val watchedSymbols: StateFlow<List<String>> = _watchedSymbols.asStateFlow()
 
     // --- Ticker Snapshot ---
     override fun getTickerFlow(symbol: String): Flow<TickerSnapshot> = flow {
@@ -78,7 +81,7 @@ class BinanceProvider(
     // --- Depth Flow (Order Book) ---
     // Binance WebSocket depth20 stream: ${symbol}@depth20@250ms
     override fun getDepthFlow(symbol: String): Flow<DepthSnapshot> = flow {
-        val cleanSym = symbol.replace("USDT", "").toUpperCase(Locale.US)
+        val cleanSym = symbol.replace("USDT", "").uppercase(Locale.US)
         val url = "wss://fstream.binance.com/stream?streams=${cleanSym}@depth20@250ms"
         // Use existing BinanceWebSocketManager infrastructure adapted here
         // For now, delegate to the shared WS manager via repository
@@ -111,15 +114,15 @@ class BinanceProvider(
             val trades = client.fetchAggTrades(symbol, 500)
             // Convert first trade as initial event, then WS will take over
             if (trades.isNotEmpty()) {
-                val first = trades.first()
+                val first = trades.first() as List<*>
                 emit(
                     AggTradeEvent(
-                        tradeId = first[0].toLong(),
-                        price = first[1].toDouble(),
-                        quantity = first[2].toDouble(),
-                        quoteVolume = first[7].toDouble(),
+                        tradeId = (first[0] as Number).toLong(),
+                        price = (first[1] as Number).toDouble(),
+                        quantity = (first[2] as Number).toDouble(),
+                        quoteVolume = (first[7] as Number).toDouble(),
                         buyerMaker = first[5] == 1,
-                        timestamp = first[6].toLong(),
+                        timestamp = (first[6] as Number).toLong(),
                         symbol = symbol
                     )
                 )
@@ -128,7 +131,8 @@ class BinanceProvider(
             // emit placeholder on error
         }
         // Suspend - WS stream will take over in production
-        suspendCancellableCoroutine { it.resume() }
+        // Use a never-completing flow for placeholder
+        while (true) { kotlinx.coroutines.delay(Long.MAX_VALUE) }
     }
 
     // --- Funding Rate Flow ---
@@ -176,8 +180,8 @@ class BinanceProvider(
                 val obj = client.getJsonObject(url)
                 emit(
                     LiquidationEvent(
-                        price = obj["price"]?.toDouble() ?: 0.0,
-                        notional = obj["notional"]?.toDouble() ?: 0.0,
+                        price = (obj["price"] as? Number)?.toDouble() ?: 0.0,
+                        notional = (obj["notional"] as? Number)?.toDouble() ?: 0.0,
                         side = obj["side"]?.toString() ?: "long",
                         timestamp = System.currentTimeMillis(),
                         symbol = symbol
@@ -243,28 +247,28 @@ class BinanceProvider(
             }
             emit(klines)
         } catch (e: Exception) {
-            emit(emptyList())
+            emit(emptyList<KlineData>())
         }
     }
 
     // --- Symbol availability ---
-    override fun isSymbolActive(symbol: String): Boolean {
+    override fun isSymbolActive(symbol: String): Boolean = runBlocking {
         try {
             val obj = client.getJsonObject("/fapi/v1/ticker/24hr?symbol=$symbol")
-            return obj.getDouble("lastPrice") > 0.0 && obj.getDouble("quoteVolume") > 1000000.0
+            obj.getDouble("lastPrice") > 0.0 && obj.getDouble("quoteVolume") > 1000000.0
         } catch (e: Exception) {
-            return false
+            false
         }
     }
 
     // --- Health check ---
-    override fun checkHealth(): Boolean {
+    override fun checkHealth(): Boolean = runBlocking {
         try {
             // Ping a known symbol
             val obj = client.getJsonObject("/fapi/v1/ticker/24hr?symbol=BTCUSDT")
-            return obj.getDouble("lastPrice") > 0.0
+            obj.getDouble("lastPrice") > 0.0
         } catch (e: Exception) {
-            return false
+            false
         }
     }
 

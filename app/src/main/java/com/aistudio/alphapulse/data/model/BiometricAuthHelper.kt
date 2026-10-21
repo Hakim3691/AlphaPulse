@@ -66,7 +66,7 @@ object BiometricAuthHelper {
                 .setNegativeButtonText("Cancel")
                 .build()
             it.authenticate(promptInfo)
-        } else {
+        } ?: run {
             callback(BiometricAuthResult(success = false, errorString = "BiometricPrompt not initialised"))
         }
     }

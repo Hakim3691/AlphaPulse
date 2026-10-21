@@ -13,9 +13,21 @@ data class DepthTier(
     val quantity: Double
 )
 
+data class KlineData(
+    val openTime: Long,
+    val open: Double,
+    val high: Double,
+    val low: Double,
+    val close: Double,
+    val volume: Double,
+    val quoteVolume: Double,
+    val takerBuyQuoteVolume: Double
+)
+
 data class DepthSnapshot(
     val bids: List<DepthTier>,
-    val asks: List<DepthTier>
+    val asks: List<DepthTier>,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 data class LiquidityPainPathResult(

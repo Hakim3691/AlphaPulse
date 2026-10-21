@@ -5,7 +5,6 @@ import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequest
-import androidx.work.Result
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
@@ -25,7 +24,7 @@ object WorkManagerScheduler {
     /** Schedule the Data Refresh job — runs every 15 minutes. */
     fun scheduleDataRefresh(context: Context) {
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONSTRAINED)
+            .setRequiredNetworkType(NetworkType.NOT_ROAMING)
             .build()
         val workRequest = PeriodicWorkRequest.Builder(
             DataRefreshWorker::class.java,
@@ -43,7 +42,7 @@ object WorkManagerScheduler {
     /** Schedule the Model Re-Eval job — runs every 4 hours. */
     fun scheduleModelReeval(context: Context) {
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONSTRAINED)
+            .setRequiredNetworkType(NetworkType.NOT_ROAMING)
             .build()
         val workRequest = PeriodicWorkRequest.Builder(
             ModelReevalWorker::class.java,
@@ -83,7 +82,7 @@ object WorkManagerScheduler {
 /** DataRefreshWorker — fetches the latest market data from the exchange API. */
 class DataRefreshWorker(context: Context, params: WorkerParameters) :
     Worker(context, params) {
-    override fun doWork(): androidx.work.Result {
+    override fun doWork(): Result {
         // In production: fetch ticker, order book, aggregate trades from Binance
         // For now, mark success with a placeholder
         return Result.success()
@@ -93,7 +92,7 @@ class DataRefreshWorker(context: Context, params: WorkerParameters) :
 /** ModelReevalWorker — re-calibrates model weights using fresh data. */
 class ModelReevalWorker(context: Context, params: WorkerParameters) :
     Worker(context, params) {
-    override fun doWork(): androidx.work.Result {
+    override fun doWork(): Result {
         // In production: re-run ModelManager.calibrateInitialWeightsFromHistory
         // For now, mark success
         return Result.success()
@@ -103,7 +102,7 @@ class ModelReevalWorker(context: Context, params: WorkerParameters) :
 /** StateSyncWorker — syncs predictions and session state to Room database. */
 class StateSyncWorker(context: Context, params: WorkerParameters) :
     Worker(context, params) {
-    override fun doWork(): androidx.work.Result {
+    override fun doWork(): Result {
         // In production: sync pending predictions, update session timestamps
         // For now, mark success
         return Result.success()

@@ -125,6 +125,9 @@ interface ModelRegistryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(models: List<ModelRegistryEntity>)
 
+    @Update
+    suspend fun update(model: ModelRegistryEntity)
+
     @Query("DELETE FROM model_registry WHERE modelId = :modelId")
     suspend fun clearByModelId(modelId: String)
 

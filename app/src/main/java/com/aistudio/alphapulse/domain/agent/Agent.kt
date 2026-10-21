@@ -39,7 +39,7 @@ data class AgentTelemetry(
  * Every agent has: defined inputs, defined outputs, execution timeout,
  * health status, version, telemetry, and failure fallback.
  */
-interface BaseAgent {
+interface BaseAgent<In : Any, Out : Any> {
 
     /** Agent unique identifier */
     val agentId: String
@@ -52,12 +52,6 @@ interface BaseAgent {
 
     /** Telemetry snapshot */
     val telemetry: AgentTelemetry
-
-    /** Defined inputs type for this agent */
-    type In: Any
-
-    /** Defined outputs type for this agent */
-    type Out: Any
 
     /** Maximum execution duration in milliseconds */
     val executionTimeoutMs: Long
@@ -107,10 +101,10 @@ object AgentDAG {
         dataFreshness: Double = 1.0,
         coneBreaches: Int = 0,
         recentErrors: Double = 0.0
-    ): DecisionState? = withContext(Dispatchers.IO) {
+    ): DecisionState? {
 
         // Agent 1: Ingestion Agent - validates and normalizes market data
-        val ingestionResult = IngestionAgent().execute(
+        val ingestionResult = IngestionAgent.execute(
             IngestionInput(
                 symbol = symbol,
                 marketData = marketData,
@@ -121,16 +115,16 @@ object AgentDAG {
         ) ?: return null
 
         // Agent 2: Market-State Agent - determines current market regime
-        val marketStateResult = MarketStateAgent().execute(
+        val marketStateResult = MarketStateAgent.execute(
             MarketStateInput(
                 symbol = ingestionResult.symbol,
-                priceData = ingestionResult.normalizedPriceData,
+                priceData = ingestionResult.orderBookSnapshot,
                 orderBookSnapshot = ingestionResult.orderBookSnapshot
             )
         ) ?: return null
 
         // Agent 3: Quant Vector Agent - produces kinematic + liquidity vectors
-        val quantVectorResult = QuantVectorAgent().execute(
+        val quantVectorResult = QuantVectorAgent.execute(
             QuantVectorInput(
                 symbol = ingestionResult.symbol,
                 currentRegime = marketStateResult.currentRegime,
@@ -140,17 +134,17 @@ object AgentDAG {
         ) ?: return null
 
         // Agent 4: TSFM Agent - produces time-series foundation model forecast
-        val tsfmResult = TsfmAgent().execute(
+        val tsfmResult = TsfmAgent.execute(
             TsfmInput(
                 symbol = ingestionResult.symbol,
                 currentPrice = ingestionResult.lastPrice,
                 regime = marketStateResult.currentRegime,
-                quantVector = quantVectorResult.quantVector
+                quantVector = quantVectorResult.triFactorForecast
             )
         ) ?: return null
 
         // Agent 5: Decision Router - determines trade signal
-        val decisionResult = DecisionRouterAgent().execute(
+        val decisionResult = DecisionRouterAgent.execute(
             DecisionRouterInput(
                 symbol = ingestionResult.symbol,
                 triFactorForecast = quantVectorResult.triFactorForecast,
@@ -166,7 +160,7 @@ object AgentDAG {
         ) ?: return null
 
         // Agent 6: Risk/Confidence Agent - computes confidence score and risk metrics
-        val riskResult = RiskConfidenceAgent().execute(
+        val riskResult = RiskConfidenceAgent.execute(
             RiskConfidenceInput(
                 symbol = ingestionResult.symbol,
                 decisionState = decisionResult,
@@ -174,13 +168,14 @@ object AgentDAG {
                 tsfmForecast = tsfmResult.tsfmForecast,
                 lobConfidence = lobConfidence,
                 liquidityConfidence = liquidityConfidence,
+                regimeConfidence = marketStateResult.regimeConfidence,
                 modelDisagreement = modelDisagreement,
                 dataFreshness = dataFreshness
             )
         ) ?: return null
 
         // Agent 7: Narrator Agent - generates structured explanation (JSON) without inventing numerical facts
-        val narratorResult = NarratorAgent().execute(
+        val narratorResult = NarratorAgent.execute(
             NarratorInput(
                 symbol = ingestionResult.symbol,
                 decisionState = decisionResult,
@@ -212,16 +207,27 @@ object AgentDAG {
         val priceHistory: List<Double>
     )
 
-    object IngestionAgent : BaseAgent {
+    /** IngestionOutput - Output of the Ingestion Agent. */
+    data class IngestionOutput(
+        val symbol: String,
+        val lastPrice: Double,
+        val priceChangePercent: Double,
+        val high24h: Double,
+        val low24h: Double,
+        val volume: Double,
+        val quoteVolume: Double,
+        val priceHistory: List<Double>,
+        val orderBookSnapshot: Map<String, Double>,
+        val currentRegime: String
+    )
+
+    object IngestionAgent : BaseAgent<IngestionInput, IngestionOutput> {
 
         override val agentId = "Ingestion"
         override val version = "1.0"
         override val health = AgentHealth.HEALTHY
         override val telemetry = AgentTelemetry()
         override val executionTimeoutMs = 5000L // 5 seconds max
-
-        override type In = IngestionInput
-        override type Out = IngestionOutput
 
         override fun execute(inputs: IngestionInput): IngestionOutput? {
             // Validate and normalize market data
@@ -249,8 +255,8 @@ object AgentDAG {
 
                 // Order book snapshot normalization
                 val orderBookSnapshot = mapOf(
-                    "bidRatio" to (marketData["bidRatioPct"] ?: 50.0) / 100.0,
-                    "imbalance" to (marketData["netImbalanceUsdt"] ?: 0.0) / max(1.0, lastPrice)
+                "bidRatio" to ((marketData["bidRatioPct"] as? Double ?: 50.0) / 100.0),
+                "imbalance" to ((marketData["netImbalanceUsdt"] as? Double ?: 0.0) / max(1.0, lastPrice))
                 )
 
                 val output = IngestionOutput(
@@ -292,20 +298,6 @@ object AgentDAG {
                 else if (priceChange < -0.5) "Mean Reversion"
                 else "State 0: Mean-Reverting"
         }
-
-        /** IngestionOutput - Output of the Ingestion Agent. */
-        data class IngestionOutput(
-            val symbol: String,
-            val lastPrice: Double,
-            val priceChangePercent: Double,
-            val high24h: Double,
-            val low24h: Double,
-            val volume: Double,
-            val quoteVolume: Double,
-            val priceHistory: List<Double>,
-            val orderBookSnapshot: Map<String, Double>,
-            val currentRegime: String
-        )
     }
 
     /** ----- Agent 2: Market-State Agent ----- */
@@ -316,16 +308,22 @@ object AgentDAG {
         val orderBookSnapshot: Map<String, Double>
     )
 
-    object MarketStateAgent : BaseAgent {
+    data class MarketStateOutput(
+        val symbol: String,
+        val currentRegime: String,
+        val regimeConfidence: Double,
+        val priceChange: Double,
+        val bidRatio: Double,
+        val imbalance: Double
+    )
+
+    object MarketStateAgent : BaseAgent<MarketStateInput, MarketStateOutput> {
 
         override val agentId = "Market-State"
         override val version = "1.0"
         override val health = AgentHealth.HEALTHY
         override val telemetry = AgentTelemetry()
         override val executionTimeoutMs = 3000L
-
-        override type In = MarketStateInput
-        override type Out = MarketStateOutput
 
         override fun execute(inputs: MarketStateInput): MarketStateOutput? {
             try {
@@ -364,15 +362,6 @@ object AgentDAG {
         override fun reset() {}
 
         override fun validateInputs(inputs: Any): Boolean = inputs is MarketStateInput
-
-        data class MarketStateOutput(
-            val symbol: String,
-            val currentRegime: String,
-            val regimeConfidence: Double,
-            val priceChange: Double,
-            val bidRatio: Double,
-            val imbalance: Double
-        )
     }
 
     /** ----- Agent 3: Quant Vector Agent ----- */
@@ -384,16 +373,21 @@ object AgentDAG {
         val depthSnapshot: Map<String, Double>
     )
 
-    object QuantVectorAgent : BaseAgent {
+    data class QuantVectorOutput(
+        val symbol: String,
+        val triFactorForecast: Double,
+        val liquidityPath: Double,
+        val quantVectorRegime: String,
+        val disagreement: Double
+    )
+
+    object QuantVectorAgent : BaseAgent<QuantVectorInput, QuantVectorOutput> {
 
         override val agentId = "Quant Vector"
         override val version = "1.0"
         override val health = AgentHealth.HEALTHY
         override val telemetry = AgentTelemetry()
         override val executionTimeoutMs = 4000L
-
-        override type In = QuantVectorInput
-        override type Out = QuantVectorOutput
 
         override fun execute(inputs: QuantVectorInput): QuantVectorOutput? {
             try {
@@ -439,14 +433,6 @@ object AgentDAG {
         override fun reset() {}
 
         override fun validateInputs(inputs: Any): Boolean = inputs is QuantVectorInput
-
-        data class QuantVectorOutput(
-            val symbol: String,
-            val triFactorForecast: Double,
-            val liquidityPath: Double,
-            val quantVectorRegime: String,
-            val disagreement: Double
-        )
     }
 
     /** ----- Agent 4: TSFM Agent ----- */
@@ -458,16 +444,20 @@ object AgentDAG {
         val quantVector: Double // from Quant Vector Agent
     )
 
-    object TsfmAgent : BaseAgent {
+    data class TsfmOutput(
+        val symbol: String,
+        val tsfmForecast: Double,
+        val regime: String,
+        val confidence: Double
+    )
+
+    object TsfmAgent : BaseAgent<TsfmInput, TsfmOutput> {
 
         override val agentId = "TSFM"
         override val version = "1.0"
         override val health = AgentHealth.HEALTHY
         override val telemetry = AgentTelemetry()
         override val executionTimeoutMs = 8000L // TSFM inference may take longer
-
-        override type In = TsfmInput
-        override type Out = TsfmOutput
 
         override fun execute(inputs: TsfmInput): TsfmOutput? {
             // Placeholder TSFM inference - in production, this would use ExecuTorch/ONNX Runtime
@@ -512,13 +502,6 @@ object AgentDAG {
 
             return quantInfluence + regimeAdjustment + priceTrend
         }
-
-        data class TsfmOutput(
-            val symbol: String,
-            val tsfmForecast: Double,
-            val regime: String,
-            val confidence: Double
-        )
     }
 
     /** ----- Agent 5: Decision Router Agent ----- */
@@ -536,16 +519,13 @@ object AgentDAG {
         val recentErrors: Double
     )
 
-    object DecisionRouterAgent : BaseAgent {
+    object DecisionRouterAgent : BaseAgent<DecisionRouterInput, DecisionState> {
 
         override val agentId = "Decision Router"
         override val version = "1.0"
         override val health = AgentHealth.HEALTHY
         override val telemetry = AgentTelemetry()
         override val executionTimeoutMs = 2000L
-
-        override type In = DecisionRouterInput
-        override type Out = DecisionState
 
         override fun execute(inputs: DecisionRouterInput): DecisionState? {
             // Delegate to the deterministic decision router (configured as default)
@@ -594,20 +574,25 @@ object AgentDAG {
         val tsfmForecast: Double,
         val lobConfidence: Double,
         val liquidityConfidence: Double,
+        val regimeConfidence: Double,
         val modelDisagreement: Double,
         val dataFreshness: Double
     )
 
-    object RiskConfidenceAgent : BaseAgent {
+    data class RiskConfidenceOutput(
+        val symbol: String,
+        val decisionState: DecisionState,
+        val confidence: Double,
+        val riskMetrics: Map<String, Double>
+    )
+
+    object RiskConfidenceAgent : BaseAgent<RiskConfidenceInput, RiskConfidenceOutput> {
 
         override val agentId = "Risk/Confidence"
         override val version = "1.0"
         override val health = AgentHealth.HEALTHY
         override val telemetry = AgentTelemetry()
         override val executionTimeoutMs = 2000L
-
-        override type In = RiskConfidenceInput
-        override type Out = RiskConfidenceOutput
 
         override fun execute(inputs: RiskConfidenceInput): RiskConfidenceOutput? {
             try {
@@ -659,15 +644,8 @@ object AgentDAG {
             val disagreementPenalty = inputs.modelDisagreement * 0.3
             val stalenessPenalty = (1.0 - inputs.dataFreshness) * 0.2
 
-            return coerceIn(agreement - disagreementPenalty - stalenessPenalty, 0.0, 1.0)
+            return (agreement - disagreementPenalty - stalenessPenalty).coerceIn(0.0, 1.0)
         }
-
-        data class RiskConfidenceOutput(
-            val symbol: String,
-            val decisionState: DecisionState,
-            val confidence: Double,
-            val riskMetrics: Map<String, Double>
-        )
     }
 
     /** ----- Agent 7: Narrator Agent ----- */
@@ -686,16 +664,13 @@ object AgentDAG {
         val riskMetrics: Map<String, Double>
     )
 
-    object NarratorAgent : BaseAgent {
+    object NarratorAgent : BaseAgent<NarratorInput, String> {
 
         override val agentId = "Narrator"
         override val version = "1.0"
         override val health = AgentHealth.HEALTHY
         override val telemetry = AgentTelemetry()
         override val executionTimeoutMs = 3000L
-
-        override type In = NarratorInput
-        override type Out = String // Returns structured JSON narrative
 
         override fun execute(inputs: NarratorInput): String? {
             try {

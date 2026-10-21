@@ -16,17 +16,6 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-data class KlineData(
-    val openTime: Long,
-    val open: Double,
-    val high: Double,
-    val low: Double,
-    val close: Double,
-    val volume: Double,
-    val quoteVolume: Double,
-    val takerBuyQuoteVolume: Double
-)
-
 /***
  * Horizon-Aware Pain Path Engine - replaces the single exponential decay heuristic
  * with independent per-horizon μp,1m..μp,60m computation.
