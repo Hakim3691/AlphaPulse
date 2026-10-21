@@ -95,7 +95,7 @@ object NarratorConstraintValidator {
             "instead of", "replaced by", "overridden"
         )
 
-        val lower Narrative = narrative.lowercase()
+        val lower = narrative.lowercase()
         return modificationPhrases.none { lower.contains(it) }
     }
 
@@ -106,6 +106,7 @@ object NarratorConstraintValidator {
             "generates", "creates", "produces", "yields"
         ).map { it.lowercase() }
 
+        val lowerNarrative = narrative.lowercase()
         return inventionPhrases.any { lowerNarrative.contains(it) }
     }
 }
