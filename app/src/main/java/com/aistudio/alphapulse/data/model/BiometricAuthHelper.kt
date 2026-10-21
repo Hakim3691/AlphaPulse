@@ -1,9 +1,7 @@
 package com.aistudio.alphapulse.data.model
 
-import androidx.biometric.BiometricPrompt
 import android.content.Context
-import androidx.annotation.WindowInspectionDuration
-import kotlin.coroutines.experimental.CoroutineContext
+import androidx.biometric.BiometricPrompt
 import java.util.concurrent.Executor
 
 /** BiometricAuthResult - The result of a biometric authentication attempt. */
@@ -21,13 +19,32 @@ object BiometricAuthHelper {
 
     private var biometricPrompt: BiometricPrompt? = null
     private var context: Context? = null
+    private var currentCallback: ((BiometricAuthResult) -> Unit)? = null
 
-    /** Initialise the helper with the application context. */
+    /** Initialise the helper with a context (must be a FragmentActivity for BiometricPrompt). */
     fun init(appContext: Context) {
         context = appContext
-        val executor = Executor { it.run() } // main thread executor
-        biometricPrompt = BiometricPrompt(context) { result ->
-            // Result is delivered via the callback; here we just log.
+        if (appContext is androidx.fragment.app.FragmentActivity) {
+            val executor = Executor { it.run() }
+            biometricPrompt = BiometricPrompt(appContext, executor, object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    val cb = currentCallback
+                    currentCallback = null
+                    cb?.invoke(BiometricAuthResult(success = true, authenticatedName = ""))
+                }
+
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    val cb = currentCallback
+                    currentCallback = null
+                    cb?.invoke(BiometricAuthResult(success = false, errorString = errString.toString()))
+                }
+
+                override fun onAuthenticationFailed() {
+                    val cb = currentCallback
+                    currentCallback = null
+                    cb?.invoke(BiometricAuthResult(success = false, errorString = "Authentication failed"))
+                }
+            })
         }
     }
 
@@ -41,27 +58,14 @@ object BiometricAuthHelper {
         cancelable: Boolean,
         callback: (BiometricAuthResult) -> Unit
     ) {
+        currentCallback = callback
         biometricPrompt?.let {
             val promptInfo = BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Authenticate to AlphaPulse")
                 .setSubtitle("Verify your identity to access trading features")
-                .setNegativeButton("Cancel", executor) { _, _ ->
-                    callback(BiometricAuthResult(success = false, errorString = "User cancelled"))
-                }
+                .setNegativeButtonText("Cancel")
                 .build()
-            it.authenticate(promptInfo, executor) { result ->
-                if (result.result) {
-                    callback(BiometricAuthResult(
-                        success = true,
-                        authenticatedName = result.name
-                    ))
-                } else {
-                    callback(BiometricAuthResult(
-                        success = false,
-                        errorString = result.errorString
-                    ))
-                }
-            }
+            it.authenticate(promptInfo)
         } else {
             callback(BiometricAuthResult(success = false, errorString = "BiometricPrompt not initialised"))
         }

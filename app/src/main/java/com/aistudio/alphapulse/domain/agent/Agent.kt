@@ -12,8 +12,11 @@
 package com.aistudio.alphapulse.domain.agent
 
 import com.aistudio.alphapulse.domain.decision.DecisionState
+import com.aistudio.alphapulse.domain.decision.DecisionInputs
+import com.aistudio.alphapulse.domain.decision.DeterministicDecisionRouter
 import com.aistudio.alphapulse.domain.quant.ModelState
-import kotlin.coroutines.experimental.CoroutineContext
+import kotlinx.coroutines.*
+import kotlin.math.*
 
 /** AgentHealth - Health status of an agent. */
 enum class AgentHealth {
@@ -108,7 +111,13 @@ object AgentDAG {
 
         // Agent 1: Ingestion Agent - validates and normalizes market data
         val ingestionResult = IngestionAgent().execute(
-            IngestionInput(symbol, marketData)
+            IngestionInput(
+                symbol = symbol,
+                marketData = marketData,
+                normalizedPriceData = marketData.filterValues { it is Double }.mapValues { it.value as Double },
+                orderBookSnapshot = marketData.filterValues { it is Double }.mapValues { it.value as Double },
+                priceHistory = emptyList()
+            )
         ) ?: return null
 
         // Agent 2: Market-State Agent - determines current market regime
@@ -124,9 +133,9 @@ object AgentDAG {
         val quantVectorResult = QuantVectorAgent().execute(
             QuantVectorInput(
                 symbol = ingestionResult.symbol,
-                marketState = marketStateResult.currentRegime,
+                currentRegime = marketStateResult.currentRegime,
                 priceHistory = ingestionResult.priceHistory,
-                depthSnapshot = ingestionResult.depthSnapshot
+                depthSnapshot = ingestionResult.orderBookSnapshot
             )
         ) ?: return null
 
@@ -214,7 +223,7 @@ object AgentDAG {
         override type In = IngestionInput
         override type Out = IngestionOutput
 
-        override fun execute(inputs: IngestionInput): IngstionOutput? {
+        override fun execute(inputs: IngestionInput): IngestionOutput? {
             // Validate and normalize market data
             try {
                 val symbol = inputs.symbol
@@ -244,7 +253,7 @@ object AgentDAG {
                     "imbalance" to (marketData["netImbalanceUsdt"] ?: 0.0) / max(1.0, lastPrice)
                 )
 
-                val output = IngstionOutput(
+                val output = IngestionOutput(
                     symbol = symbol,
                     lastPrice = lastPrice,
                     priceChangePercent = priceChange,
@@ -254,7 +263,7 @@ object AgentDAG {
                     quoteVolume = quoteVolume,
                     priceHistory = priceHistory,
                     orderBookSnapshot = orderBookSnapshot,
-                    currentRegime = determineRegime(priceChange, lobConfidence)
+                    currentRegime = determineRegime(priceChange)
                 )
 
                 updateHealth(true, null, executionTimeoutMs)
@@ -278,14 +287,14 @@ object AgentDAG {
         }
 
         /** Determine the current Markov regime based on price change and confidence. */
-        private fun determineRegime(priceChange: Double, lobConfidence: Double): String {
-            return if (priceChange > 0.5 && lobConfidence > 0.6) "Momentum Burst"
-                else if (priceChange < -0.5 && lobConfidence > 0.6) "Mean Reversion"
+        private fun determineRegime(priceChange: Double): String {
+            return if (priceChange > 0.5) "Momentum Burst"
+                else if (priceChange < -0.5) "Mean Reversion"
                 else "State 0: Mean-Reverting"
         }
 
-        /** IngstionOutput - Output of the Ingestion Agent. */
-        data class IngstionOutput(
+        /** IngestionOutput - Output of the Ingestion Agent. */
+        data class IngestionOutput(
             val symbol: String,
             val lastPrice: Double,
             val priceChangePercent: Double,
@@ -326,13 +335,13 @@ object AgentDAG {
 
                 // Determine regime
                 val regime: String = when {
-                    priceChange.abs() > 1.0 && bidRatio > 0.6 -> "Momentum Burst"
-                    priceChange.abs() < 0.3 && imbalance.abs() < 0.1 -> "State 0: Mean-Reverting"
+                    abs(priceChange) > 1.0 && bidRatio > 0.6 -> "Momentum Burst"
+                    abs(priceChange) < 0.3 && abs(imbalance) < 0.1 -> "State 0: Mean-Reverting"
                     else -> "State 1: Momentum Burst"
                 }
 
                 // Calculate regime confidence based on price magnitude and order-book strength
-                val regimeConfidence = priceChange.abs().coerceAtMost(1.0) * bidRatio.coerceAtMost(1.0) * 1.0
+                val regimeConfidence = abs(priceChange).coerceAtMost(1.0) * bidRatio.coerceAtMost(1.0) * 1.0
 
                 updateHealth(true, null, executionTimeoutMs)
 
@@ -540,7 +549,7 @@ object AgentDAG {
 
         override fun execute(inputs: DecisionRouterInput): DecisionState? {
             // Delegate to the deterministic decision router (configured as default)
-            DeterministicDecisionRouter().router(DecisionInputs(
+            return DeterministicDecisionRouter().router(DecisionInputs(
                 triFactorForecast = inputs.triFactorForecast,
                 tsfmForecast = inputs.tsfmForecast,
                 lobConfidence = inputs.lobConfidence,
@@ -639,17 +648,18 @@ object AgentDAG {
         /** Compute the final confidence score (0.0 to 1.0). */
         private fun computeConfidence(inputs: RiskConfidenceInput): Double {
             // Weighted combination of agreement factors
-            val agreement = 0.4 * sign(inputs.triFactorForecast) *
-                    sign(inputs.tsfmForecast) * // placeholder tsfm forecast access
+            val triFactorSign = if (inputs.triFactorForecast > 0) 1.0 else if (inputs.triFactorForecast < 0) -1.0 else 0.0
+            val tsfmSign = if (inputs.tsfmForecast > 0) 1.0 else if (inputs.tsfmForecast < 0) -1.0 else 0.0
+            val agreement = 0.4 * triFactorSign * tsfmSign *
                     0.3 * inputs.lobConfidence +
                     0.2 * inputs.liquidityConfidence +
                     0.1 * inputs.regimeConfidence
 
-                // Penalties
-                val disagreementPenalty = inputs.modelDisagreement * 0.3
-                val stalenessPenalty = (1.0 - inputs.dataFreshness) * 0.2
+            // Penalties
+            val disagreementPenalty = inputs.modelDisagreement * 0.3
+            val stalenessPenalty = (1.0 - inputs.dataFreshness) * 0.2
 
-                return max(0.0, min(1.0, agreement - disagreementPenalty - stalenessPenalty))
+            return coerceIn(agreement - disagreementPenalty - stalenessPenalty, 0.0, 1.0)
         }
 
         data class RiskConfidenceOutput(
@@ -700,17 +710,25 @@ object AgentDAG {
                     "liquidityConfidence" to "%.2f".format(inputs.liquidityConfidence),
                     "modelDisagreement" to "%.2f".format(inputs.modelDisagreement),
                     "dataFreshness" to "%.2f".format(inputs.dataFreshness),
-                    "coneBreaches" to inputs coneBreaches,
+                    "coneBreaches" to inputs.coneBreaches,
                     "recentError" to "%+.2f".format(inputs.recentErrors),
                     "riskMetrics" to inputs.riskMetrics
                 )
 
                 // Convert to JSON string (using simple string building; in production use Moshi/Gson)
-                val json = narrative.joinToString(",\n") { "\"${it.key}\": ${it.value.let { "\"$it\"" } ?: "null" } }
-                "{{\n$json\n}}"
+                val entries = mutableListOf<String>()
+                for ((k, v) in narrative) {
+                    val vStr = when (v) {
+                        null -> "null"
+                        else -> "\"$v\""
+                    }
+                    entries.add("\"$k\": $vStr")
+                }
+                val json = entries.joinToString(",\n")
+                val prettyJson = "{{\n$json\n}}"
 
                 updateHealth(true, null, executionTimeoutMs)
-                return json
+                return prettyJson
             } catch (e: Exception) {
                 updateHealth(false, e.message, executionTimeoutMs)
                 return null

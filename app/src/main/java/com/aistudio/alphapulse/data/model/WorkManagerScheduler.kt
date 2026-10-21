@@ -1,15 +1,14 @@
 package com.aistudio.alphapulse.data.model
 
 import android.content.Context
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequest
+import androidx.work.Result
 import androidx.work.WorkManager
+import androidx.work.Worker
 import androidx.work.WorkerParameters
-import androidx.work.WorkerCoroutine
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.send
-import kotlinx.coroutines.launch
-import java.util.concurrent.TimeUnit
 
 /** WorkManagerScheduler - Defines and schedules recurring background jobs.
  * Jobs:
@@ -25,47 +24,50 @@ object WorkManagerScheduler {
 
     /** Schedule the Data Refresh job — runs every 15 minutes. */
     fun scheduleDataRefresh(context: Context) {
-        val workRequest = androidx.work.PeriodicWorkRequestBuilder(
-            com.aistudio.alphapulse.data.model.DataRefreshWorker::class.java,
-            15, TimeUnit.MINUTES
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONSTRAINED)
+            .build()
+        val workRequest = PeriodicWorkRequest.Builder(
+            DataRefreshWorker::class.java,
+            15, java.util.concurrent.TimeUnit.MINUTES
         )
-            .setRequiredNetworkType(androidx.work.NetworkType.CONSTRAINED)
+            .setConstraints(constraints)
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             WORK_NAME_DATA_REFRESH,
-            androidx.work.WorkRequest.replace,
+            ExistingPeriodicWorkPolicy.REPLACE,
             workRequest
         )
     }
 
     /** Schedule the Model Re-Eval job — runs every 4 hours. */
     fun scheduleModelReeval(context: Context) {
-        val workRequest = androidx.work.PeriodicWorkRequestBuilder(
-            com.aistudio.alphapulse.work.model.ModelReevalWorker::class.java,
-            4, TimeUnit.HOURS
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONSTRAINED)
+            .build()
+        val workRequest = PeriodicWorkRequest.Builder(
+            ModelReevalWorker::class.java,
+            4, java.util.concurrent.TimeUnit.HOURS
         )
-            .setRequiredNetworkType(androidx.work.NetworkType.CONSTRAINED)
+            .setConstraints(constraints)
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             WORK_NAME_MODEL_REEVAL,
-            androidx.work.WorkRequest.replace,
+            ExistingPeriodicWorkPolicy.REPLACE,
             workRequest
         )
     }
 
     /** Schedule the State Sync job — runs once per day at midnight. */
     fun scheduleStateSync(context: Context) {
-        val workRequest = androidx.work.PeriodicWorkRequestBuilder(
-            com.aistudio.alphapulse.work.state.StateSyncWorker::class.java,
-            24, TimeUnit.HOURS
+        val workRequest = PeriodicWorkRequest.Builder(
+            StateSyncWorker::class.java,
+            24, java.util.concurrent.TimeUnit.HOURS
         )
-            .setPeriodicWorkUpdatePolicy(
-                androidx.work.PeriodicWorkRequestUpdatePolicy.KEEP
-            )
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(
             WORK_NAME_STATE_SYNC,
-            androidx.work.WorkRequest.replace,
+            ExistingPeriodicWorkPolicy.REPLACE,
             workRequest
         )
     }
@@ -74,39 +76,36 @@ object WorkManagerScheduler {
     data class WorkStatus(
         val workName: String,
         val success: Boolean,
-        val outputData: kotlin.collections.Map<String, Any?>?
+        val outputData: kotlin.collections.Map<String, Any?>? = null
     )
 }
 
 /** DataRefreshWorker — fetches the latest market data from the exchange API. */
-class DataRefreshWorker(context: WorkerParameters) : WorkerCoroutine(context) {
-    override suspend fun run(): Result {
+class DataRefreshWorker(context: Context, params: WorkerParameters) :
+    Worker(context, params) {
+    override fun doWork(): androidx.work.Result {
         // In production: fetch ticker, order book, aggregate trades from Binance
         // For now, mark success with a placeholder
-        return Result.success(
-            data = mapOf("lastRefresh" to System.currentTimeMillis())
-        )
+        return Result.success()
     }
 }
 
 /** ModelReevalWorker — re-calibrates model weights using fresh data. */
-class ModelReevalWorker(context: WorkerParameters) : WorkerCoroutine(context) {
-    override suspend fun run(): Result {
+class ModelReevalWorker(context: Context, params: WorkerParameters) :
+    Worker(context, params) {
+    override fun doWork(): androidx.work.Result {
         // In production: re-run ModelManager.calibrateInitialWeightsFromHistory
         // For now, mark success
-        return Result.success(
-            data = mapOf("reevalTimestamp" to System.currentTimeMillis())
-        )
+        return Result.success()
     }
 }
 
 /** StateSyncWorker — syncs predictions and session state to Room database. */
-class StateSyncWorker(context: WorkerParameters) : WorkerCoroutine(context) {
-    override suspend fun run(): Result {
+class StateSyncWorker(context: Context, params: WorkerParameters) :
+    Worker(context, params) {
+    override fun doWork(): androidx.work.Result {
         // In production: sync pending predictions, update session timestamps
         // For now, mark success
-        return Result.success(
-            data = mapOf("syncTimestamp" to System.currentTimeMillis())
-        )
+        return Result.success()
     }
 }

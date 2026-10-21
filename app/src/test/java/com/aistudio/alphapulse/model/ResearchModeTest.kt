@@ -7,8 +7,10 @@ import org.junit.Before
 import org.junit.Test
 import android.content.Context
 import com.aistudio.alphapulse.domain.quant.ModelState
-import com.aistudio.alphapulse.domain.quant.DecisionState
-import com.aistudio.alphapulse.domain.quant.ForecastTarget
+import com.aistudio.alphapulse.domain.quant.QuantMath
+import com.aistudio.alphapulse.domain.quant.KlineData
+import com.aistudio.alphapulse.domain.quant.DepthTier
+import com.aistudio.alphapulse.domain.quant.DepthSnapshot
 
 /** Research Mode unit tests - spec section 60.
  * Dedicated research mode allows user to compare models per asset and per horizon.
@@ -19,7 +21,7 @@ class ResearchModeTest {
 
     @Before
     fun setUp() {
-        context = android.test.InstrumentationRegistry.getTargetContext()
+        context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
     }
 
     @Test
@@ -68,9 +70,15 @@ class ResearchModeTest {
 
     @Test
     fun `research_mode_forecaster_generates_all_horizons`() {
-        val result = QuantMath.generateForecastTargets("BTCUSDT", 15.0)
-        assertNotNull("Forecast targets should not be null", result)
-        assertTrue("Should generate 5-horizon forecast", result.horizons.size == 5)
+        val bids = listOf(DepthTier(100.0, 1.0), DepthTier(99.0, 2.0))
+        val asks = listOf(DepthTier(101.0, 1.0), DepthTier(102.0, 2.0))
+        val result = QuantMath.computeHorizonPainPathResults(
+            15, bids, asks, 100.0, 0.05,
+            0.01, 0.01, 0.01, 0.01, 0.01
+        )
+        assertNotNull("Horizon pain path results should not be null", result)
+        assertTrue("Should generate 5-horizon pain path",
+            listOf(result.muP1m, result.muP5m, result.muP15m, result.muP30m, result.muP60m).size == 5)
     }
 
     @Test

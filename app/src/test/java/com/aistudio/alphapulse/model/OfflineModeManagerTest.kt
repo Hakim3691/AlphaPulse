@@ -15,7 +15,7 @@ class OfflineModeManagerTest {
 
     @Before
     fun setUp() {
-        context = android.test.InstrumentationRegistry.getTargetContext()
+        context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
     }
 
     @Test

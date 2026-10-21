@@ -42,38 +42,29 @@ object CoreCriteria {
 }
 
 /** Advanced functionality criteria (11-15) */
-val AdvancedCriteria = object : CriteriaSet(
-
-    /** 11. Combine independent models dynamically via adaptive ensemble learning */
-    val ADAPTIVE_ENSEMBLE_LEARNING = true,
-
-    /** 13. Validate every prediction against realized settlement */
-    val PREDICTION_VALIDATION = true,
-
-    /** 14. Learn from every settled prediction (SGD weight updates) */
-    val FROM_EVERY_SETTLED_PREDICTION = true,
-
-    /** 15. Survive screen lock and background execution */
-    val SURVIVE_SCREEN_LOCK_BACKGROUND = true
+val AdvancedCriteria = CriteriaSet(
+    ADAPTIVE_ENSEMBLE_LEARNING = true,
+    PREDICTION_VALIDATION = true,
+    FROM_EVERY_SETTLED_PREDICTION = true,
+    SURVIVE_SCREEN_LOCK_BACKGROUND = true,
+    RECOVER_AFTER_PROCESS_TERMINATION = false,
+    COMPLETE_AUDIT_LEDGER = false,
+    NO_EXPOSED_API_CREDENTIALS = false,
+    EXPLAIN_NUMERICAL_STATE_LOCALLY = false,
+    MEASURABLE_INCREMENTAL_INFO = false
 )
 
 /** Persistence & recovery criteria (16-20) */
-val PersistenceCriteria = object : CriteriaSet(
-
-    /** 16. Recover after process termination */
-    val RECOVER_AFTER_PROCESS_TERMINATION = true,
-
-    /** 17. Maintain a complete audit ledger (prediction audit ledger in Room) */
-    val COMPLETE_AUDIT_LEDGER = true,
-
-    /** 18. Operate without exposing API credentials */
-    val NO_EXPOSED_API_CREDENTIALS = true,
-
-    /** 19. Explain its numerical state locally (Edge SLM narrative, convergence explanation) */
-    val EXPLAIN_NUMERICAL_STATE_LOCALLY = true,
-
-    /** 20. Provide measurable evidence that Android models outperform/incremental info beyond original Tri-Factor engine */
-    val MEASURABLE_INCREMENTAL_INFO = true
+val PersistenceCriteria = CriteriaSet(
+    ADAPTIVE_ENSEMBLE_LEARNING = false,
+    PREDICTION_VALIDATION = false,
+    FROM_EVERY_SETTLED_PREDICTION = false,
+    SURVIVE_SCREEN_LOCK_BACKGROUND = false,
+    RECOVER_AFTER_PROCESS_TERMINATION = true,
+    COMPLETE_AUDIT_LEDGER = true,
+    NO_EXPOSED_API_CREDENTIALS = true,
+    EXPLAIN_NUMERICAL_STATE_LOCALLY = true,
+    MEASURABLE_INCREMENTAL_INFO = true
 )
 
 /** CriteriaSet helper */

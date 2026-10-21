@@ -1,6 +1,8 @@
 package com.aistudio.alphapulse.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import android.content.Context
@@ -14,7 +16,7 @@ class BatteryModeManagerTest {
     @Before
     fun setUp() {
         // Use a mock context; in real instrumentation the app context is used.
-        context = android.test.InstrumentationRegistry.getTargetContext()
+        context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
     }
 
     @Test

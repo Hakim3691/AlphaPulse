@@ -1,10 +1,12 @@
 package com.aistudio.alphapulse.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import android.content.Context
 import androidx.biometric.BiometricPrompt
+import androidx.test.platform.app.InstrumentationRegistry
 
 /** BiometricAuthHelper unit tests. */
 class BiometricAuthHelperTest {
@@ -14,16 +16,16 @@ class BiometricAuthHelperTest {
 
     @Before
     fun setUp() {
-        mockContext = android.test.InstrumentationRegistry.getTargetContext()
+        mockContext = InstrumentationRegistry.getInstrumentation().targetContext
         helper = com.aistudio.alphapulse.data.model.BiometricAuthHelper()
         helper.init(mockContext)
     }
 
     @Test
     fun `helper_initiated_has_prompt_instance`() {
-        assertNotNull("BiometricPrompt should be created during init") {
-            helper::class.java.getDeclaredField("biometricPrompt")
-        }
+        val field = helper::class.java.getDeclaredField("biometricPrompt")
+        field.isAccessible = true
+        assertNotNull("BiometricPrompt should be created during init", field.get(helper))
     }
 
     @Test

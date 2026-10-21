@@ -2,6 +2,8 @@ package com.aistudio.alphapulse.domain.agent
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /** Agent unit tests (spec section 30, unit group).
@@ -38,7 +40,7 @@ class AgentTest {
             ),
             priceHistory = listOf(100.0, 101.0, 99.0, 102.0, 101.5)
         )
-        val output = agent.execute(input) as IngstionOutput
+        val output = agent.execute(input) as IngestionOutput
         assertEquals("BTCUSDT", output.symbol)
         assertEquals(100.0, output.lastPrice, 0.001)
         assertTrue("Current regime should be determined", output.currentRegime.isNotEmpty())
@@ -275,7 +277,7 @@ class AgentTest {
         assertEquals(4000L, agent.executionTimeoutMs)
     }
 
-    @test
+    @Test
     fun `tsfm_agent_execution_timeout_8_seconds`() {
         val agent = TsfmAgent()
         assertEquals(8000L, agent.executionTimeoutMs)

@@ -1,23 +1,17 @@
-/***
- * ModelManager - Model versioning, checksum verification, and activation pipeline.
- * Supports per-asset-per-horizon model versioning as specified in §55.
- * Orchestrates download → SHA-256 validate → activate pipeline for TSFM and other models.
- *
- * Spec Ref: §47-48, §55, Gap §3
- */
-
 package com.aistudio.alphapulse.data.model
 
+import android.content.Context
 import com.aistudio.alphapulse.data.db.AppDatabase
-import com.aistudio.alphapulse.data.db.ModelRegistryEntity
 import com.aistudio.alphapulse.data.db.ModelRegistryDao
-import com.aistudio.alphapulse.data.db.SessionEntity
+import com.aistudio.alphapulse.data.db.ModelRegistryEntity
+import com.aistudio.alphapulse.data.db.PredictionDao
+import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.db.SessionDao
-import com.aistudio.alphapulse.data.model.VersionInfo
-import kotlin.io.path.Path
+import com.aistudio.alphapulse.data.db.SessionEntity
+import com.aistudio.alphapulse.domain.quant.ModelState
 import java.io.File
+import java.io.FileInputStream
 import java.security.MessageDigest
-import java.security.NoSuchAlgorithmException
 
 data class VersionInfo(
     val quantEngineVersion: String = "1.0",
@@ -30,9 +24,17 @@ data class VersionInfo(
 
 object ModelManager {
 
-    private val db by lazy { AppDatabase.getDatabase(java.lang.System.runtimeEnvironment()) }
+    private var context: Context? = null
+
+    private val db by lazy { AppDatabase.getDatabase(context!!) }
     private val modelDao by lazy { db.modelRegistryDao() }
     private val sessionDao by lazy { db.sessionDao() }
+    private val predictionDao by lazy { db.predictionDao() }
+
+    /** Initialise with an Application context. Call once before any other method. */
+    fun init(ctx: Context) {
+        context = ctx.applicationContext
+    }
 
     /** Get current version info for all components */
     fun getCurrentVersions(): VersionInfo = VersionInfo(
@@ -45,35 +47,34 @@ object ModelManager {
     )
 
     /** Get active model by ID, returns null if not found or not active */
-    fun getActiveModel(modelId: String): ModelRegistryEntity? = modelDao.getModelById(modelId).filter { it.isActive }
+    fun getActiveModel(modelId: String): ModelRegistryEntity? =
+        modelDao.getModelById(modelId)?.takeIf { it.isActive }
 
     /** Mark a model as active and deactivate all others */
-    fun activateModel(modelId: String, checksum: String) {
+    suspend fun activateModel(modelId: String, checksum: String) {
         // Verify checksum first
-        val modelFile = ModelFileLocator.locate(modelId)
+        val modelFile = ModelFileLocator.locate(modelId, context!!)
         if (modelFile != null && calculateSha256(modelFile) == checksum) {
             // Deactivate all models
             modelDao.getAllModels().forEach { model ->
-                model.isActive = false
-                modelDao.update(model.copy(isActive = false))
+                modelDao.insert(model.copy(isActive = false))
             }
             // Activate the requested model
             val now = System.currentTimeMillis()
             val activated = modelDao.getModelById(modelId)?.also { model ->
-                model.isActive = true
-                model.checksumSha256 = checksum
-                model.lastActivated = now
-                model
-            }
-            // Persist changes
-            if (activated != null) {
-                modelDao.update(activated)
+                modelDao.update(
+                    model.copy(
+                        isActive = true,
+                        checksumSha256 = checksum,
+                        lastActivated = now
+                    )
+                )
             }
         }
     }
 
     /** Record model download with checksum and metadata */
-    fun recordDownload(
+    suspend fun recordDownload(
         modelId: String,
         version: String,
         checksumSha256: String,
@@ -84,14 +85,17 @@ object ModelManager {
     ) {
         val existing = modelDao.getModelById(modelId)
         val downloaded = existing?.also { model ->
-            model.version = version
-            model.checksumSha256 = checksumSha256
-            model.parameterCount = parameterCount
-            model.sizeBytes = sizeBytes
-            model.quantization = quantization
-            model.backend = backend
-            model.downloadTimestamp = System.currentTimeMillis()
-            model
+            modelDao.insert(
+                model.copy(
+                    version = version,
+                    checksumSha256 = checksumSha256,
+                    parameterCount = parameterCount,
+                    sizeBytes = sizeBytes,
+                    quantization = quantization,
+                    backend = backend,
+                    downloadTimestamp = System.currentTimeMillis()
+                )
+            )
         } ?: run {
             ModelRegistryEntity(
                 modelId = modelId,
@@ -100,14 +104,22 @@ object ModelManager {
                 parameterCount = parameterCount,
                 sizeBytes = sizeBytes,
                 quantization = quantization,
-                backend = backend
+                backend = backend,
+                latencyMs = 0,
+                accuracyPct = 0.0
             )
         }
         modelDao.insert(downloaded)
     }
 
     /** Generate session on service start, persist state for recovery */
-    fun recordSessionStart(weights: String, predictions: String, orderBookState: String, symbol: String, regime: String) {
+    suspend fun recordSessionStart(
+        weights: String,
+        predictions: String,
+        orderBookState: String,
+        symbol: String,
+        regime: String
+    ) {
         val session = SessionEntity(
             sessionId = "current_${System.currentTimeMillis()}",
             startedAt = System.currentTimeMillis(),
@@ -122,27 +134,38 @@ object ModelManager {
     }
 
     /** Update session on activity, persist for recovery */
-    fun recordSessionActivity(weights: String, predictions: String, orderBookState: String) {
-        val session = sessionDao.getSession("current_${System.currentTimeMillis()}")
-            ?.also { it.lastActive = System.currentTimeMillis()
-                it.weightsSnapshot = weights
-                it.predictionsSnapshot = predictions
-                it.orderBookStateSnapshot = orderBookState
-                sessionDao.updateSession(it)
-            }
+    suspend fun recordSessionActivity(
+        weights: String,
+        predictions: String,
+        orderBookState: String
+    ) {
+        val sessionId = "current_${System.currentTimeMillis()}"
+        sessionDao.getSession(sessionId)?.let { session ->
+            sessionDao.insertSession(
+                session.copy(
+                    lastActive = System.currentTimeMillis(),
+                    weightsSnapshot = weights,
+                    predictionsSnapshot = predictions,
+                    orderBookStateSnapshot = orderBookState
+                )
+            )
+        }
 
-        // Also try to find/latest active session
-        sessionDao.getLatestSession()?.also { latest ->
-            latest.lastActive = System.currentTimeMillis()
-            latest.weightsSnapshot = weights
-            latest.predictionsSnapshot = predictions
-            latest.orderBookStateSnapshot = orderBookState
-            sessionDao.updateSession(latest)
+        // Also try to find latest active session
+        sessionDao.getLatestSession()?.let { latest ->
+            sessionDao.insertSession(
+                latest.copy(
+                    lastActive = System.currentTimeMillis(),
+                    weightsSnapshot = weights,
+                    predictionsSnapshot = predictions,
+                    orderBookStateSnapshot = orderBookState
+                )
+            )
         }
     }
 
     /** Recover session state on app restart - full recovery per §54 */
-    fun recoverSession(): RecoveryData? {
+    suspend fun recoverSession(): RecoveryData? {
         val session = sessionDao.getLatestSession()
         return session?.let { session ->
             // Recover active predictions associated with this session
@@ -151,9 +174,8 @@ object ModelManager {
                 .sortedByDescending { it.issuedTimestamp }
 
             // Recover ensemble weights from session
-            val weights = session.weightsSnapshot
-                .let { parseEnsembleWeights(it) }
-                .orElseGet(ModelState::new)
+            val weights = parseEnsembleWeights(session.weightsSnapshot)
+                ?: ModelState()
 
             // Recover order-book state snapshot
             val orderBookState = session.orderBookStateSnapshot
@@ -172,7 +194,7 @@ object ModelManager {
     private fun parseEnsembleWeights(weightsStr: String): ModelState? {
         try {
             // Expected format: "weightK=0.30;weightP=0.35;weightAlpha=0.35;mode=Baseline Init"
-            val parts = weightsStr.split(";").associate { it.split("=") }
+            val parts = weightsStr.split(";").associate { kv -> kv.split("=").let { it[0] to it[1] } }
             return ModelState(
                 weightK = parts["weightK"]?.toDouble() ?: 0.30,
                 weightP = parts["weightP"]?.toDouble() ?: 0.35,
@@ -201,18 +223,18 @@ object ModelManager {
     /** Calculate SHA-256 checksum for a file */
     private fun calculateSha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256").apply {
-            val fileInput = java.io.FileInputStream(file)
+            val fileInput = FileInputStream(file)
             try {
                 this.update(fileInput.readBytes())
             } finally {
                 fileInput.close()
             }
         }
-        return digest.joinToString("") { "%02x".format(it) }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     /** Get version info linked to a specific prediction */
-    fun getVersionForPrediction(predictionId: String): VersionInfo {
+    suspend fun getVersionForPrediction(predictionId: String): VersionInfo {
         // Read from prediction entity's linked version info
         // In full implementation, PredictionEntity would have a versionTag field
         // For now, return current system versions
@@ -220,7 +242,7 @@ object ModelManager {
     }
 
     /** Validate that a model version is compatible with current backend */
-    fun isModelCompatible(modelId: String, backend: String): Boolean {
+    suspend fun isModelCompatible(modelId: String, backend: String): Boolean {
         val model = modelDao.getModelById(modelId)
         return model?.let { it.isActive && (it.backend == backend || it.backend == "AUTO") } ?: false
     }
@@ -229,15 +251,19 @@ object ModelManager {
 /** Helper object to locate model files on device storage */
 object ModelFileLocator {
 
-    private val baseDir: File = java.lang.System.runtimeEnvironment().getExternalFilesDir(null)
-
-    fun locate(modelId: String): File? {
+    fun locate(modelId: String, context: Context): File? {
+        val baseDir = context.getExternalFilesDir(null)
+        if (baseDir == null) return null
         val dir = File(baseDir, "models/$modelId")
-        return dir.exists() && dir.isDirectory ? dir.listFiles().lastOrNull() : null
+        val files = dir.listFiles()
+        return if (dir.exists() && dir.isDirectory && files != null && files.isNotEmpty()) {
+            files.lastOrNull()
+        } else null
     }
 
-    fun getModelDirectory(modelId: String): File {
-        val dir = File(baseDir, "models/$modelId")
+    fun getModelDirectory(modelId: String, context: Context): File {
+        val baseDir = context.getExternalFilesDir(null)
+        val dir = File(baseDir ?: context.cacheDir, "models/$modelId")
         dir.mkdirs()
         return dir
     }
