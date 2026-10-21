@@ -1,14 +1,10 @@
 package com.aistudio.alphapulse.data.model
 
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
-import kotlin.coroutines.experimental.CoroutineContext
 
 /** OfflineMode - The three offline operating states. */
 enum class OfflineMode {
@@ -37,23 +33,44 @@ data class OfflineInfo(
 object OfflineModeManager {
 
     private var context: Context? = null
+    private var connectivityManager: ConnectivityManager? = null
     private var currentInfo = OfflineInfo()
+    private var callback: ConnectivityManager.NetworkCallback? = null
 
-    /** Register the connectivity receiver. Must be called with a valid Application context. */
+    /** Register the network callback. Must be called with a valid Application context. */
     fun init(context: Context) {
-        this.context = context.applicationContext
-        val receiver = ConnectivityReceiver()
-        val registerResult = context.registerReceiver(receiver, null)
-        // On API 23+, we need POST_CONNECTIVITY permission; the system receiver
-        // is sufficient for our use case. We keep a reference to avoid GC.
-        if (registerResult != null) {
-            // Receiver registered successfully
+        val appContext = context.applicationContext
+        this.context = appContext
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        connectivityManager = cm
+
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = refresh()
+            override fun onLost(network: Network) = refresh()
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = refresh()
         }
+        callback = cb
+        try {
+            cm.registerDefaultNetworkCallback(cb)
+        } catch (e: Exception) {
+            // Fallback: just compute the current state once.
+        }
+        refresh()
     }
 
-    /** Unregister the receiver. */
+    /** Unregister the callback. */
     fun cleanup() {
-        context?.unregisterReceiver(ConnectivityReceiver)
+        val cm = connectivityManager
+        val cb = callback
+        if (cm != null && cb != null) {
+            try {
+                cm.unregisterNetworkCallback(cb)
+            } catch (e: Exception) {
+                // Ignore: callback may not have been registered.
+            }
+        }
+        callback = null
+        connectivityManager = null
         context = null
         currentInfo = OfflineInfo()
     }
@@ -61,49 +78,26 @@ object OfflineModeManager {
     /** Get the current offline info. */
     fun getCurrentInfo(): OfflineInfo = currentInfo
 
-    /** Internal broadcast receiver for connectivity changes. */
-    private val ConnectivityReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent == null || context == null) return
+    /** Recompute connectivity state from the system and update currentInfo. */
+    private fun refresh() {
+        val cm = connectivityManager ?: return
+        val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+        val isConnected = caps != null &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val isMetered = caps == null || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
 
-            val networkType: Int = when {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.N -> {
-                    val network = intent.getParcelableExtra(ConnectivityManager.EXTRA_NETWORK)
-                    if (network == null) 0
-                    else when (network.type) {
-                        NetworkManager.NET_TYPE_WIFI -> 1
-                        NetworkManager.NET_TYPE_CELLULAR -> 2
-                        NetworkManager.NET_TYPE_ETHERNET -> 3
-                        else -> 0
-                    }
-                }
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.M -> {
-                    when (intent.getStringExtra(ConnectivityManager.EXTRA_EXTRA_NETWORK_INFO)) {
-                        "WIFI" -> 1
-                        "CELLULAR" -> 2
-                        else -> 0
-                    }
-                }
-                else -> 0
-            }
-
-            val isConnected = networkType != 0
-            val isMetered = when (networkType) {
-                1 -> false // Wi-Fi is not metered in our model
-                2 -> intent.getBooleanExtra(ConnectivityManager.EXTRA_IS_METERED, false)
-                else -> false
-            }
-
-            val mode = when (isConnected) {
-                !isMetered -> OfflineMode.ONLINE
-                isMetered -> OfflineMode.DEGRADED
-            } else OfflineMode.OFFLINE
-
-            val old = currentInfo
-            currentInfo = OfflineInfo(mode = mode, isConnected = isConnected, isMetered = isMetered, lastConnectivityChange = System.currentTimeMillis())
-
-            // Notify observers (ModelManager, Repository) — in production would use LiveData/Flow
+        val mode = when {
+            !isConnected -> OfflineMode.OFFLINE
+            isMetered -> OfflineMode.DEGRADED
+            else -> OfflineMode.ONLINE
         }
+
+        currentInfo = OfflineInfo(
+            mode = mode,
+            isConnected = isConnected,
+            isMetered = isMetered,
+            lastConnectivityChange = System.currentTimeMillis()
+        )
     }
 }
 
