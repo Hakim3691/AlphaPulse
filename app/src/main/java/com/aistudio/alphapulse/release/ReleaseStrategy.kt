@@ -32,7 +32,7 @@ data class Release2_QuantUpgrade(
     val liquidationHeatmap: Boolean = true,
     val institutionalTradeTape: Boolean = true,
     val horizonSpecificPainPaths: Boolean = true,
-    val twentyFourHr FRVP: Boolean = true,
+    val twentyFourHrFRVP: Boolean = true,
     val vahValLVN: Boolean = true,
     val neuralUQLOB: Boolean = true,
     val improvedRegime: Boolean = true
@@ -197,50 +197,50 @@ fun calculateProgress(pipeline: ReleasePipeline): List<ReleaseProgress> {
 
 private fun countTrue(values: Release1_NativeParity): Int {
     return listOf(
-        pipeline.release1.institutionalScanner,
-        pipeline.release1.calmarSharpe,
-        pipeline.release1.triFactor,
-        pipeline.release1.l2Reconstruction,
-        pipeline.release1.fiveHorizons,
-        pipeline.release1.predictionLedger,
-        pipeline.release1.rmseCalibration,
-        pipeline.release1.backgroundService,
-        pipeline.release1.roomDatabase,
-        pipeline.release1.csvExport
+        values.institutionalScanner,
+        values.calmarSharpe,
+        values.triFactor,
+        values.l2Reconstruction,
+        values.fiveHorizons,
+        values.predictionLedger,
+        values.rmseCalibration,
+        values.backgroundService,
+        values.roomDatabase,
+        values.csvExport
     ).count { it }
 }
 
 private fun countTrue(values: Release2_QuantUpgrade): Int {
     return listOf(
-        pipeline.release2.fullOrderBookReconstruction,
-        pipeline.release2.liquidationHeatmap,
-        pipeline.release2.institutionalTradeTape,
-        pipeline.release2.horizonSpecificPainPaths,
-        pipeline.release2.twentyFourHFRVP,
-        pipeline.release2.vahValLVN,
-        pipeline.release2.neuralUQLOB,
-        pipeline.release2.improvedRegime
+        values.fullOrderBookReconstruction,
+        values.liquidationHeatmap,
+        values.institutionalTradeTape,
+        values.horizonSpecificPainPaths,
+        values.twentyFourHrFRVP,
+        values.vahValLVN,
+        values.neuralUQLOB,
+        values.improvedRegime
     ).count { it }
 }
 
 private fun countTrue(values: Release3_MultiModelIntelligence): Int {
     return listOf(
-        pipeline.release3.kronos,
-        pipeline.release3.finTextChronos,
-        pipeline.release3.timesFM,
-        pipeline.release3.modelBenchmarking,
-        pipeline.release3.fourthFactorEnsemble,
-        pipeline.release3.persistentPerCoinPerHorizonWeights
+        values.kronos,
+        values.finTextChronos,
+        values.timesFM,
+        values.modelBenchmarking,
+        values.fourthFactorEnsemble,
+        values.persistentPerCoinPerHorizonWeights
     ).count { it }
 }
 
 private fun countTrue(values: Release4_EdgeIntelligence): Int {
     return listOf(
-        pipeline.release4.edgeSLM,
-        pipeline.release4.decisionRouter,
-        pipeline.release4.agentDAG,
-        pipeline.release4.modelDisagreement,
-        pipeline.release4.autonomousQuantBriefs,
-        pipeline.release4.advancedNotifications
+        values.edgeSLM,
+        values.decisionRouter,
+        values.agentDAG,
+        values.modelDisagreement,
+        values.autonomousQuantBriefs,
+        values.advancedNotifications
     ).count { it }
 }
