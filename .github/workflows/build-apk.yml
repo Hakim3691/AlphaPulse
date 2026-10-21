@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - master
+    tags:
+      - 'v*'
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -26,19 +28,124 @@ on:
         type: boolean
         default: true
 
+permissions:
+  contents: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build & Package APK
+  # =========================================================================
+  # JOB 1: Test Suite (Gating matrix)
+  # =========================================================================
+  test:
+    name: Unit Tests (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 25
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_tests }}
     strategy:
+      fail-fast: true
       matrix:
         api-level: [33, 34]
-    max-parallel: 2
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Configure Gradle Memory & Performance Options
+        run: |
+          mkdir -p ~/.gradle
+          cat << 'EOF' >> ~/.gradle/gradle.properties
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC
+          org.gradle.parallel=true
+          org.gradle.configuration-cache=true
+          EOF
+
+      - name: Accept Android SDK Licenses
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses"
+          echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          yes | sdkmanager --licenses || true
+
+      - name: Provision Secrets & Keystores (Test Environment)
+        run: |
+          # 1. Satisfy Secrets Gradle Plugin
+          if [ ! -f .env ]; then
+            if [ -f .env.example ]; then
+              cp .env.example .env
+            else
+              touch .env
+            fi
+          fi
+
+          # 2. Make gradlew executable
+          chmod +x gradlew
+
+          # 3. Provision debug.keystore
+          if [ ! -s debug.keystore ]; then
+            if [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
+              base64 -d debug.keystore.base64 > debug.keystore
+            fi
+          fi
+          if [ ! -s debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Android Debug, O=Android, C=US"
+          fi
+
+          # 4. Provision fallback upload keystore to avoid evaluation failures
+          if [ ! -s my-upload-key.jks ]; then
+            keytool -genkeypair -v \
+              -keystore my-upload-key.jks \
+              -alias upload \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Alpha Pulse, OU=Engineering, O=Alpha Pulse, L=Mountain View, ST=CA, C=US"
+          fi
+
+      - name: Execute Unit & Robolectric Tests
+        run: |
+          echo "Running unit & Robolectric tests (API Level: ${{ matrix.api-level }})..."
+          ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=${{ matrix.api-level }}
+
+      - name: Upload Test Reports Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-api-${{ matrix.api-level }}-${{ github.sha }}
+          path: app/build/**/test-results/**/*.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # =========================================================================
+  # JOB 2: Build & Package APK (Only runs if ALL test jobs succeed)
+  # =========================================================================
+  build:
+    name: Assemble APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: test
+    if: ${{ always() && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
 
     steps:
       - name: Checkout Repository
@@ -55,11 +162,19 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Configure Gradle Memory & Performance Options
+        run: |
+          mkdir -p ~/.gradle
+          cat << 'EOF' >> ~/.gradle/gradle.properties
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC
+          org.gradle.parallel=true
+          org.gradle.configuration-cache=true
+          EOF
+
       - name: Accept Android SDK Licenses
         run: |
           mkdir -p "$ANDROID_HOME/licenses"
-          echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee
-d975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-license"
           echo -e "84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
           yes | sdkmanager --licenses || true
 
@@ -108,27 +223,26 @@ d975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-
               -validity 10000 \
               -storepass android \
               -keypass android \
-              -dname "CN=AI Phone, OU=Engineering, O=AI Phone, L=Mountain View, ST=CA, C=US"
+              -dname "CN=Alpha Pulse, OU=Engineering, O=Alpha Pulse, L=Mountain View, ST=CA, C=US"
           fi
 
-      - name: Run Tests & Build APK
-        env:
-          BUILD_NUMBER: ${{ github.run_number }}
-          GIT_SHA: ${{ github.sha }}
+      - name: Build APK Packages
         run: |
           # Resolve triggers and inputs safely
           RAW_TYPE="${{ github.event.inputs.build_type }}"
-          BUILD_TYPE="${RAW_TYPE:-debug}"
-          RAW_TESTS="${{ github.event.inputs.run_tests }}"
-          RUN_TESTS="${RAW_TESTS:-true}"
+          if [ -n "$RAW_TYPE" ]; then
+            BUILD_TYPE="$RAW_TYPE"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            BUILD_TYPE="release"
+          else
+            BUILD_TYPE="${RAW_TYPE:-debug}"
+          fi
 
           echo "=========================================="
-          echo "Build Type: $BUILD_TYPE"
-          echo "Run Tests:  $RUN_TESTS"
-          echo "API Level:  $API_LEVEL"
+          echo "Target Build Type: $BUILD_TYPE"
           echo "=========================================="
 
-          # Safe environment variable handling (avoid unconfigured secret empty string issues)
+          # Safe environment variable handling to avoid "Cannot convert '' to File"
           SECRET_KEYSTORE="${{ secrets.KEYSTORE_PATH }}"
           if [ -n "$SECRET_KEYSTORE" ] && [ -f "$SECRET_KEYSTORE" ]; then
             export KEYSTORE_PATH="$SECRET_KEYSTORE"
@@ -141,12 +255,6 @@ d975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-
 
           SECRET_KEY_PASS="${{ secrets.KEY_PASSWORD }}"
           export KEY_PASSWORD="${SECRET_KEY_PASS:-android}"
-
-          # Run unit & Robolectric tests if enabled
-          if [ "$RUN_TESTS" = "true" ]; then
-            echo "Running unit & Robolectric tests (api-level=$API_LEVEL)..."
-            ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=$API_LEVEL || true
-          fi
 
           # Execute build task based on build_type
           case "$BUILD_TYPE" in
@@ -168,66 +276,15 @@ d975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-
               ;;
           esac
 
-      - name: Capture Build Environment Debug Info
-        if: always()
-        run: |
-          echo "=== BUILD ENVIRONMENT DEBUG INFO ==="
-          echo "ANDROID_HOME: $ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
-          echo "PATH: $PATH"
-          echo "JAVA_HOME: $JAVA_HOME"
-          echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
-          echo "RUNNER_OS: $RUNNER_OS"
-          echo "RUNNER_ARCH: $RUNNER_ARCH"
-          echo "API_LEVEL: $API_LEVEL"
-          echo "BUILD_NUMBER: $BUILD_NUMBER"
-          echo "GIT_SHA: $GIT_SHA"
-          echo "WORKFLOW: $GITHUB_WORKFLOW"
-          echo "JOB: $GITHUB_JOB"
-          echo "STEP: $GITHUB_STEP_NUMBER"
-          echo "==========================================="
-
-      - name: Publish Test Reports
-          case "$BUILD_TYPE" in
-            "debug")
-              echo "Assembling debug APK..."
-              ./gradlew :app:assembleDebug --stacktrace
-              ;;
-            "release")
-              echo "Assembling release APK..."
-              ./gradlew :app:assembleRelease --stacktrace
-              ;;
-            "both")
-              echo "Assembling both debug and release APKs..."
-              ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
-              ;;
-            *)
-              echo "Unknown build_type: $BUILD_TYPE, defaulting to assembleDebug..."
-              ./gradlew :app:assembleDebug --stacktrace
-              ;;
-          esac
-
-      - name: Publish Test Reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-reports-${{ matrix.api-level }}
-          path: app/build/**/test-results/**/*.xml
-          retention-days: 30
-
-      - name: Publish Test Suite Summary
-        if: always()
-        run: |
-          echo "Test completion summary:"
-          if [ -f app/build/**/test-results/output.txt ]; then
-            cat app/build/**/test-results/output.txt
-          fi
-          echo "Total test results stored in artifacts."
-
       - name: List Generated APKs
         run: |
           echo "Listing all generated APK files:"
-          find app/build/outputs/apk -type f -name "*.apk" -exec ls -lh {} +
+          if [ -d "app/build/outputs/apk" ]; then
+            find app/build/outputs/apk -type f -name "*.apk" -exec ls -lh {} +
+          else
+            echo "::error::No APK directory found after build step."
+            exit 1
+          fi
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
@@ -236,3 +293,32 @@ d975f78077227923285f433e6574f90f169b7f16" > "$ANDROID_HOME/licenses/android-sdk-
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 30
+
+  # =========================================================================
+  # JOB 3: Automatic GitHub Release (Triggers only on pushed tags, e.g. v1.0.0)
+  # =========================================================================
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download APK Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: alphapulse-apks-${{ github.sha }}
+          path: release-apks
+
+      - name: Publish Release with APK Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-apks/**/*.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
