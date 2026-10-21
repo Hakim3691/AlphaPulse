@@ -196,7 +196,7 @@ fun calculateProgress(pipeline: ReleasePipeline): List<ReleaseProgress> {
 }
 
 private fun countTrue(values: Release1_NativeParity): Int {
-    return listOf(
+    return listOf<Boolean>(
         pipeline.release1.institutionalScanner,
         pipeline.release1.calmarSharpe,
         pipeline.release1.triFactor,
@@ -211,7 +211,7 @@ private fun countTrue(values: Release1_NativeParity): Int {
 }
 
 private fun countTrue(values: Release2_QuantUpgrade): Int {
-    return listOf(
+    return listOf<Boolean>(
         pipeline.release2.fullOrderBookReconstruction,
         pipeline.release2.liquidationHeatmap,
         pipeline.release2.institutionalTradeTape,
@@ -224,7 +224,7 @@ private fun countTrue(values: Release2_QuantUpgrade): Int {
 }
 
 private fun countTrue(values: Release3_MultiModelIntelligence): Int {
-    return listOf(
+    return listOf<Boolean>(
         pipeline.release3.kronos,
         pipeline.release3.finTextChronos,
         pipeline.release3.timesFM,
@@ -235,7 +235,7 @@ private fun countTrue(values: Release3_MultiModelIntelligence): Int {
 }
 
 private fun countTrue(values: Release4_EdgeIntelligence): Int {
-    return listOf(
+    return listOf<Boolean>(
         pipeline.release4.edgeSLM,
         pipeline.release4.decisionRouter,
         pipeline.release4.agentDAG,
