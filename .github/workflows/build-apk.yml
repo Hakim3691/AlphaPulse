@@ -110,7 +110,7 @@ jobs:
               -dname "CN=Android Debug, O=Android, C=US"
           fi
 
-          # 4. Provision fallback upload keystore to avoid evaluation failures
+          # 4. Provision fallback upload keystore
           if [ ! -s my-upload-key.jks ]; then
             keytool -genkeypair -v \
               -keystore my-upload-key.jks \
@@ -126,7 +126,23 @@ jobs:
       - name: Execute Unit & Robolectric Tests
         run: |
           echo "Running unit & Robolectric tests (API Level: ${{ matrix.api-level }})..."
-          ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=${{ matrix.api-level }}
+          ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=${{ matrix.api-level }} --stacktrace
+
+      - name: Surface Test Failures in Job Summary
+        if: failure()
+        run: |
+          echo "### ❌ Failed Tests (API ${{ matrix.api-level }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          FAILED_TESTS=$(find app/build/test-results -name "*.xml" -exec grep -H "<failure" {} + 2>/dev/null || true)
+
+          if [ -n "$FAILED_TESTS" ]; then
+            echo '```text' >> $GITHUB_STEP_SUMMARY
+            find app/build/test-results -name "*.xml" -exec grep -B 1 -A 2 "<failure" {} + 2>/dev/null | sed 's/<[^>]*>//g' >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Tests failed during Gradle configuration or compilation. Inspect raw step logs above." >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Upload Test Reports Artifact
         if: always()
@@ -228,7 +244,7 @@ jobs:
 
       - name: Build APK Packages
         run: |
-          # Resolve triggers and inputs safely
+          # Priority: Manual Dispatch Input -> Tag Push (release) -> Branch Push (debug)
           RAW_TYPE="${{ github.event.inputs.build_type }}"
           if [ -n "$RAW_TYPE" ]; then
             BUILD_TYPE="$RAW_TYPE"
