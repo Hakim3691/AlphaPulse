@@ -3,6 +3,9 @@ package com.aistudio.alphapulse.di
 import android.content.Context
 import com.aistudio.alphapulse.data.db.AppDatabase
 import com.aistudio.alphapulse.data.network.BinanceWebSocketManager
+import com.aistudio.alphapulse.data.network.BybitProvider
+import com.aistudio.alphapulse.data.network.FailoverExchangeProvider
+import com.aistudio.alphapulse.data.network.HyperliquidProvider
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
 import java.io.File
@@ -27,14 +30,15 @@ object ServiceLocator {
     @Volatile
     private var production: Graph? = null
 
-    /** Immutable wiring of the app's long-lived dependencies. */
-    class Graph(
-        val client: ResilientBinanceClient,
-        val database: AppDatabase,
-        val wsManager: BinanceWebSocketManager,
-        val repository: AlphaPulseRepository,
-        val cacheDir: File?
-    )
+/** Immutable wiring of the app's long-lived dependencies. */
+class Graph(
+    val client: ResilientBinanceClient,
+    val database: AppDatabase,
+    val wsManager: BinanceWebSocketManager,
+    val repository: AlphaPulseRepository,
+    val cacheDir: File?,
+    val failoverProvider: FailoverExchangeProvider
+)
 
     /**
      * Resolve the process-wide [Graph], building the production graph from
@@ -70,6 +74,8 @@ object ServiceLocator {
 
     fun repository(context: Context): AlphaPulseRepository = graph(context).repository
 
+    fun failoverProvider(context: Context): FailoverExchangeProvider = graph(context).failoverProvider
+
     private fun buildProduction(appContext: Context): Graph {
         val client = ResilientBinanceClient()
         val database = AppDatabase.getDatabase(appContext)
@@ -80,6 +86,11 @@ object ServiceLocator {
             cacheDir = appContext.cacheDir,
             wsManager = wsManager
         )
-        return Graph(client, database, wsManager, repository, appContext.cacheDir)
+        val failoverProvider = FailoverExchangeProvider(
+            binanceProvider = com.aistudio.alphapulse.data.network.BinanceProvider(client, wsManager),
+            bybitProvider = BybitProvider(),
+            hyperliquidProvider = HyperliquidProvider()
+        )
+        return Graph(client, database, wsManager, repository, appContext.cacheDir, failoverProvider)
     }
 }

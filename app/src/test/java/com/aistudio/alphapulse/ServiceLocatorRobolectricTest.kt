@@ -4,7 +4,11 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.aistudio.alphapulse.data.db.AppDatabase
+import com.aistudio.alphapulse.data.network.BinanceProvider
 import com.aistudio.alphapulse.data.network.BinanceWebSocketManager
+import com.aistudio.alphapulse.data.network.BybitProvider
+import com.aistudio.alphapulse.data.network.FailoverExchangeProvider
+import com.aistudio.alphapulse.data.network.HyperliquidProvider
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
 import com.aistudio.alphapulse.di.ServiceLocator
@@ -94,7 +98,12 @@ class ServiceLocatorRobolectricTest {
             database = fakeDb,
             wsManager = BinanceWebSocketManager(),
             repository = fakeRepo,
-            cacheDir = null
+            cacheDir = null,
+            failoverProvider = FailoverExchangeProvider(
+                binanceProvider = BinanceProvider(ResilientBinanceClient(), BinanceWebSocketManager()),
+                bybitProvider = BybitProvider(),
+                hyperliquidProvider = HyperliquidProvider()
+            )
         )
 
         ServiceLocator.overrideForTesting(fakeGraph)
@@ -121,7 +130,12 @@ class ServiceLocatorRobolectricTest {
                 null,
                 BinanceWebSocketManager()
             ),
-            cacheDir = null
+            cacheDir = null,
+            failoverProvider = FailoverExchangeProvider(
+                binanceProvider = BinanceProvider(ResilientBinanceClient(), BinanceWebSocketManager()),
+                bybitProvider = BybitProvider(),
+                hyperliquidProvider = HyperliquidProvider()
+            )
         )
         ServiceLocator.overrideForTesting(fakeGraph)
         assertSame(fakeGraph, ServiceLocator.graph(context))
