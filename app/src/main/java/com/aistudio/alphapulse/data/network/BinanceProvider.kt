@@ -1,4 +1,4 @@
-/***
+/**
  * BinanceProvider - ExchangeDataProvider implementation for Binance USDⓈ-M Futures.
  * Adapts ResilientBinanceClient and Binance WebSocket infrastructure to the
  * common ExchangeDataProvider contract. Primary provider for the AlphaPulse engine.
@@ -19,13 +19,17 @@ import com.aistudio.alphapulse.domain.quant.DepthTier
 import com.aistudio.alphapulse.domain.quant.KlineData
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asFlow
-import kotlinx.coroutines.flow.emitAll
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineStart
@@ -36,12 +40,22 @@ import java.util.*
 import java.util.Locale
 
 class BinanceProvider(
-    private val client: ResilientBinanceClient = ResilientBinanceClient()
+    private val client: ResilientBinanceClient = ResilientBinanceClient(),
+    private val wsManager: BinanceWebSocketManager = BinanceWebSocketManager()
 ) : ExchangeDataProvider {
 
     // --- Watched symbols tracking ---
     private val _watchedSymbols = MutableStateFlow<List<String>>(emptyList())
     override val watchedSymbols: StateFlow<List<String>> = _watchedSymbols.asStateFlow()
+
+    // --- Start/stop WebSocket streaming for a symbol ---
+    fun startStreaming(symbol: String) {
+        wsManager.startStreaming(symbol)
+    }
+
+    fun stopStreaming() {
+        wsManager.stopStreaming()
+    }
 
     // --- Ticker Snapshot ---
     override fun getTickerFlow(symbol: String): Flow<TickerSnapshot> = flow {
@@ -81,58 +95,38 @@ class BinanceProvider(
     // --- Depth Flow (Order Book) ---
     // Binance WebSocket depth20 stream: ${symbol}@depth20@250ms
     override fun getDepthFlow(symbol: String): Flow<DepthSnapshot> = flow {
-        val cleanSym = symbol.replace("USDT", "").uppercase(Locale.US)
-        val url = "wss://fstream.binance.com/stream?streams=${cleanSym}@depth20@250ms"
-        // Use existing BinanceWebSocketManager infrastructure adapted here
-        // For now, delegate to the shared WS manager via repository
-        // This is a stub - full WS integration will be in Phase 2
-        try {
-            // Placeholder: emit initial snapshot and suspend
-            // Actual WS integration will use BinanceWebSocketManager depth streaming
-            emit(
+        // Start streaming if not already active for this symbol
+        startStreaming(symbol)
+
+        // Convert WebSocket telemetry to DepthSnapshot flow
+        val depthFlow = wsManager.telemetryFlow
+            .filter { it != null && it.symbol == symbol }
+            .distinctUntilChanged()
+            .map { telemetry ->
                 DepthSnapshot(
-                    bids = emptyList<DepthTier>(),
-                    asks = emptyList<DepthTier>(),
-                    timestamp = System.currentTimeMillis()
+                    bids = telemetry!!.bids,
+                    asks = telemetry.asks,
+                    timestamp = telemetry.lastUpdateTimestamp
                 )
-            )
-        } catch (e: Exception) {
-            emit(
-                DepthSnapshot(
-                    bids = emptyList<DepthTier>(),
-                    asks = emptyList<DepthTier>(),
-                    timestamp = System.currentTimeMillis()
-                )
-            )
-        }
+            }
+
+        // Collect and emit from the transformed flow
+        depthFlow.collect { emit(it) }
     }
 
     // --- Aggregate Trade Flow ---
     override fun getAggTradeFlow(symbol: String): Flow<AggTradeEvent> = flow {
-        // Use fetchAggTrades from ResilientBinanceClient with rolling window
-        try {
-            val trades = client.fetchAggTrades(symbol, 500)
-            // Convert first trade as initial event, then WS will take over
-            if (trades.isNotEmpty()) {
-                val first = trades.first() as List<*>
-                emit(
-                    AggTradeEvent(
-                        tradeId = (first[0] as Number).toLong(),
-                        price = (first[1] as Number).toDouble(),
-                        quantity = (first[2] as Number).toDouble(),
-                        quoteVolume = (first[7] as Number).toDouble(),
-                        buyerMaker = first[5] == 1,
-                        timestamp = (first[6] as Number).toLong(),
-                        symbol = symbol
-                    )
-                )
+        // Start streaming if not already active
+        startStreaming(symbol)
+
+        // Convert WebSocket channel to Flow using channel receive loop
+        val channel = wsManager.aggTradeFlow
+        while (true) {
+            val event = channel.receive()
+            if (event.symbol == symbol) {
+                emit(event)
             }
-        } catch (e: Exception) {
-            // emit placeholder on error
         }
-        // Suspend - WS stream will take over in production
-        // Use a never-completing flow for placeholder
-        while (true) { kotlinx.coroutines.delay(Long.MAX_VALUE) }
     }
 
     // --- Funding Rate Flow ---
@@ -159,69 +153,33 @@ class BinanceProvider(
 
     // --- Liquidation Flow ---
     override fun getLiquidationFlow(symbol: String): Flow<LiquidationEvent> = flow {
-        // Will be integrated with Binance @forceOrder WS stream in Phase 2
-        // For now, emit empty flow; fallback to smartmoneyapi.com via ResilientBinanceClient if needed
-        try {
-            // Placeholder: try REST endpoint if available
-            val obj = client.getJsonObject("/fapi/v1/premiumIndex?symbol=$symbol")
-            emit(
-                LiquidationEvent(
-                    price = obj.getDouble("markPrice"),
-                    notional = 0.0,
-                    side = "long",
-                    timestamp = System.currentTimeMillis(),
-                    symbol = symbol
-                )
-            )
-        } catch (e: Exception) {
-            // Fallback to smartmoneyapi.com (no-key public endpoint)
-            try {
-                val url = "https://api.smartmoneyapi.com/v1/liquidations/heatmap?symbol=$symbol"
-                val obj = client.getJsonObject(url)
-                emit(
-                    LiquidationEvent(
-                        price = (obj["price"] as? Number)?.toDouble() ?: 0.0,
-                        notional = (obj["notional"] as? Number)?.toDouble() ?: 0.0,
-                        side = obj["side"]?.toString() ?: "long",
-                        timestamp = System.currentTimeMillis(),
-                        symbol = symbol
-                    )
-                )
-            } catch (e2: Exception) {
-                // Final placeholder
-                emit(
-                    LiquidationEvent(
-                        price = 0.0,
-                        notional = 0.0,
-                        side = "long",
-                        timestamp = System.currentTimeMillis(),
-                        symbol = symbol
-                    )
-                )
+        // Start streaming if not already active
+        startStreaming(symbol)
+
+        // Convert WebSocket channel to Flow using channel receive loop
+        val channel = wsManager.liquidationFlow
+        while (true) {
+            val event = channel.receive()
+            if (event.symbol == symbol) {
+                emit(event)
             }
         }
     }
 
     // --- Open Interest Flow ---
     override fun getOpenInterestFlow(symbol: String): Flow<OpenInterestEvent> = flow {
-        try {
-            val obj = client.getJsonObject("/fapi/v1/openInterest?symbol=$symbol")
-            val rawOi = obj.optDouble("openInterest", 0.0)
-            emit(
-                OpenInterestEvent(
-                    symbol = symbol,
-                    openInterest = if (rawOi > 0) rawOi else 1.0,
-                    timestamp = System.currentTimeMillis()
-                )
-            )
-        } catch (e: Exception) {
-            emit(
-                OpenInterestEvent(
-                    symbol = symbol,
-                    openInterest = 1.0,
-                    timestamp = System.currentTimeMillis()
-                )
-            )
+        // Start streaming if not already active
+        startStreaming(symbol)
+
+        // Convert WebSocket channel to Flow using channel receive loop
+        val channel = wsManager.openInterestFlow
+        while (true) {
+            val oi = channel.receive()
+            emit(OpenInterestEvent(
+                symbol = symbol,
+                openInterest = oi,
+                timestamp = System.currentTimeMillis()
+            ))
         }
     }
 

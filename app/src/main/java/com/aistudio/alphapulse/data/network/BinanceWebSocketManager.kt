@@ -6,8 +6,12 @@ import com.aistudio.alphapulse.data.db.TradeBufferDao
 import com.aistudio.alphapulse.data.db.TradeBufferEntity
 import com.aistudio.alphapulse.data.db.OrderBookDeltaEntity
 import com.aistudio.alphapulse.data.db.LiquidationHeatmapEntity
+import com.aistudio.alphapulse.domain.data.AggTradeEvent
+import com.aistudio.alphapulse.domain.data.LiquidationEvent as DomainLiquidationEvent
 import com.aistudio.alphapulse.domain.quant.DepthTier
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -75,6 +79,18 @@ class BinanceWebSocketManager(
     val liquidationTelemetryFlow: StateFlow<LocalLiquidationTelemetry?> = _liquidationTelemetry.asStateFlow()
     private var liquidationWindowMs: Long = 30 * 60 * 1000L
 
+    // Channel for aggTrade events (unbuffered for backpressure)
+    private val _aggTradeChannel = Channel<AggTradeEvent>(Channel.UNLIMITED)
+    val aggTradeFlow: ReceiveChannel<AggTradeEvent> = _aggTradeChannel
+
+    // Channel for liquidation events
+    private val _liquidationChannel = Channel<DomainLiquidationEvent>(Channel.UNLIMITED)
+    val liquidationFlow: ReceiveChannel<DomainLiquidationEvent> = _liquidationChannel
+
+    // Channel for open interest events
+    private val _openInterestChannel = Channel<Double>(Channel.UNLIMITED)
+    val openInterestFlow: ReceiveChannel<Double> = _openInterestChannel
+
     // 500-element circular buffer for aggTrades to compute 95th percentile empirical shock
     private val aggTradeBuffer = ArrayList<Double>(500)
     private var prevDepthTotal = 0.0
@@ -92,8 +108,8 @@ class BinanceWebSocketManager(
         closeCurrent()
 
         val cleanSym = symbol.lowercase()
-        // Binance Futures combined stream endpoint (depth + trades + forced liquidations):
-        val streamUrl = "wss://fstream.binance.com/stream?streams=${cleanSym}@depth20@250ms/${cleanSym}@aggTrade/${cleanSym}@forceOrder"
+        // Binance Futures combined stream endpoint (depth + trades + forced liquidations + open interest):
+        val streamUrl = "wss://fstream.binance.com/stream?streams=${cleanSym}@depth20@250ms/${cleanSym}@aggTrade/${cleanSym}@forceOrder/${cleanSym}@openInterest"
 
         val request = Request.Builder()
             .url(streamUrl)
@@ -117,6 +133,21 @@ class BinanceWebSocketManager(
                     latestSpotPrice = p
                     val notional = p * q
                     val quoteVolume = p * q
+                    val tradeId = data.optLong("a", System.currentTimeMillis())
+                    val isBuyerMaker = data.optBoolean("m", false)
+                    val timestamp = data.optLong("T", System.currentTimeMillis())
+                    
+                    // Emit aggTrade event to flow
+                    coroutineScope.launch { _aggTradeChannel.send(AggTradeEvent(
+                        tradeId = tradeId,
+                        price = p,
+                        quantity = q,
+                        quoteVolume = quoteVolume,
+                        buyerMaker = isBuyerMaker,
+                        timestamp = timestamp,
+                        symbol = activeSymbol
+                    )) }
+
                     synchronized(aggTradeBuffer) {
                         if (aggTradeBuffer.size >= 500) {
                             aggTradeBuffer.removeAt(0)
@@ -128,13 +159,13 @@ class BinanceWebSocketManager(
                         coroutineScope.launch {
                             db.tradeBufferDao().insertTrade(
                                 TradeBufferEntity(
-                                    tradeId = System.currentTimeMillis(),
+                                    tradeId = timestamp,
                                     symbol = activeSymbol,
                                     price = p,
                                     quantity = q,
                                     quoteVolume = quoteVolume,
-                                    buyerMaker = false, // @aggTrade doesn't specify maker/taker
-                                    timestamp = System.currentTimeMillis()
+                                    buyerMaker = isBuyerMaker,
+                                    timestamp = timestamp
                                 )
                             )
                         }
@@ -151,6 +182,22 @@ class BinanceWebSocketManager(
                                 ?: order.optDouble("origQty", 0.0).takeIf { it > 0.0 }
                             if (px != null && qty != null && px > 0.0 && qty > 0.0) {
                                 val nowMs = order.optLong("T", System.currentTimeMillis())
+                                val side = order.optString("S", "")
+                                val liquidationSide = when (side) {
+                                    "SELL" -> "long"  // SELL order = long position liquidated
+                                    "BUY" -> "short"  // BUY order = short position liquidated
+                                    else -> "unknown"
+                                }
+                                
+                                // Emit liquidation event to flow
+                                coroutineScope.launch { _liquidationChannel.send(DomainLiquidationEvent(
+                                    price = px,
+                                    notional = px * qty,
+                                    side = liquidationSide,
+                                    timestamp = nowMs,
+                                    symbol = activeSymbol
+                                )) }
+
                                 synchronized(liquidationBuffer) {
                                     liquidationBuffer.add(LiquidationEvent(px, px * qty, nowMs))
                                     while (liquidationBuffer.isNotEmpty() && nowMs - liquidationBuffer.first().timestamp > liquidationWindowMs) {
@@ -161,7 +208,6 @@ class BinanceWebSocketManager(
                                 // Persist liquidation event
                                 database?.let { db ->
                                     coroutineScope.launch {
-                                        val side = order.optString("S", "")
                                         db.liquidationHeatmapDao().insertLiquidationHeat(
                                             LiquidationHeatmapEntity(
                                                 id = "LQ_${activeSymbol}_${nowMs}_${px}",
@@ -175,6 +221,11 @@ class BinanceWebSocketManager(
                                     }
                                 }
                             }
+                        }
+                    } else if (stream.contains("@openInterest") || data.has("oi")) {
+                        val oi = data.optDouble("oi", 0.0)
+                        if (oi > 0.0) {
+                            coroutineScope.launch { _openInterestChannel.send(oi) }
                         }
                     } else if (stream.contains("@depth20") || data.has("bids")) {
                         val bidsArr = data.optJSONArray("bids")
