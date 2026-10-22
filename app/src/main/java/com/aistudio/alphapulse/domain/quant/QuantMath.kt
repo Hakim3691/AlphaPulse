@@ -23,6 +23,24 @@ import kotlin.math.sqrt
  *
  * Spec Ref: §8, Gap §2 line 3
  */
+
+/** Order book reconstruction and microstructure analysis results (FR-006) */
+data class OrderBookAnalysis(
+    val depthLevels: Map<Int, DepthSnapshot>, // Reconstructed at different depths
+    val spread: Double,
+    val imbalance: Double,
+    val bidAskRatio: Double,
+    val absorptionDetected: Boolean,
+    val spoofingDetected: Boolean,
+    val stackingDetected: Boolean,
+    val cancellationsDetected: Boolean,
+    val replenishmentDetected: Boolean,
+    val depthCollapseDetected: Boolean,
+    val liquidityVoids: List<Pair<Double, Double>>,
+    val depthVelocity: Double,
+    val analysisTimestamp: Long = System.currentTimeMillis()
+)
+
 object QuantMath {
 
     /** Regime labels shared by the engine, the agents and the UI. */
