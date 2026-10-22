@@ -78,6 +78,13 @@ object OfflineModeManager {
     /** Get the current offline info. */
     fun getCurrentInfo(): OfflineInfo = currentInfo
 
+    /** Map raw connectivity facts onto the operating mode. */
+    fun resolveMode(isConnected: Boolean, isMetered: Boolean): OfflineMode = when {
+        !isConnected -> OfflineMode.OFFLINE
+        isMetered -> OfflineMode.DEGRADED
+        else -> OfflineMode.ONLINE
+    }
+
     /** Recompute connectivity state from the system and update currentInfo. */
     private fun refresh() {
         val cm = connectivityManager ?: return
@@ -86,11 +93,7 @@ object OfflineModeManager {
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         val isMetered = caps == null || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
 
-        val mode = when {
-            !isConnected -> OfflineMode.OFFLINE
-            isMetered -> OfflineMode.DEGRADED
-            else -> OfflineMode.ONLINE
-        }
+        val mode = resolveMode(isConnected, isMetered)
 
         currentInfo = OfflineInfo(
             mode = mode,

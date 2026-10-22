@@ -152,6 +152,46 @@ object QuantMath {
         )
     }
 
+    /**
+     * UQ-LOB uncertainty heuristic for the order book (spec §13).
+     *
+     * Returns a confidence in [0.1, 1.0] where 1.0 means an exceptionally clean
+     * book (tight spread, balanced depth) and lower values mean the book is
+     * unreliable. An empty or one-sided book carries no information at all and
+     * is reported as exactly neutral (0.5).
+     *
+     * Replace with the neural UQ-LOB model when the on-device runtime is wired in.
+     */
+    fun computeUQLOBUncertainty(
+        bids: List<DepthTier>,
+        asks: List<DepthTier>,
+        baseVol: Double
+    ): Double {
+        if (bids.isEmpty() || asks.isEmpty()) return 0.5
+
+        val bestBid = bids.maxOf { it.price }
+        val bestAsk = asks.minOf { it.price }
+        if (bestBid <= 0.0 || bestAsk <= 0.0 || bestAsk <= bestBid) return 0.5
+
+        val mid = (bestBid + bestAsk) / 2.0
+        val relativeSpread = (bestAsk - bestBid) / mid
+
+        // A spread that dwarfs typical volatility makes the book uninformative.
+        val spreadQuality = exp(-relativeSpread / max(baseVol, 1e-9))
+
+        val bidNotional = bids.take(20).sumOf { it.price * it.quantity }
+        val askNotional = asks.take(20).sumOf { it.price * it.quantity }
+        val totalNotional = bidNotional + askNotional
+        val imbalance = if (totalNotional > 0.0) {
+            abs(bidNotional - askNotional) / totalNotional
+        } else {
+            1.0
+        }
+
+        val imbalancePenalty = 1.0 - 0.5 * imbalance
+        return ((0.1 + 0.9 * spreadQuality) * imbalancePenalty).coerceIn(0.1, 1.0)
+    }
+
     /** Legacy: computeLiquidityPainPath (unchanged). */
     fun computeLiquidityPainPath(
         bids: List<DepthTier>,
@@ -420,7 +460,7 @@ object QuantMath {
     }
 
     /** Relative Strength Index over a fixed lookback period. */
-    fun computeRSI(closes: List<Double>, period: Int): Double {
+    fun computeRSI(closes: List<Double>, period: Int = 14): Double {
         if (closes.size < period + 1) return 50.0
         var gains = 0.0
         var losses = 0.0
@@ -455,14 +495,14 @@ object QuantMath {
      * or Mean-Reverting and reports the kinematic drift and volatility scale.
      */
     fun evaluateMarkovRegimeGARCH(
-        logReturns: List<Double>,
+        returns: List<Double>,
         kurtosisHistory: List<Double>,
         state1Returns: List<Double>,
         state0Returns: List<Double>
     ): MarkovRegimeResult {
-        val mean = if (logReturns.isNotEmpty()) logReturns.average() else 0.0
-        val variance = if (logReturns.size > 1) {
-            logReturns.map { (it - mean) * (it - mean) }.average()
+        val mean = if (returns.isNotEmpty()) returns.average() else 0.0
+        val variance = if (returns.size > 1) {
+            returns.map { (it - mean) * (it - mean) }.average()
         } else 0.0
         val kurtosis = if (kurtosisHistory.isNotEmpty()) kurtosisHistory.last() else 3.0
         val regime = when {
@@ -499,12 +539,22 @@ object QuantMath {
     fun computeConfluenceAlpha(
         klines: List<KlineData>,
         currentSpot: Double,
-        depthSnapshot: DepthSnapshot,
+        depth: DepthSnapshot?,
         baseVol: Double,
         isMomentumBurst: Boolean
     ): ConfluenceAlphaResult {
         val vp = computeVolumeProfileAndVWAP(klines, currentSpot, isMomentumBurst)
         val muAlpha = vp.signalVP * baseVol
+
+        // Without an order book the confluence signal keeps its baseline confidence;
+        // with one, the UQ-LOB score is fused in at equal weight.
+        val confidence = if (depth == null) {
+            0.70
+        } else {
+            val uqLob = computeUQLOBUncertainty(depth.bids, depth.asks, baseVol)
+            (0.5 * 0.70 + 0.5 * uqLob).coerceIn(0.10, 1.0)
+        }
+
         return ConfluenceAlphaResult(
             muAlpha = muAlpha,
             vwap = vp.vwap,
@@ -513,7 +563,7 @@ object QuantMath {
             valPrice = vp.valPrice,
             rotationTarget = vp.rotationTarget,
             rotationRuleTriggered = vp.rotationRuleTriggered,
-            confidence = 0.70
+            confidence = confidence
         )
     }
 }

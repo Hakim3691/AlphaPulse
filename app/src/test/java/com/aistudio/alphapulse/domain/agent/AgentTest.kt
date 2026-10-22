@@ -5,6 +5,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
+import com.aistudio.alphapulse.domain.decision.DecisionState
+import kotlinx.coroutines.runBlocking
 
 /** Agent unit tests (spec section 30, unit group).
  * Covers BaseAgent interface, AgentDAG orchestration, and all 7 concrete agents.
@@ -160,6 +162,7 @@ class AgentTest {
             tsfmForecast = 1.2,
             lobConfidence = 0.80,
             liquidityConfidence = 0.80,
+            regimeConfidence = 0.80,
             modelDisagreement = 0.20,
             dataFreshness = 1.0
         )
@@ -208,19 +211,21 @@ class AgentTest {
             "netImbalanceUsdt" to 100.0
         )
 
-        val result = AgentDAG.executeFullPipeline(
-            symbol = "BTCUSDT",
-            marketData = marketData,
-            triFactorForecast = 1.5,
-            tsfmForecast = 1.2,
-            lobConfidence = 0.80,
-            liquidityConfidence = 0.80,
-            regimeConfidence = 0.80,
-            modelDisagreement = 0.20,
-            dataFreshness = 1.0,
-            coneBreaches = 0,
-            recentErrors = 0.0
-        )
+        val result = runBlocking {
+            AgentDAG.executeFullPipeline(
+                symbol = "BTCUSDT",
+                marketData = marketData,
+                triFactorForecast = 1.5,
+                tsfmForecast = 1.2,
+                lobConfidence = 0.80,
+                liquidityConfidence = 0.80,
+                regimeConfidence = 0.80,
+                modelDisagreement = 0.20,
+                dataFreshness = 1.0,
+                coneBreaches = 0,
+                recentErrors = 0.0
+            )
+        }
 
         // Pipeline should return a decision state (may be NO_TRADE depending on inputs)
         assertNotNull("Pipeline should return a DecisionState", result)
@@ -239,19 +244,21 @@ class AgentTest {
             "netImbalanceUsdt" to 5.0
         )
 
-        val result = AgentDAG.executeFullPipeline(
-            symbol = "BTCUSDT",
-            marketData = marketData,
-            triFactorForecast = 0.1,
-            tsfmForecast = 0.1,
-            lobConfidence = 0.55,
-            liquidityConfidence = 0.55,
-            regimeConfidence = 0.55,
-            modelDisagreement = 0.50,
-            dataFreshness = 0.30,
-            coneBreaches = 2,
-            recentErrors = 0.5
-        )
+        val result = runBlocking {
+            AgentDAG.executeFullPipeline(
+                symbol = "BTCUSDT",
+                marketData = marketData,
+                triFactorForecast = 0.1,
+                tsfmForecast = 0.1,
+                lobConfidence = 0.55,
+                liquidityConfidence = 0.55,
+                regimeConfidence = 0.55,
+                modelDisagreement = 0.50,
+                dataFreshness = 0.30,
+                coneBreaches = 2,
+                recentErrors = 0.5
+            )
+        }
 
         // With stale data and many cone breaches, should return NO_TRADE
         assertNotNull("Pipeline should return a DecisionState", result)

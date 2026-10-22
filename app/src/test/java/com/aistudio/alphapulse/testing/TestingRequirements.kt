@@ -44,6 +44,8 @@
 
 package com.aistudio.alphapulse.testing
 
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Unit test group: institutional filters */

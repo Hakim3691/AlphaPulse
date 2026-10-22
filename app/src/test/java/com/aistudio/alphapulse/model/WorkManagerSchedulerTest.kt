@@ -1,59 +1,42 @@
 package com.aistudio.alphapulse.model
 
-import org.junit.Assert.assertNotNull
-import org.junit.Before
+import com.aistudio.alphapulse.data.model.WorkManagerScheduler
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
-import android.content.Context
-import androidx.work.WorkManager
-import java.util.concurrent.TimeUnit
 
-/** WorkManagerScheduler unit tests. */
+/** WorkManagerScheduler unit tests (spec §35 background jobs). */
 class WorkManagerSchedulerTest {
 
-    private lateinit var context: Context
-
-    @Before
-    fun setUp() {
-        context = android.test.InstrumentationRegistry.getTargetContext()
-    }
-
     @Test
-    fun `workmanager_scheduler_existence`() {
-        // Verify WorkManager instance is available
-        val wm = WorkManager.getInstance(context)
-        assertNotNull("WorkManager should be available", wm)
-    }
-
-    @Test
-    fun `data_refresh_job_name_exists`() {
-        // Verify the unique work name is defined
-        assertNotNull("Data refresh work name should be defined") {
-            "com.aistudio.alphapulse.work.dataRefresh"
+    fun `work_names_are_namespaced_and_unique`() {
+        val names = listOf(
+            WorkManagerScheduler.WORK_NAME_DATA_REFRESH,
+            WorkManagerScheduler.WORK_NAME_MODEL_REEVAL,
+            WorkManagerScheduler.WORK_NAME_STATE_SYNC
+        )
+        names.forEach { name ->
+            assertTrue("'$name' must live in the app work namespace", name.startsWith("com.aistudio.alphapulse.work."))
         }
-    }
-
-    @Test
-    fun `model_reeval_job_name_exists`() {
-        assertNotNull("Model reeval work name should be defined") {
-            "com.aistudio.alphapulse.work.modelReeval"
-        }
-    }
-
-    @Test
-    fun `state_sync_job_name_exists`() {
-        assertNotNull("State sync work name should be defined") {
-            "com.aistudio.alphapulse.work.stateSync"
-        }
+        assertEquals("Unique work names must not collide", names.size, names.toSet().size)
     }
 
     @Test
     fun `work_scheduler_job_intervals`() {
-        // Verify the periodic work requests have sensible intervals
-        // 15 minutes for data refresh
-        assert(15 % 15 == 0, "Data refresh interval should be 15 minutes")
-        // 4 hours for model reeval
-        assert(240 % 4 == 0, "Model reeval interval should be 4 hours = 240 minutes")
-        // 24 hours for state sync
-        assert(1440 % 24 == 0, "State sync interval should be 24 hours = 1440 minutes")
+        assertEquals(15L, WorkManagerScheduler.DATA_REFRESH_INTERVAL_MINUTES)
+        assertEquals(240L, WorkManagerScheduler.MODEL_REEVAL_INTERVAL_MINUTES)
+        assertEquals(1440L, WorkManagerScheduler.STATE_SYNC_INTERVAL_MINUTES)
+    }
+
+    @Test
+    fun `periodic_intervals_respect_workmanager_minimum`() {
+        // WorkManager rejects periodic work under 15 minutes.
+        listOf(
+            WorkManagerScheduler.DATA_REFRESH_INTERVAL_MINUTES,
+            WorkManagerScheduler.MODEL_REEVAL_INTERVAL_MINUTES,
+            WorkManagerScheduler.STATE_SYNC_INTERVAL_MINUTES
+        ).forEach { minutes ->
+            assertTrue("Interval $minutes must be at least 15 minutes", minutes >= 15L)
+        }
     }
 }

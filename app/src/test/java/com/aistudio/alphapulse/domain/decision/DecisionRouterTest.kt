@@ -248,7 +248,7 @@ class DecisionRouterTest {
             coneBreaches = 0,
             recentErrors = 0.0
         )
-        _ = router.router(inputs)
+        router.router(inputs)
         // lastReason should be recorded
         assertNotNull("lastReason should not be null", router.lastReason)
     }

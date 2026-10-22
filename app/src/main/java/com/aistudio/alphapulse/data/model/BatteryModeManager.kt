@@ -54,6 +54,22 @@ object BatteryModeManager {
     /** Get the current battery info. */
     fun getCurrentInfo(): BatteryInfo = currentInfo
 
+    /** Convert raw battery level/scale extras into a percentage in 0..100. */
+    fun levelToPercent(level: Int, scale: Int): Int =
+        if (level >= 0 && scale > 0) {
+            ((level.toFloat() / scale) * 100).toInt().coerceIn(0, 100)
+        } else {
+            100
+        }
+
+    /** Map battery percentage and charging state onto the operating mode. */
+    fun resolveMode(percentage: Int, isCharging: Boolean): BatteryMode = when {
+        isCharging -> BatteryMode.FULL
+        percentage <= 15 -> BatteryMode.CONSERVATIVE
+        percentage <= 40 -> BatteryMode.MODERATE
+        else -> BatteryMode.FULL
+    }
+
     /** Internal broadcast receiver for battery updates. */
     private val BatteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -65,18 +81,11 @@ object BatteryModeManager {
                 intent.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY) ?: "unknown"
             } else "unknown"
 
-            val pct = if (level >= 0 && scale > 0) (level.toFloat() / scale * 100).toInt() else 100
+            val pct = levelToPercent(level, scale)
             val charging = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
             val isLow = pct <= 15
+            val mode = resolveMode(pct, charging)
 
-            val mode = when {
-                charging -> BatteryMode.FULL
-                pct <= 15 -> BatteryMode.CONSERVATIVE
-                pct <= 40 -> BatteryMode.MODERATE
-                else -> BatteryMode.FULL
-            }
-
-            val old = currentInfo
             currentInfo = BatteryInfo(mode = mode, percentage = pct, isCharging = charging, isLow = isLow)
 
             // Notify interested observers (ModelManager, etc.) via context's preferred mechanism

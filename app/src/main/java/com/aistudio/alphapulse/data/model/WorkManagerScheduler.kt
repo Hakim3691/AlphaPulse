@@ -17,9 +17,14 @@ import androidx.work.WorkerParameters
  */
 object WorkManagerScheduler {
 
-    private const val WORK_NAME_DATA_REFRESH = "com.aistudio.alphapulse.work.dataRefresh"
-    private const val WORK_NAME_MODEL_REEVAL = "com.aistudio.alphapulse.work.modelReeval"
-    private const val WORK_NAME_STATE_SYNC = "com.aistudio.alphapulse.work.stateSync"
+    const val WORK_NAME_DATA_REFRESH = "com.aistudio.alphapulse.work.dataRefresh"
+    const val WORK_NAME_MODEL_REEVAL = "com.aistudio.alphapulse.work.modelReeval"
+    const val WORK_NAME_STATE_SYNC = "com.aistudio.alphapulse.work.stateSync"
+
+    /** Periodic intervals, in minutes. WorkManager requires at least 15. */
+    const val DATA_REFRESH_INTERVAL_MINUTES = 15L
+    const val MODEL_REEVAL_INTERVAL_MINUTES = 4L * 60L
+    const val STATE_SYNC_INTERVAL_MINUTES = 24L * 60L
 
     /** Schedule the Data Refresh job — runs every 15 minutes. */
     fun scheduleDataRefresh(context: Context) {
@@ -28,7 +33,7 @@ object WorkManagerScheduler {
             .build()
         val workRequest = PeriodicWorkRequest.Builder(
             DataRefreshWorker::class.java,
-            15, java.util.concurrent.TimeUnit.MINUTES
+            DATA_REFRESH_INTERVAL_MINUTES, java.util.concurrent.TimeUnit.MINUTES
         )
             .setConstraints(constraints)
             .build()
@@ -46,7 +51,7 @@ object WorkManagerScheduler {
             .build()
         val workRequest = PeriodicWorkRequest.Builder(
             ModelReevalWorker::class.java,
-            4, java.util.concurrent.TimeUnit.HOURS
+            MODEL_REEVAL_INTERVAL_MINUTES, java.util.concurrent.TimeUnit.MINUTES
         )
             .setConstraints(constraints)
             .build()
@@ -61,7 +66,7 @@ object WorkManagerScheduler {
     fun scheduleStateSync(context: Context) {
         val workRequest = PeriodicWorkRequest.Builder(
             StateSyncWorker::class.java,
-            24, java.util.concurrent.TimeUnit.HOURS
+            STATE_SYNC_INTERVAL_MINUTES, java.util.concurrent.TimeUnit.MINUTES
         )
             .build()
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(

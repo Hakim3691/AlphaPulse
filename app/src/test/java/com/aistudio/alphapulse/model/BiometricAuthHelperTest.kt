@@ -1,52 +1,39 @@
 package com.aistudio.alphapulse.model
 
+import com.aistudio.alphapulse.data.model.BiometricAuthHelper
+import com.aistudio.alphapulse.data.model.BiometricAuthResult
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Before
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
-import android.content.Context
-import androidx.biometric.BiometricPrompt
-import androidx.test.platform.app.InstrumentationRegistry
+import java.util.concurrent.Executor
 
-/** BiometricAuthHelper unit tests. */
+/** BiometricAuthHelper unit tests (spec §28 biometric auth). */
 class BiometricAuthHelperTest {
 
-    private lateinit var helper: com.aistudio.alphapulse.data.model.BiometricAuthHelper
-    private lateinit var mockContext: android.content.Context
+    @Test
+    fun `authenticate_without_prompt_fails_gracefully`() {
+        // No init() has run, so there is no prompt to show: the helper must report
+        // a failed attempt instead of throwing or hanging.
+        var captured: BiometricAuthResult? = null
+        BiometricAuthHelper.authenticate(
+            executor = Executor { it.run() },
+            cancelable = true
+        ) { result -> captured = result }
 
-    @Before
-    fun setUp() {
-        mockContext = InstrumentationRegistry.getInstrumentation().targetContext
-        helper = com.aistudio.alphapulse.data.model.BiometricAuthHelper()
-        helper.init(mockContext)
+        val result = captured
+        assertNotNull("Callback must always fire", result)
+        assertFalse("Auth without a prompt cannot succeed", result!!.success)
+        assertNotNull("Failure must carry an explanatory error", result.errorString)
     }
 
     @Test
-    fun `helper_initiated_has_prompt_instance`() {
-        val field = helper::class.java.getDeclaredField("biometricPrompt")
-        field.isAccessible = true
-        assertNotNull("BiometricPrompt should be created during init", field.get(helper))
-    }
-
-    @Test
-    fun `authenticate_cancelled_returns_failure`() {
-        // Simulate a cancelled authentication
-        helper.authenticate(
-            executor = { /* dummy */ },
-            cancelable = true,
-            callback = { result ->
-                assertEquals("Cancelled auth should be failure", false, result.success)
-                assertEquals("Error string should describe cancellation", "User cancelled", result.errorString)
-            }
-        )
-    }
-
-    @Test
-    fun `authentication_modes_are_distinct`() {
-        // Verify the BiometricAuthResult data class has the expected fields
-        val result = com.aistudio.alphapulse.data.model.BiometricAuthResult(success = true, authenticatedName = "test", errorString = null)
-        assertEquals("success should be true", true, result.success)
-        assertEquals("authenticatedName should be test", "test", result.authenticatedName)
-        assertEquals("errorString should be null when success is true", null, result.errorString)
+    fun `successful_result_carries_name_and_no_error`() {
+        val result = BiometricAuthResult(success = true, authenticatedName = "test", errorString = null)
+        assertTrue(result.success)
+        assertEquals("test", result.authenticatedName)
+        assertNull(result.errorString)
     }
 }
