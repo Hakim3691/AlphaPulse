@@ -12,7 +12,6 @@ import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.domain.quant.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
-import java.util.List
 
 /***
  * Core contract for all exchange data providers.
