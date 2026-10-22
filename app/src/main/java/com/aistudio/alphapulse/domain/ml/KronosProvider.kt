@@ -2,70 +2,64 @@ package com.aistudio.alphapulse.domain.ml
 
 import com.aistudio.alphapulse.data.model.ChartPoint
 
-/** Kronos TSFM provider implementation.
- *  Wraps the Kronos model for price prediction with P10-P90 quantiles.
- *  Priority: 1 (highest).
+/** Kronos TSFM provider implementation (spec §15-16).
+ *  Provides probabilistic price forecasts using the Kronos model.
+ *  Currently a stub implementation returning valid predictions.
  */
 class KronosProvider : TsfmProvider {
 
     override val priority: Int = 1
 
     override val isAvailable: Boolean
-        get() = true // Kronos model always available when initialized
+        get() = true // Kronos is always available as fallback
 
     override val fallbackProvider: TsfmProvider? = null
 
-    /** Predict using the Kronos model.
-     *  @param input market-state tensor
-     *  @return probabilistic forecast with P10-P90 quantiles
-     */
     override fun predict(input: TsfmInput): TsfmPrediction {
-        // Simplified Kronos prediction - in production this would call the native model
-        val volatility = input.realizedVolatility
-        val horizonDays = input.horizon.toDouble().coerceAtLeast(1.0)
+        // Use close price as baseline, adjust with volatility and regime
+        val basePrice = input.close
+        val horizonDays = input.horizon.toDoubleOrNull() ?: 60.0
+        val volAdjustment = input.realizedVolatility * basePrice * horizonDays
+        val regimeFactor = when (input.regime) {
+            "Momentum Burst" -> 1.5
+            "Trending" -> 1.2
+            "Mean Reversion" -> 0.8
+            "Sideways" -> 1.0
+            else -> 1.0
+        }
 
-        // P50 is the expected price (close + drift)
-        val drift = 0.0
-        val p50 = input.close + drift
+        val priceChange = volAdjustment * regimeFactor
+        val predictedPrice = basePrice + priceChange
 
-        // P10 and P90 based on volatility scaling
-        val volatilityScaling = Math.sqrt(horizonDays) * volatility
-        val p10 = p50 - 1.28155 * volatilityScaling // 10th percentile z-score
-        val p90 = p50 + 1.28155 * volatilityScaling // 90th percentile z-score
+        // Generate P10-P90 quantiles around the predicted price
+        val priceSigma = Math.abs(priceChange) * 0.5
+        val p10 = predictedPrice - 1.28 * priceSigma
+        val p50 = predictedPrice
+        val p90 = predictedPrice + 1.28 * priceSigma
+        val p25 = (p10 + p50) / 2.0
+        val p75 = (p50 + p90) / 2.0
 
-        // Ensure P10 <= P50 <= P90
-        val p10Final = p10.coerceAtMost(p50).coerceAtMost(p90)
-        val p90Final = p90.coerceAtLeast(p50).coerceAtLeast(p10)
-        val p50Final = p50 // center remains
-
-        val expectedPrice = p50Final
-        val lowerConfidenceBoundary = p10Final
-        val upperConfidenceBoundary = p90Final
-
-        val forecastSkew = (p90Final - p50Final) - (p50Final - p10Final)
-        val forecastDispersion = p90Final - p10Final
+        val expectedPrice = p50
+        val lowerConfidenceBoundary = p10
+        val upperConfidenceBoundary = p90
+        val forecastSkew = (p90 - p50) - (p50 - p10)
+        val forecastDispersion = p90 - p10
 
         return TsfmPrediction(
-            p10 = p10Final,
-            p25 = (p10Final + p50Final) / 2,
-            p50 = p50Final,
-            p75 = (p50Final + p90Final) / 2,
-            p90 = p90Final,
+            p10 = p10,
+            p25 = p25,
+            p50 = p50,
+            p75 = p75,
+            p90 = p90,
             expectedPrice = expectedPrice,
             lowerConfidenceBoundary = lowerConfidenceBoundary,
             upperConfidenceBoundary = upperConfidenceBoundary,
             forecastSkew = forecastSkew,
             forecastDispersion = forecastDispersion,
-            modelId = "kronsmall@1.0",
+            modelId = "kronos@1.0",
             version = "1.0",
             backend = TsfmBackend.KRONOS_SMALL,
             timestamp = System.currentTimeMillis()
         )
     }
-
-    /** Check if Kronos model is available. */
-    fun isModelAvailable(): Boolean = isAvailable
-
-    /** Get Kronos provider priority. */
-    fun priority(): Int = priority
 }

@@ -10,12 +10,16 @@ import org.junit.Test
 class TsfmLayerTest {
 
     private var tsfmLayer: TsfmLayer? = null
-    private var providerRegistry: TsfmProviderRegistry? = null
+    private var providerRegistry: TsfmProviderRegistry = TsfmProviderRegistry()
 
     @Before
     fun setUp() {
-        providerRegistry = TsfmProviderRegistry()
-        tsfmLayer = TsfmLayerImpl(providerRegistry!!
+        // Register default providers so tests have available providers
+        providerRegistry.register(KronosProvider())
+        providerRegistry.register(FinTextChronosProvider())
+        providerRegistry.register(ChronosBoltProvider())
+        providerRegistry.register(TimesFMProvider())
+        tsfmLayer = TsfmLayerImpl(providerRegistry)
     }
 
     @Test
@@ -24,7 +28,7 @@ class TsfmLayerTest {
             close = 100.0,
             realizedVolatility = 0.02,
             regime = "Trending",
-            horizon = 60
+            horizon = "60"
         )
         val prediction = tsfmLayer!!.predict(input)
         assertNotNull("Prediction should not be null", prediction)
@@ -40,7 +44,7 @@ class TsfmLayerTest {
             close = 50000.0,
             realizedVolatility = 0.03,
             regime = "Mean Reversion",
-            horizon = 30
+            horizon = "30"
         )
         val prediction = tsfmLayer!!.predict(input)
 
@@ -72,16 +76,16 @@ class TsfmLayerTest {
     fun `TSFM layer detects regime`() {
         // Momentum burst regime
         val momentumKlines = listOf(
-            com.aistudio.alphapulse.data.model.KlineData(1700000000000L, 100.0, 105.0, 99.0, 103.0, 1000.0, 100000.0, 55000.0),
-            com.aistudio.alphapulse.data.model.KlineData(1700000060000L, 103.0, 108.0, 102.0, 107.0, 1500.0, 100000.0, 60000.0),
-            com.aistudio.alphapulse.data.model.KlineData(1700000120000L, 107.0, 112.0, 106.0, 111.0, 2000.0, 100000.0, 70000.0)
+            com.aistudio.alphapulse.domain.quant.KlineData(1700000000000L, 100.0, 105.0, 99.0, 103.0, 1000.0, 100000.0, 55000.0),
+            com.aistudio.alphapulse.domain.quant.KlineData(1700000060000L, 103.0, 108.0, 102.0, 107.0, 1500.0, 100000.0, 60000.0),
+            com.aistudio.alphapulse.domain.quant.KlineData(1700000120000L, 107.0, 112.0, 106.0, 111.0, 2000.0, 100000.0, 70000.0)
         )
 
         val input = TsfmInput(
             close = 103.0,
             realizedVolatility = 0.05,
             regime = "Momentum Burst",
-            horizon = 60
+            horizon = "60"
         )
         val prediction = tsfmLayer!!.predict(input)
         assertNotNull("Prediction should not be null", prediction)
@@ -93,7 +97,7 @@ class TsfmLayerTest {
             close = 100.0,
             realizedVolatility = 0.0,
             regime = "Sideways",
-            horizon = 0
+            horizon = "0"
         )
         val prediction = tsfmLayer!!.predict(input)
         assertNotNull("Prediction should not be null even with zero volatility", prediction)
@@ -127,7 +131,7 @@ class TsfmLayerTest {
             close = 100.0,
             realizedVolatility = 0.02,
             regime = "Trending",
-            horizon = 60
+            horizon = "60"
         )
         val prediction = tsfmLayer!!.predict(input)
         assertNotNull("Prediction should not be null", prediction)

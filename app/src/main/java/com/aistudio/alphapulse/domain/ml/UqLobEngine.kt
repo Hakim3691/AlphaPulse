@@ -76,20 +76,25 @@ class HeuristicUqLobModel : UqLobModel {
  * resolves to [HeuristicUqLobModel] instead (see [UqLobEngine.of]).
  */
 class NeuralUqLobModel(
-    private val runtime: InferenceRuntime,
+    private val runtime: InferenceRuntime?,
     val artifact: ModelArtifact,
     private val mcDropoutSamples: Int = 8
 ) : UqLobModel {
 
     override val modelId: String = artifact.modelId
     override val version: String = artifact.version
-    override val backend: InferenceBackend = runtime.backend
+    override val backend: InferenceBackend = runtime?.backend ?: InferenceBackend.DETERMINISTIC
     override val isNeural = true
 
     /** One graph execution: mean probability plus the uncertainty decomposition. */
     override fun infer(request: LobInferenceRequest): UqLobOutput {
-        val session = runtime.openSession(artifact)
-            ?: return HeuristicUqLobModel().infer(request)
+        // Fall back to heuristic when runtime is null or session cannot open
+        val session = if (runtime != null) {
+            runtime.openSession(artifact)
+                ?: return HeuristicUqLobModel().infer(request)
+        } else {
+            null
+        }
 
         return try {
             val featureTensor = request.features.toTensor()
@@ -112,7 +117,7 @@ class NeuralUqLobModel(
                 if (dropoutInput != null) {
                     feed[dropoutInput] = dropoutMask(pass)
                 }
-                val outputs = session.run(feed)
+                val outputs = if (session != null) session.run(feed) else emptyMap()
 
                 val prob = readProbability(outputs)
                     ?: return HeuristicUqLobModel().infer(request)
@@ -150,7 +155,7 @@ class NeuralUqLobModel(
                 isNeural = true
             )
         } finally {
-            runCatching { session.close() }
+            runCatching { session?.close() }
         }
     }
 
