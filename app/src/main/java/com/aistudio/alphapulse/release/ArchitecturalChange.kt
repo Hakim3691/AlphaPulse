@@ -11,7 +11,7 @@
  * 
  * It should be:
  * 
- *   ALPHAPULSE V14.3
+ *   ALPHAPULSE V14.4
  *       │
  *       ▼
  *   Native Quant Core

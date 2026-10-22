@@ -1,5 +1,5 @@
 /**
- * Release Strategy - §62 AlphaPulse V14.3 Release Plan
+ * Release Strategy - §62 AlphaPulse V14.4 Release Plan
  * 
  * Four-release strategy to elevate native Android AlphaPulse into an
  * autonomous institutional quantitative workstation.

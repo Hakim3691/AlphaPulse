@@ -117,4 +117,4 @@ While AlphaPulse is a complete quantitative screener and forecast workstation, t
 ## 📄 License & Project Identity
 * **App Name**: AlphaPulse
 * **Package / Application ID**: `com.aistudio.alphapulse.kxmpzq`
-* **Version**: Pro Quant v14.3
+* **Version**: Pro Quant v14.4

@@ -89,7 +89,7 @@ fun HeaderBar(
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = "PRO QUANT V14.3",
+                                text = "PRO QUANT V14.4",
                                 color = BrandAccent,
                                 fontSize = 9.sp,
                                 fontFamily = FontFamily.Monospace,

@@ -551,12 +551,22 @@ fun ForecastCard(
                 fontWeight = FontWeight.Bold
             )
 
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("+80% Cone: ${Formatters.formatPrice5Dec(target.upperPrice)}", color = TextTertiary, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-                Text("-80% Cone: ${Formatters.formatPrice5Dec(target.lowerPrice)}", color = TextTertiary, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                Text(
+                    text = "+80% Cone: " + Formatters.formatPrice5Dec(target.upperPrice),
+                    color = TextTertiary,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = "-80% Cone: " + Formatters.formatPrice5Dec(target.lowerPrice),
+                    color = TextTertiary,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace
+                )
             }
         }
     }
