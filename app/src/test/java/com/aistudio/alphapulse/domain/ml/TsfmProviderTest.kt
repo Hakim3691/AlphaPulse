@@ -18,7 +18,7 @@ class TsfmProviderTest {
             close = 100.0,
             realizedVolatility = 0.02,
             regime = "Trending",
-            horizon = 60
+            horizon = "60"
         )
         val prediction = provider.predict(input)
         assertNotNull("Prediction should not be null", prediction)
@@ -40,14 +40,14 @@ class TsfmProviderTest {
             close = 50000.0,
             realizedVolatility = 0.03,
             regime = "Mean Reversion",
-            horizon = 30
+            horizon = "30"
         )
         val prediction = provider.predict(input)
         assertNotNull("Prediction should not be null", prediction)
         assertTrue("P10 should be less than P50", prediction.p10 <= prediction.p50)
         assertTrue("P50 should be less than P90", prediction.p50 <= prediction.p90)
         assertTrue("Model ID should be set", prediction.modelId != null && prediction.modelId.isNotEmpty())
-        assertTrue("FinText provider should be available", provider.isAvailable())
+        assertTrue("FinText provider should be available", provider.isAvailable)
     }
 
     @Test
@@ -57,14 +57,14 @@ class TsfmProviderTest {
             close = 75000.0,
             realizedVolatility = 0.025,
             regime = "Momentum Burst",
-            horizon = 120
+            horizon = "120"
         )
         val prediction = provider.predict(input)
         assertNotNull("Prediction should not be null", prediction)
         assertTrue("P10 should be less than P50", prediction.p10 <= prediction.p50)
         assertTrue("P50 should be less than P90", prediction.p50 <= prediction.p90)
         assertTrue("Model ID should be set", prediction.modelId != null && prediction.modelId.isNotEmpty())
-        assertTrue("Chronos Bolt provider should be available", provider.isAvailable())
+        assertTrue("Chronos Bolt provider should be available", provider.isAvailable)
     }
 
     @Test
@@ -74,14 +74,14 @@ class TsfmProviderTest {
             close = 200.0,
             realizedVolatility = 0.015,
             regime = "Sideways",
-            horizon = 180
+            horizon = "180"
         )
         val prediction = provider.predict(input)
         assertNotNull("Prediction should not be null", prediction)
         assertTrue("P10 should be less than P50", prediction.p10 <= prediction.p50)
         assertTrue("P50 should be less than P90", prediction.p50 <= prediction.p90)
         assertTrue("Model ID should be set", prediction.modelId != null && prediction.modelId.isNotEmpty())
-        assertTrue("TimesFM provider should be available", provider.isAvailable())
+        assertTrue("TimesFM provider should be available", provider.isAvailable)
     }
 
     @Test
@@ -107,10 +107,10 @@ class TsfmProviderTest {
         assertTrue("P25 <= P50", prediction.p25 <= prediction.p50)
         assertTrue("P50 <= P75", prediction.p50 <= prediction.p75)
         assertTrue("P75 <= P90", prediction.p75 <= prediction.p90)
-        
+
         // Verify dispersion = P90 - P10
         assertEquals("Dispersion should equal P90 - P10", 10.0, prediction.forecastDispersion, 1e-10)
-        
+
         // Verify skew = (P90 - P50) - (P50 - P10)
         val expectedSkew = (prediction.p90 - prediction.p50) - (prediction.p50 - prediction.p10)
         assertEquals("Skew should equal (P90-P50) - (P50-P10)", expectedSkew, prediction.forecastSkew, 1e-10)
@@ -123,16 +123,15 @@ class TsfmProviderTest {
         assertEquals(0.0, input.realizedVolatility, 1e-10)
         assertEquals("", input.regime)
         assertEquals(0, input.horizon)
-        assertEquals(emptyMap(), input.metadata)
+        assertEquals(emptyMap<String, Any>(), input.metadata)
     }
 
     @Test
-    fun `TsfmBackend values are valid`() {
+    fun `TsfmBackend display names are valid`() {
         val backends = listOf(TsfmBackend.KRONOS_SMALL, TsfmBackend.CHRONOS_BOLT,
             TsfmBackend.FINTEXT_CHRONOS, TsfmBackend.TIMESFM_2_0)
         for (backend in backends) {
             assertNotNull("Backend should have display name", backend.displayName.isNotEmpty())
-            assertNotNull("Backend should have accelerator", backend.accelerator.isNotEmpty())
         }
     }
 
@@ -142,7 +141,7 @@ class TsfmProviderTest {
         val fintext = FinTextChronosProvider()
         val chronos = ChronosBoltProvider()
         val timesfm = TimesFMProvider()
-        
+
         // Higher priority = lower ordinal value
         assertTrue("Kronos should have highest priority (1)", kronos.priority > fintext.priority)
         assertTrue("FinText should have priority 2", fintext.priority > chronos.priority)

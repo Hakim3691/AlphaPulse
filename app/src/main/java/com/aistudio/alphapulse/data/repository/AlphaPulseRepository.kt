@@ -689,11 +689,31 @@ class AlphaPulseRepository(
         for (k in klines) {
             chartPoints.add(
                 ChartPoint(
+                    timestamp = k.openTime,
                     timeLabel = timeFmt.format(Date(k.openTime)),
-                    realizedPrice = k.close,
-                    forecastPrice = null,
-                    upperCone = null,
-                    lowerCone = null
+                    open = k.open,
+                    high = k.high,
+                    low = k.low,
+                    close = k.close,
+                    volume = k.volume,
+                    realizedVolatility = 0.0,
+                    funding = 0.0,
+                    openInterest = 0.0,
+                    oiChange = 0.0,
+                    takerBuyRatio = 0.0,
+                    vwapDistance = 0.0,
+                    pocDistance = 0.0,
+                    vahDistance = 0.0,
+                    valDistance = 0.0,
+                    l2Imbalance = 0.0,
+                    spread = 0.0,
+                    depthVelocity = 0.0,
+                    liquidationIntensity = 0.0,
+                    upperLiquidityDistance = 0.0,
+                    lowerLiquidityDistance = 0.0,
+                    regime = "Unknown",
+                    horizon = null,
+                    metadata = emptyMap<String, Any>()
                 )
             )
         }
@@ -702,20 +722,40 @@ class AlphaPulseRepository(
         if (chartPoints.isNotEmpty()) {
             val last = chartPoints.last()
             chartPoints[chartPoints.size - 1] = last.copy(
-                forecastPrice = currentSpot,
-                upperCone = currentSpot,
-                lowerCone = currentSpot
+                open = currentSpot,
+                high = currentSpot,
+                low = currentSpot
             )
         }
 
         for (target in forecastTargets) {
             chartPoints.add(
                 ChartPoint(
+                    timestamp = now,
                     timeLabel = "+${target.minutes}m",
-                    realizedPrice = null,
-                    forecastPrice = target.predictedPrice,
-                    upperCone = target.upperPrice,
-                    lowerCone = target.lowerPrice
+                    open = currentSpot,
+                    high = target.upperPrice,
+                    low = target.lowerPrice,
+                    close = target.predictedPrice,
+                    volume = 0.0,
+                    realizedVolatility = 0.0,
+                    funding = 0.0,
+                    openInterest = 0.0,
+                    oiChange = 0.0,
+                    takerBuyRatio = 0.0,
+                    vwapDistance = 0.0,
+                    pocDistance = 0.0,
+                    vahDistance = 0.0,
+                    valDistance = 0.0,
+                    l2Imbalance = 0.0,
+                    spread = 0.0,
+                    depthVelocity = 0.0,
+                    liquidationIntensity = 0.0,
+                    upperLiquidityDistance = 0.0,
+                    lowerLiquidityDistance = 0.0,
+                    regime = "Unknown",
+                    horizon = target.label,
+                    metadata = emptyMap<String, Any>()
                 )
             )
         }

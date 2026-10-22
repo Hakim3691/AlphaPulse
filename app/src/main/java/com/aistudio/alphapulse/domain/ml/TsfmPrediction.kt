@@ -32,7 +32,7 @@ data class TsfmPrediction(
     val backend: TsfmBackend,
     /** Timestamp of prediction */
     val timestamp: Long = System.currentTimeMillis()
-}
+)
 
 /** TSFM backend types. */
 enum class TsfmBackend(val displayName: String) {
@@ -58,154 +58,53 @@ enum class TsfmBackend(val displayName: String) {
 /** Structured market-state tensor input for TSFM (spec §17). */
 data class TsfmInput(
     /** Timestamp of the candle/data point */
-    val timestamp: Long,
+    val timestamp: Long = System.currentTimeMillis(),
     /** Open price */
-    val open: Double,
+    val open: Double = 0.0,
     /** High price */
-    val high: Double,
+    val high: Double = 0.0,
     /** Low price */
-    val low: Double,
+    val low: Double = 0.0,
     /** Close price */
-    val close: Double,
+    val close: Double = 0.0,
     /** Volume */
-    val volume: Double,
+    val volume: Double = 0.0,
     /** Log return */
-    val logReturn: Double,
+    val logReturn: Double = 0.0,
     /** Realized volatility */
-    val realizedVolatility: Double,
+    val realizedVolatility: Double = 0.0,
     /** Funding rate */
-    val funding: Double,
+    val funding: Double = 0.0,
     /** Open interest */
-    val openInterest: Double,
+    val openInterest: Double = 0.0,
     /** OI change */
-    val oiChange: Double,
+    val oiChange: Double = 0.0,
     /** Taker buy ratio */
-    val takerBuyRatio: Double,
+    val takerBuyRatio: Double = 0.0,
     /** VWAP distance */
-    val vwapDistance: Double,
+    val vwapDistance: Double = 0.0,
     /** POC distance */
-    val pocDistance: Double,
+    val pocDistance: Double = 0.0,
     /** VAH distance */
-    val vahDistance: Double,
+    val vahDistance: Double = 0.0,
     /** VAL distance */
-    val valDistance: Double,
+    val valDistance: Double = 0.0,
     /** L2 imbalance */
-    val l2Imbalance: Double,
+    val l2Imbalance: Double = 0.0,
     /** Spread */
-    val spread: Double,
+    val spread: Double = 0.0,
     /** Depth velocity */
-    val depthVelocity: Double,
+    val depthVelocity: Double = 0.0,
     /** Liquidation intensity */
-    val liquidationIntensity: Double,
+    val liquidationIntensity: Double = 0.0,
     /** Upper liquidity distance */
-    val upperLiquidityDistance: Double,
+    val upperLiquidityDistance: Double = 0.0,
     /** Lower liquidity distance */
-    val lowerLiquidityDistance: Double,
+    val lowerLiquidityDistance: Double = 0.0,
     /** Regime */
-    val regime: String,
+    val regime: String = "",
     /** Horizon */
-    val horizon: String
-}
-
-/** TSFM provider interface for pluggable foundation models. */
-interface TsfmProvider {
-    /** Provider identifier */
-    val providerId: String
-    /** Model version */
-    val version: String
-    /** Preferred backend for this provider */
-    val preferredBackend: TsfmBackend
-    /** Whether this provider requires model file download */
-    val requiresDownload: Boolean
-    /** Inferior/fallback provider */
-    val fallbackProvider: TsfmProvider? = null
-
-    /** Predict using this TSFM provider.
-     *  Returns TsfmPrediction with P10-P90 quantiles.
-     */
-    fun predict(input: TsfmInput): TsfmPrediction
-
-    /** Check if this provider is available on the current device. */
-    fun isAvailable(): Boolean
-
-    /** Get the priority of this provider (lower = higher priority). */
-    val priority: Int
-}
-
-/** TSFM provider registry and ensemble. */
-object TsfmEnsemble {
-
-    /** Registered providers in priority order. */
-    private val providers = mutableListOf<TsfmProvider>()
-
-    /** Register a provider. */
-    fun register(provider: TsfmProvider) {
-        providers.add(provider)
-        providers.sortBy { it.priority }
-    }
-
-    /** Get all registered providers. */
-    fun getProviders(): List<TsfmProvider> = providers.toList()
-
-    /** Predict using the ensemble, combining all available providers.
-     *  Weights are inversely proportional to latency (normalized).
-     */
-    fun predictEnsemble(input: TsfmInput): TsfmPrediction {
-        val available = providers.filter { it.isAvailable() }
-
-        if (available.isEmpty()) {
-            // Fallback to stub
-            return TsfmLayerStub().predict(
-                inputToKlineData(input)
-            ) // This won't work, need fallback
-        }
-
-        // Collect predictions from all available providers
-        val predictions = available.map { it.predict(input) }
-
-        // Compute inverse-latency weights (simplified: equal weight for now)
-        val weight = 1.0 / predictions.size
-
-        // Combine quantiles: weighted average of P10, P50, P90
-        val combinedP10 = predictions.averageBy { it.p10 }
-        val combinedP50 = predictions.averageBy { it.p50 }
-        val combinedP90 = predictions.averageBy { it.p90 }
-
-        // P25 and P75 interpolation
-        val combinedP25 = (combinedP10 + combinedP50) / 2.0 // simplified
-        val combinedP75 = (combinedP50 + combinedP90) / 2.0 // simplified
-
-        val combinedSkew = (predictions.averageBy { it.forecastSkew }) * weight
-        val combinedDispersion = (predictions.averageBy { it.forecastDispersion }) * weight
-
-        return TsfmPrediction(
-            p10 = combinedP10,
-            p25 = combinedP25,
-            p50 = combinedP50,
-            p75 = combinedP75,
-            p90 = combinedP90,
-            expectedPrice = combinedP50,
-            lowerConfidenceBoundary = combinedP10,
-            upperConfidenceBoundary = combinedP90,
-            forecastSkew = combinedSkew,
-            forecastDispersion = combinedDispersion,
-            modelId = "ensemble-${providers.map { it.providerId }.joinToString(",")}",
-            version = providers.map { it.version }.joinToString("+"),
-            backend = TsfmBackend.TIMESFM_2_0, // fallback
-            timestamp = System.currentTimeMillis()
-        )
-    }
-
-    /** Convert TsfmInput to KlineData (for backward compatibility). */
-    private fun inputToKlineData(input: TsfmInput): KlineData = KlineData(
-        timestamp = input.timestamp,
-        open = input.open,
-        high = input.high,
-        low = input.low,
-        close = input.close,
-        volume = input.volume,
-        quoteVolume = input.volume * input.close,
-        takerBuyBaseVolume = input.volume * input.takerBuyRatio,
-        takerBuyQuoteVolume = input.volume * input.takerBuyRatio * input.close
-    )
-}
+    val horizon: String = "",
+    /** Additional metadata */
+    val metadata: Map<String, Any> = emptyMap()
+)

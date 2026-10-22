@@ -59,10 +59,4 @@ data class ForecastTarget(
     val isBullish: Boolean
 )
 
-data class ChartPoint(
-    val timeLabel: String,
-    val realizedPrice: Double?,
-    val forecastPrice: Double?,
-    val upperCone: Double?,
-    val lowerCone: Double?
-)
+
