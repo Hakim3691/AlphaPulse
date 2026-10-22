@@ -25,6 +25,22 @@ import kotlin.math.sqrt
  */
 object QuantMath {
 
+    /** Regime labels shared by the engine, the agents and the UI. */
+    const val STATE_0_MEAN_REVERTING = "State 0: Mean-Reverting"
+    const val STATE_1_MOMENTUM_BURST = "State 1: Momentum Burst"
+
+    /** Minimum return observations before a regime may leave State 0 (spec §14). */
+    const val MIN_REGIME_RETURNS = 15
+
+    /** Volatility multiplier applied in the mean-reverting state. */
+    const val STATE_0_VOL_SCALE = 0.85
+
+    /** Excess-kurtosis threshold that escalates into a momentum burst. */
+    const val KURTOSIS_CUTOFF = 3.2
+
+    /** Candles required before the temporal-attention head produces a drift. */
+    const val MIN_ATTENTION_CANDLES = 30
+
     /*** Horizon-specific liquidity ranges and decay parameters ***/
     data class HorizonLiquidityRanges(
         /** 1 minute: immediate L2 book voids and micro-spread slippage */
@@ -501,38 +517,89 @@ object QuantMath {
         state0Returns: List<Double>
     ): MarkovRegimeResult {
         val mean = if (returns.isNotEmpty()) returns.average() else 0.0
-        val variance = if (returns.size > 1) {
-            returns.map { (it - mean) * (it - mean) }.average()
-        } else 0.0
-        val kurtosis = if (kurtosisHistory.isNotEmpty()) kurtosisHistory.last() else 3.0
-        val regime = when {
-            kurtosis >= 5.0 -> "Burst"
-            variance > 1e-4 -> "Trending"
-            else -> "Mean-Reverting"
+        val kurtosis = kurtosisHistory.lastOrNull() ?: computeKurtosis(returns)
+
+        // Fewer than 15 observations is not enough to classify a regime: stay in
+        // the mean-reverting state and report no drift (spec §14).
+        if (returns.size < MIN_REGIME_RETURNS) {
+            return MarkovRegimeResult(
+                regime = STATE_0_MEAN_REVERTING,
+                muKinematic = 0.0,
+                regimeVolScale = STATE_0_VOL_SCALE,
+                kurtosis = kurtosis,
+                cutoff = KURTOSIS_CUTOFF
+            )
         }
-        val regimeVolScale = sqrt(variance).coerceAtLeast(0.0)
+
+        val isBurst = kurtosis > KURTOSIS_CUTOFF
+        if (!isBurst) {
+            val driftMean = if (state0Returns.isNotEmpty()) state0Returns.average() else mean
+            return MarkovRegimeResult(
+                regime = STATE_0_MEAN_REVERTING,
+                // Revert toward the mean: pull is half the observed drift.
+                muKinematic = -driftMean * 0.5,
+                regimeVolScale = STATE_0_VOL_SCALE,
+                kurtosis = kurtosis,
+                cutoff = KURTOSIS_CUTOFF
+            )
+        }
+
+        val burstMean = if (state1Returns.isNotEmpty()) state1Returns.average() else mean
+        val burstScale = 1.0 + ((kurtosis - KURTOSIS_CUTOFF) / KURTOSIS_CUTOFF).coerceIn(0.0, 1.0)
         return MarkovRegimeResult(
-            regime = regime,
-            muKinematic = mean,
-            regimeVolScale = regimeVolScale,
+            regime = STATE_1_MOMENTUM_BURST,
+            // Momentum is extrapolated while fat tails persist.
+            muKinematic = burstMean * 1.5,
+            regimeVolScale = burstScale,
             kurtosis = kurtosis,
-            cutoff = 3.2
+            cutoff = KURTOSIS_CUTOFF
         )
     }
 
-    /** Temporal-attention skew over the recent high/low cones. */
+    /** Excess kurtosis of a return tape; a flat tape is treated as normal (3.0). */
+    private fun computeKurtosis(returns: List<Double>): Double {
+        if (returns.size < 4) return 3.0
+        val mean = returns.average()
+        val m2 = returns.sumOf { (it - mean) * (it - mean) } / returns.size
+        if (m2 < 1e-12) return 3.0
+        val m4 = returns.sumOf { (it - mean) * (it - mean) * (it - mean) * (it - mean) } / returns.size
+        return m4 / (m2 * m2)
+    }
+
+    /**
+     * Temporal-attention drift over the recent candles (spec §15).
+     *
+     * Attention weights grow linearly towards the newest candle, so a persistent
+     * move earns more weight than a stale one. Fewer than 30 candles cannot form
+     * a view: the result is a zero drift with symmetric cones.
+     */
     fun evaluateTemporalAttention(klines: List<KlineData>, baseVol: Double): TemporalAttentionResult {
-        if (klines.size < 2) return TemporalAttentionResult(0.0, 1.0, 1.0)
-        val closes = klines.map { it.close }
-        val rets = (1 until closes.size).map { ln(closes[it] / closes[it - 1]) }
-        val mean = if (rets.isNotEmpty()) rets.average() else 0.0
-        val window = klines.takeLast(10)
-        val upper = window.map { it.high }.average()
-        val lower = window.map { it.low }.average()
-        val last = closes.last()
-        val upperConeSkew = if (last > 0) ((upper - last) / last).coerceIn(0.0, 2.0) else 1.0
-        val lowerConeSkew = if (last > 0) ((last - lower) / last).coerceIn(0.0, 2.0) else 1.0
-        return TemporalAttentionResult(mean, upperConeSkew, lowerConeSkew)
+        if (klines.size < MIN_ATTENTION_CANDLES) {
+            return TemporalAttentionResult(0.0, 1.0, 1.0)
+        }
+
+        val window = klines.takeLast(MIN_ATTENTION_CANDLES)
+        val rets = (1 until window.size).map { ln(window[it].close / window[it - 1].close) }
+            .filter { it.isFinite() }
+        if (rets.isEmpty()) return TemporalAttentionResult(0.0, 1.0, 1.0)
+
+        val weightSum = rets.indices.sumOf { (it + 1).toDouble() }
+        val weightedDrift = rets.indices.sumOf { (it + 1) * rets[it] } / weightSum
+
+        val mean = rets.average()
+        val variance = rets.sumOf { (it - mean) * (it - mean) } / rets.size
+        val sigma = sqrt(variance)
+
+        // Widen the cone on drift; floor the denominator so a constant tape still
+        // yields a bounded asymmetry rather than an infinite skew.
+        val denominator = sigma + max(baseVol, 1e-6)
+        val asymmetry = (weightedDrift / denominator).coerceIn(-1.0, 1.0)
+
+        return TemporalAttentionResult(
+            muKinematic = weightedDrift,
+            upperConeSkew = 1.0 + asymmetry,
+            lowerConeSkew = 1.0 - asymmetry
+        )
     }
 
     /** Confluence alpha combining the volume-profile signal with base volatility. */

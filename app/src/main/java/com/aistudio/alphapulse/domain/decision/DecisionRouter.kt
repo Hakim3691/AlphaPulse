@@ -178,14 +178,26 @@ class NeuralDecisionRouter : DecisionRouter {
         }
     }
 
-    /** Calculate a combined confidence score from all inputs. */
+    /** Calculate a combined confidence score from all inputs.
+     *
+     * The score is direction-agnostic: conviction comes from model agreement,
+     * order-book quality and forecast magnitude, while the sign of the forecasts
+     * alone picks long versus short. A signed sum would score a strong short the
+     * same as a weak long, which is not a confidence measure.
+     */
     private fun calculateCombinedScore(inputs: DecisionInputs): Double {
-        // Weighted combination (these weights would be learned/calibrated in production)
-        val score = 0.3 * sign(inputs.triFactorForecast) +
-                0.3 * sign(inputs.tsfmForecast) +
-                0.2 * inputs.lobConfidence +
-                0.1 * inputs.liquidityConfidence +
-                0.1 * inputs.regimeConfidence
+        val triSign = sign(inputs.triFactorForecast)
+        val tsfmSign = sign(inputs.tsfmForecast)
+        val directionAgreement = if (triSign != 0 && triSign == tsfmSign) 1.0 else 0.0
+
+        val magnitude = (abs(inputs.triFactorForecast) + abs(inputs.tsfmForecast)) / 4.0
+        val conviction = min(1.0, magnitude)
+
+        val score = 0.35 * directionAgreement +
+                0.25 * inputs.lobConfidence +
+                0.15 * inputs.liquidityConfidence +
+                0.15 * inputs.regimeConfidence +
+                0.10 * conviction
 
         // Penalize for model disagreement and stale data
         val disagreementPenalty = inputs.modelDisagreement * 0.5

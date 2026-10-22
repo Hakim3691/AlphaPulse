@@ -258,7 +258,7 @@ class DecisionRouterTest {
         val deterministic = DeterministicDecisionRouter()
         val neural = NeuralDecisionRouter()
         // Deterministic has confidence 0.0 (not applicable)
-        assertEquals(0.0, deterministic.decisionConfidence)
+        assertEquals(0.0, deterministic.decisionConfidence, 0.0)
         // Neural has confidence based on strongThreshold
         assertNotNull(neural.decisionConfidence)
     }

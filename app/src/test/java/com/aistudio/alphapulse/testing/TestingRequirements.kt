@@ -49,7 +49,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Unit test group: institutional filters */
-object InstitutionalFilterTests {
+class InstitutionalFilterTests {
 
     @Test
     fun `filter1_institutional_volume`() {
@@ -87,7 +87,7 @@ object InstitutionalFilterTests {
 }
 
 /** Unit test group: Calmar and Sharpe */
-object CalmarSharpeTests {
+class CalmarSharpeTests {
 
     @Test
     fun `calmar_positive`() {
@@ -110,7 +110,7 @@ object CalmarSharpeTests {
 }
 
 /** Unit test group: kurtosis and GARCH */
-object KurtosisGARCHTests {
+class KurtosisGARCHTests {
 
     @Test
     fun `flat_tape_stays_mean_reversion`() {
@@ -132,7 +132,7 @@ object KurtosisGARCHTests {
 }
 
 /** Unit test group: FRVP, VWAP, UQ-LOB */
-object FRVPVWAPUQLOBTests {
+class FRVPVWAPUQLOBTests {
 
     @Test
     fun `frvp_calculation`() {
@@ -167,7 +167,7 @@ object FRVPVWAPUQLOBTests {
 }
 
 /** Integration test group: ML runtimes */
-object MLRuntimeTests {
+class MLRuntimeTests {
 
     @Test
     fun `model_manager_available`() {
@@ -191,7 +191,7 @@ object MLRuntimeTests {
 }
 
 /** Resilience test group */
-object ResilienceTests {
+class ResilienceTests {
 
     @Test
     fun `network_loss_handled`() {
