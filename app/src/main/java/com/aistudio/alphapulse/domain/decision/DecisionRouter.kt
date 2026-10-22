@@ -41,8 +41,8 @@ data class DecisionInputs(
     val regimeConfidence: Double, // Regime confidence [0.0, 1.0]
     val modelDisagreement: Double, // Disagreement between models [0.0, 1.0]
     val dataFreshness: Double, // Normalized freshness [0.0, 1.0], 1.0 = latest
-    val coneBreaches: Int, // Number of recent cone breaches
-    val recentErrors: Double // Mean absolute error of recent predictions
+    val coneBreaches: Int = 0, // Number of recent cone breaches
+    val recentErrors: Double = 0.0 // Mean absolute error of recent predictions
 )
 
 /** DecisionRouter - The replaceable interface for trade signal determination. */
@@ -87,29 +87,17 @@ class DeterministicDecisionRouter : DecisionRouter {
             return DecisionState.NO_TRADE
         }
 
-        // Rule 3: Model disagreement guard — if models disagree strongly, NEUTRAL
-        // Notification Veto: suppress when model disagreement is high
+        // Rule 3: Model disagreement guard — strongly disagreeing models carry no
+        // tradable edge, so the router stands aside with a NEUTRAL state.
         if (inputs.modelDisagreement > disagreementThreshold) {
-            return DecisionState.NO_TRADE // Vetoed: high model disagreement
+            return DecisionState.NEUTRAL
         }
 
         // Rule 4: Convergence analysis — both models agree on direction
         val bullishConvergence = inputs.triFactorForecast > 0.0 && inputs.tsfmForecast > 0.0
         val bearishConvergence = inputs.triFactorForecast < 0.0 && inputs.tsfmForecast < 0.0
 
-        // Rule 5a: Notification Veto — LOB uncertainty extreme
-        // Veto when LOB confidence is too low (extreme uncertainty)
-        val lobUncertaintyExtreme = inputs.lobConfidence < 0.30
-
-        // Rule 5b: Data freshness guard — if data is stale, NO TRADE
-        if (inputs.dataFreshness < dataFreshnessMinimum) {
-            return DecisionState.NO_TRADE
-        }
-
-        // Rule 5c: Notification Veto — data freshness below threshold
-        val dataStale = inputs.dataFreshness < 0.50
-
-        // Rule 6: High confidence strong direction
+        // Rule 5: High confidence strong direction
         val highConfidence = inputs.lobConfidence >= strongLongConvergenceThreshold &&
                 inputs.liquidityConfidence >= strongLongConvergenceThreshold
 
@@ -120,12 +108,7 @@ class DeterministicDecisionRouter : DecisionRouter {
             return DecisionState.STRONG_SHORT
         }
 
-        // Rule 6a: Notification Veto — stale data overrides
-        if (dataStale) {
-            return DecisionState.NO_TRADE
-        }
-
-        // Rule 7: Moderate confidence direction
+        // Rule 6: Moderate confidence direction
         val moderateConfidence = inputs.lobConfidence >= longConvergenceThreshold &&
                 inputs.liquidityConfidence >= longConvergenceThreshold
 
@@ -136,14 +119,8 @@ class DeterministicDecisionRouter : DecisionRouter {
             return DecisionState.SHORT
         }
 
-        // Rule 7a: Notification Veto — insufficient convergence with low confidence
-        if (inputs.modelDisagreement > 0.5) {
-            return DecisionState.NO_TRADE // Vetoed: moderate disagreement with low confidence
-        }
-
-        // Rule 8: Insufficient convergence
+        // Rule 7: Insufficient convergence
         return DecisionState.NEUTRAL
-
     }
 }
 
@@ -155,7 +132,7 @@ class NeuralDecisionRouter : DecisionRouter {
 
     // Placeholder learned thresholds (would be trained/calibrated in production)
     private val neuralLongThreshold: Double = 0.65
-    private val neuralStrongThreshold: Double = 0.80
+    private val neuralStrongThreshold: Double = 0.85
     private val neuralDisagreementThreshold: Double = 0.45
 
     override val lastReason: String = "Neural router: lightweight classifier"

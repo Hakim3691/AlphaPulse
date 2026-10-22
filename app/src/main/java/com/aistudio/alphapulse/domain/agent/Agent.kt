@@ -14,9 +14,8 @@ package com.aistudio.alphapulse.domain.agent
 import com.aistudio.alphapulse.domain.decision.DecisionState
 import com.aistudio.alphapulse.domain.decision.DecisionInputs
 import com.aistudio.alphapulse.domain.decision.DeterministicDecisionRouter
-import com.aistudio.alphapulse.domain.quant.ModelState
-import kotlinx.coroutines.*
-import kotlin.math.*
+import kotlin.math.abs
+import kotlin.math.max
 
 /** AgentHealth - Health status of an agent. */
 enum class AgentHealth {
@@ -30,7 +29,8 @@ enum class AgentHealth {
 data class AgentTelemetry(
     val executionCount: Long = 0L,
     val lastExecutionDurationMs: Long = 0L,
-    val lastSuccess: Boolean = false,
+    /** No failed execution has been recorded yet. */
+    val lastSuccess: Boolean = true,
     val lastError: String? = null,
     val averageDurationMs: Long = 0L
 )
@@ -72,6 +72,504 @@ interface BaseAgent<In : Any, Out : Any> {
     fun validateInputs(inputs: Any): Boolean
 }
 
+/**
+ * BaseAgentImpl - Shared execution harness for the logical agents.
+ *
+ * Centralises health/telemetry bookkeeping, timing and failure isolation so that
+ * no agent can throw an exception into the DAG: a failed agent records telemetry
+ * and returns `null` instead of corrupting downstream state.
+ */
+abstract class BaseAgentImpl<In : Any, Out : Any> : BaseAgent<In, Out> {
+
+    final override var health: AgentHealth = AgentHealth.HEALTHY
+        private set
+
+    final override var telemetry: AgentTelemetry = AgentTelemetry()
+        private set
+
+    /** The agent body. Exceptions are caught by [execute]. */
+    protected abstract fun executeInternal(inputs: In): Out?
+
+    final override fun execute(inputs: In): Out? {
+        val startedAt = System.nanoTime()
+        return try {
+            val output = executeInternal(inputs)
+            val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L
+            updateHealth(
+                isSuccessful = output != null,
+                error = if (output == null) "Agent produced no output" else null,
+                durationMs = elapsedMs
+            )
+            output
+        } catch (e: Exception) {
+            val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L
+            updateHealth(false, e.message ?: e::class.simpleName, elapsedMs)
+            null
+        }
+    }
+
+    final override fun updateHealth(isSuccessful: Boolean, error: String?, durationMs: Long) {
+        val previous = telemetry
+        val executions = previous.executionCount + 1L
+        val average = ((previous.averageDurationMs * previous.executionCount) + durationMs) / executions
+
+        telemetry = AgentTelemetry(
+            executionCount = executions,
+            lastExecutionDurationMs = durationMs,
+            lastSuccess = isSuccessful,
+            lastError = error,
+            averageDurationMs = average
+        )
+
+        health = when {
+            isSuccessful -> AgentHealth.HEALTHY
+            error != null -> AgentHealth.FAILING
+            else -> AgentHealth.UNHEALTHY
+        }
+    }
+
+    final override fun reset() {
+        health = AgentHealth.HEALTHY
+        telemetry = AgentTelemetry()
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent 1: Ingestion Agent                                            */
+/* ------------------------------------------------------------------ */
+
+data class IngestionInput(
+    val symbol: String,
+    val marketData: Map<String, Any>,
+    val normalizedPriceData: Map<String, Double> = emptyMap(),
+    val orderBookSnapshot: Map<String, Double> = emptyMap(),
+    val priceHistory: List<Double> = emptyList()
+)
+
+data class IngestionOutput(
+    val symbol: String,
+    val lastPrice: Double,
+    val priceChangePercent: Double,
+    val high24h: Double,
+    val low24h: Double,
+    val volume: Double,
+    val quoteVolume: Double,
+    val priceHistory: List<Double>,
+    val orderBookSnapshot: Map<String, Double>,
+    val currentRegime: String
+)
+
+/** Ingestion Agent - validates, normalises and time-stamps incoming market data. */
+class IngestionAgent : BaseAgentImpl<IngestionInput, IngestionOutput>() {
+
+    override val agentId = "Ingestion"
+    override val version = "1.0"
+    override val executionTimeoutMs = 5000L
+
+    override fun executeInternal(inputs: IngestionInput): IngestionOutput? {
+        if (inputs.symbol.isBlank() || inputs.marketData.isEmpty()) return null
+
+        val lastPrice = inputs.marketData["lastPrice"] as? Double ?: return null
+        if (!lastPrice.isFinite() || lastPrice <= 0.0) return null
+
+        val priceChange = (inputs.marketData["priceChangePercent"] as? Double) ?: 0.0
+        val high24h = (inputs.marketData["high24h"] as? Double) ?: lastPrice
+        val low24h = (inputs.marketData["low24h"] as? Double) ?: lastPrice
+        val volume = (inputs.marketData["volume"] as? Double) ?: 0.0
+        val quoteVolume = (inputs.marketData["quoteVolume"] as? Double) ?: 0.0
+
+        // Rolling window of the last 30 closes; fall back to the current price.
+        val history = inputs.priceHistory.takeLast(30).filter { it.isFinite() && it > 0.0 }
+        val priceHistory = if (history.isEmpty()) listOf(lastPrice) else history
+
+        val bidRatio = ((inputs.marketData["bidRatioPct"] as? Double) ?: 50.0) / 100.0
+        val netImbalance = (inputs.marketData["netImbalanceUsdt"] as? Double) ?: 0.0
+        val orderBookSnapshot = mapOf(
+            "bidRatio" to bidRatio.coerceIn(0.0, 1.0),
+            "imbalance" to netImbalance / max(1.0, lastPrice)
+        )
+
+        return IngestionOutput(
+            symbol = inputs.symbol,
+            lastPrice = lastPrice,
+            priceChangePercent = priceChange,
+            high24h = high24h,
+            low24h = low24h,
+            volume = volume,
+            quoteVolume = quoteVolume,
+            priceHistory = priceHistory,
+            orderBookSnapshot = orderBookSnapshot,
+            currentRegime = determineRegime(priceChange)
+        )
+    }
+
+    override fun validateInputs(inputs: Any): Boolean =
+        inputs is IngestionInput && inputs.symbol.isNotBlank() && inputs.marketData.isNotEmpty()
+
+    /** Provisional regime label derived from the 24h move; refined by the Market-State Agent. */
+    private fun determineRegime(priceChange: Double): String = when {
+        priceChange > 0.5 -> "State 1: Momentum Burst"
+        priceChange < -0.5 -> "State 0: Mean-Reverting"
+        else -> "State 0: Mean-Reverting"
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent 2: Market-State Agent                                         */
+/* ------------------------------------------------------------------ */
+
+data class MarketStateInput(
+    val symbol: String,
+    val priceData: Map<String, Double>,
+    val orderBookSnapshot: Map<String, Double>
+)
+
+data class MarketStateOutput(
+    val symbol: String,
+    val currentRegime: String,
+    val regimeConfidence: Double,
+    val priceChange: Double,
+    val bidRatio: Double,
+    val imbalance: Double
+)
+
+/** Market-State Agent - classifies the current Markov regime. */
+class MarketStateAgent : BaseAgentImpl<MarketStateInput, MarketStateOutput>() {
+
+    override val agentId = "Market-State"
+    override val version = "1.0"
+    override val executionTimeoutMs = 3000L
+
+    override fun executeInternal(inputs: MarketStateInput): MarketStateOutput? {
+        if (inputs.symbol.isBlank()) return null
+
+        val priceChange = inputs.priceData["priceChangePercent"] ?: 0.0
+        val bidRatio = (inputs.orderBookSnapshot["bidRatio"] ?: 0.5).coerceIn(0.0, 1.0)
+        val imbalance = inputs.orderBookSnapshot["imbalance"] ?: 0.0
+
+        val regime = when {
+            abs(priceChange) > 1.0 && bidRatio > 0.6 -> "State 1: Momentum Burst"
+            abs(priceChange) < 0.3 && abs(imbalance) < 1.0 -> "State 0: Mean-Reverting"
+            else -> "State 1: Momentum Burst"
+        }
+
+        // Confidence grows with the size of the move and with order-book directional bias.
+        val moveStrength = (abs(priceChange) / 2.0).coerceIn(0.0, 1.0)
+        val bookBias = abs(bidRatio - 0.5) * 2.0
+        val regimeConfidence = (0.5 + 0.3 * moveStrength + 0.2 * bookBias).coerceIn(0.0, 1.0)
+
+        return MarketStateOutput(
+            symbol = inputs.symbol,
+            currentRegime = regime,
+            regimeConfidence = regimeConfidence,
+            priceChange = priceChange,
+            bidRatio = bidRatio,
+            imbalance = imbalance
+        )
+    }
+
+    override fun validateInputs(inputs: Any): Boolean = inputs is MarketStateInput
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent 3: Quant Vector Agent                                         */
+/* ------------------------------------------------------------------ */
+
+data class QuantVectorInput(
+    val symbol: String,
+    val currentRegime: String,
+    val priceHistory: List<Double>,
+    val depthSnapshot: Map<String, Double>
+)
+
+data class QuantVectorOutput(
+    val symbol: String,
+    val triFactorForecast: Double,
+    val liquidityPath: Double,
+    val quantVectorRegime: String,
+    val disagreement: Double
+)
+
+/** Quant Vector Agent - produces the kinematic + liquidity vector bundle. */
+class QuantVectorAgent : BaseAgentImpl<QuantVectorInput, QuantVectorOutput>() {
+
+    override val agentId = "Quant Vector"
+    override val version = "1.0"
+    override val executionTimeoutMs = 4000L
+
+    override fun executeInternal(inputs: QuantVectorInput): QuantVectorOutput? {
+        if (inputs.symbol.isBlank()) return null
+
+        val prices = inputs.priceHistory.filter { it.isFinite() && it > 0.0 }
+        val momentumBurst = inputs.currentRegime.contains("Burst")
+
+        // Kinematic drift: last observed return, amplified inside a momentum regime.
+        val lastReturn = if (prices.size >= 2) {
+            val previous = prices[prices.size - 2]
+            (prices.last() - previous) / previous
+        } else {
+            0.0
+        }
+        val kinematic = lastReturn * if (momentumBurst) 1.5 else 0.5
+
+        // Liquidity drift: order-book imbalance bias around the neutral 50% mark.
+        val bidRatio = inputs.depthSnapshot["bidRatio"] ?: 0.5
+        val liquidityPath = (bidRatio - 0.5) * 0.002
+
+        val disagreement = abs(kinematic - liquidityPath)
+
+        return QuantVectorOutput(
+            symbol = inputs.symbol,
+            triFactorForecast = kinematic,
+            liquidityPath = liquidityPath,
+            quantVectorRegime = inputs.currentRegime,
+            disagreement = disagreement
+        )
+    }
+
+    override fun validateInputs(inputs: Any): Boolean = inputs is QuantVectorInput
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent 4: TSFM Agent                                                 */
+/* ------------------------------------------------------------------ */
+
+data class TsfmInput(
+    val symbol: String,
+    val currentPrice: Double,
+    val regime: String,
+    val quantVector: Double
+)
+
+data class TsfmOutput(
+    val symbol: String,
+    val tsfmForecast: Double,
+    val regime: String,
+    val confidence: Double
+)
+
+/** TSFM Agent - time-series foundation model forecast.
+ * Placeholder deterministic inference until the on-device runtime is wired in.
+ */
+class TsfmAgent : BaseAgentImpl<TsfmInput, TsfmOutput>() {
+
+    override val agentId = "TSFM"
+    override val version = "1.0"
+    override val executionTimeoutMs = 8000L
+
+    override fun executeInternal(inputs: TsfmInput): TsfmOutput? {
+        if (inputs.symbol.isBlank() || !inputs.currentPrice.isFinite() || inputs.currentPrice <= 0.0) {
+            return null
+        }
+
+        return TsfmOutput(
+            symbol = inputs.symbol,
+            tsfmForecast = computeDeterministicForecast(inputs),
+            regime = inputs.regime,
+            confidence = 0.75
+        )
+    }
+
+    override fun validateInputs(inputs: Any): Boolean = inputs is TsfmInput
+
+    /** Deterministic stand-in for neural/chronos inference. */
+    private fun computeDeterministicForecast(inputs: TsfmInput): Double {
+        val quantInfluence = inputs.quantVector * 0.6
+        val regimeAdjustment = when {
+            inputs.regime.contains("Burst") -> 0.3
+            inputs.regime.contains("Mean-Reverting") -> -0.2
+            else -> 0.0
+        }
+        // Tiny scale so price level does not dominate a percentage forecast.
+        val priceTrend = inputs.currentPrice * 0.0001
+        return quantInfluence + regimeAdjustment + priceTrend
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent 5: Decision Router Agent                                      */
+/* ------------------------------------------------------------------ */
+
+data class DecisionRouterInput(
+    val symbol: String,
+    val triFactorForecast: Double,
+    val tsfmForecast: Double,
+    val lobConfidence: Double,
+    val liquidityConfidence: Double,
+    val regimeConfidence: Double,
+    val modelDisagreement: Double,
+    val dataFreshness: Double,
+    val coneBreaches: Int = 0,
+    val recentErrors: Double = 0.0
+)
+
+/** Decision Router Agent - delegates to the deterministic router (the default configuration). */
+class DecisionRouterAgent : BaseAgentImpl<DecisionRouterInput, DecisionState>() {
+
+    override val agentId = "Decision Router"
+    override val version = "1.0"
+    override val executionTimeoutMs = 2000L
+
+    private val router = DeterministicDecisionRouter()
+
+    override fun executeInternal(inputs: DecisionRouterInput): DecisionState? {
+        if (inputs.symbol.isBlank()) return null
+
+        return router.router(
+            DecisionInputs(
+                triFactorForecast = inputs.triFactorForecast,
+                tsfmForecast = inputs.tsfmForecast,
+                lobConfidence = inputs.lobConfidence,
+                liquidityConfidence = inputs.liquidityConfidence,
+                regimeConfidence = inputs.regimeConfidence,
+                modelDisagreement = inputs.modelDisagreement,
+                dataFreshness = inputs.dataFreshness,
+                coneBreaches = inputs.coneBreaches,
+                recentErrors = inputs.recentErrors
+            )
+        )
+    }
+
+    override fun validateInputs(inputs: Any): Boolean = inputs is DecisionRouterInput
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent 6: Risk/Confidence Agent                                      */
+/* ------------------------------------------------------------------ */
+
+data class RiskConfidenceInput(
+    val symbol: String,
+    val decisionState: DecisionState,
+    val triFactorForecast: Double,
+    val tsfmForecast: Double,
+    val lobConfidence: Double,
+    val liquidityConfidence: Double,
+    val regimeConfidence: Double,
+    val modelDisagreement: Double,
+    val dataFreshness: Double
+)
+
+data class RiskConfidenceOutput(
+    val symbol: String,
+    val decisionState: DecisionState,
+    val confidence: Double,
+    val riskMetrics: Map<String, Double>
+)
+
+/** Risk/Confidence Agent - scores conviction and exposes the risk metrics. */
+class RiskConfidenceAgent : BaseAgentImpl<RiskConfidenceInput, RiskConfidenceOutput>() {
+
+    override val agentId = "Risk/Confidence"
+    override val version = "1.0"
+    override val executionTimeoutMs = 2000L
+
+    override fun executeInternal(inputs: RiskConfidenceInput): RiskConfidenceOutput? {
+        if (inputs.symbol.isBlank()) return null
+
+        val confidence = computeConfidence(inputs)
+
+        val riskMetrics = mapOf(
+            "confidence" to confidence,
+            "triFactorForecast" to inputs.triFactorForecast,
+            "tsfmForecast" to inputs.tsfmForecast,
+            "lobConfidence" to inputs.lobConfidence,
+            "liquidityConfidence" to inputs.liquidityConfidence,
+            "regimeConfidence" to inputs.regimeConfidence,
+            "modelDisagreement" to inputs.modelDisagreement,
+            "dataFreshness" to inputs.dataFreshness
+        )
+
+        return RiskConfidenceOutput(
+            symbol = inputs.symbol,
+            decisionState = inputs.decisionState,
+            confidence = confidence,
+            riskMetrics = riskMetrics
+        )
+    }
+
+    override fun validateInputs(inputs: Any): Boolean = inputs is RiskConfidenceInput
+
+    /** Confidence in [0, 1]: model agreement and signal quality, penalised for
+     * disagreement and stale data.
+     */
+    private fun computeConfidence(inputs: RiskConfidenceInput): Double {
+        val triSign = inputs.triFactorForecast.compareTo(0.0)
+        val tsfmSign = inputs.tsfmForecast.compareTo(0.0)
+        val directionAgreement = if (triSign == tsfmSign && triSign != 0) 1.0 else 0.0
+
+        val base = 0.35 * directionAgreement +
+            0.25 * inputs.lobConfidence.coerceIn(0.0, 1.0) +
+            0.20 * inputs.liquidityConfidence.coerceIn(0.0, 1.0) +
+            0.20 * inputs.regimeConfidence.coerceIn(0.0, 1.0)
+
+        val disagreementPenalty = 0.30 * inputs.modelDisagreement.coerceIn(0.0, 1.0)
+        val stalenessPenalty = 0.20 * (1.0 - inputs.dataFreshness.coerceIn(0.0, 1.0))
+
+        return (base - disagreementPenalty - stalenessPenalty).coerceIn(0.0, 1.0)
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Agent 7: Narrator Agent                                             */
+/* ------------------------------------------------------------------ */
+
+data class NarratorInput(
+    val symbol: String,
+    val decisionState: DecisionState,
+    val triFactorForecast: Double,
+    val tsfmForecast: Double,
+    val lobConfidence: Double,
+    val liquidityConfidence: Double,
+    val modelDisagreement: Double,
+    val dataFreshness: Double,
+    val coneBreaches: Int,
+    val recentErrors: Double,
+    val riskMetrics: Map<String, Double>
+)
+
+/** Narrator Agent - renders a structured JSON explanation.
+ * Every number is copied from the engine state; the agent never invents values.
+ */
+class NarratorAgent : BaseAgentImpl<NarratorInput, String>() {
+
+    override val agentId = "Narrator"
+    override val version = "1.0"
+    override val executionTimeoutMs = 3000L
+
+    override fun executeInternal(inputs: NarratorInput): String? {
+        if (inputs.symbol.isBlank()) return null
+
+        val metrics = inputs.riskMetrics.entries.joinToString(",") { (key, value) ->
+            "\"${escape(key)}\":${number(value)}"
+        }
+
+        return buildString {
+            append("{")
+            append("\"symbol\":\"${escape(inputs.symbol)}\",")
+            append("\"decisionState\":\"${inputs.decisionState.name}\",")
+            append("\"triFactorForecast\":${number(inputs.triFactorForecast)},")
+            append("\"tsfmForecast\":${number(inputs.tsfmForecast)},")
+            append("\"lobConfidence\":${number(inputs.lobConfidence)},")
+            append("\"liquidityConfidence\":${number(inputs.liquidityConfidence)},")
+            append("\"modelDisagreement\":${number(inputs.modelDisagreement)},")
+            append("\"dataFreshness\":${number(inputs.dataFreshness)},")
+            append("\"coneBreaches\":${inputs.coneBreaches},")
+            append("\"recentErrors\":${number(inputs.recentErrors)},")
+            append("\"riskMetrics\":{$metrics}")
+            append("}")
+        }
+    }
+
+    override fun validateInputs(inputs: Any): Boolean = inputs is NarratorInput
+
+    private fun number(value: Double): String =
+        if (value.isNaN() || value.isInfinite()) "null"
+        else String.format(java.util.Locale.US, "%.4f", value)
+
+    private fun escape(value: String): String =
+        value.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
 /** AgentDAG - The directed-acyclic-graph orchestrator that sequences the 7 agents.
  * Responsibilities:
  * - Sequence agents in the correct order
@@ -100,31 +598,30 @@ object AgentDAG {
         modelDisagreement: Double = 0.0,
         dataFreshness: Double = 1.0,
         coneBreaches: Int = 0,
-        recentErrors: Double = 0.0
+        recentErrors: Double = 0.0,
+        priceHistory: List<Double> = emptyList()
     ): DecisionState? {
 
         // Agent 1: Ingestion Agent - validates and normalizes market data
-        val ingestionResult = IngestionAgent.execute(
+        val ingestionResult = IngestionAgent().execute(
             IngestionInput(
                 symbol = symbol,
                 marketData = marketData,
-                normalizedPriceData = marketData.filterValues { it is Double }.mapValues { it.value as Double },
-                orderBookSnapshot = marketData.filterValues { it is Double }.mapValues { it.value as Double },
-                priceHistory = emptyList()
+                priceHistory = priceHistory
             )
         ) ?: return null
 
         // Agent 2: Market-State Agent - determines current market regime
-        val marketStateResult = MarketStateAgent.execute(
+        val marketStateResult = MarketStateAgent().execute(
             MarketStateInput(
                 symbol = ingestionResult.symbol,
-                priceData = ingestionResult.orderBookSnapshot,
+                priceData = mapOf("priceChangePercent" to ingestionResult.priceChangePercent),
                 orderBookSnapshot = ingestionResult.orderBookSnapshot
             )
         ) ?: return null
 
         // Agent 3: Quant Vector Agent - produces kinematic + liquidity vectors
-        val quantVectorResult = QuantVectorAgent.execute(
+        val quantVectorResult = QuantVectorAgent().execute(
             QuantVectorInput(
                 symbol = ingestionResult.symbol,
                 currentRegime = marketStateResult.currentRegime,
@@ -134,7 +631,7 @@ object AgentDAG {
         ) ?: return null
 
         // Agent 4: TSFM Agent - produces time-series foundation model forecast
-        val tsfmResult = TsfmAgent.execute(
+        val tsfmResult = TsfmAgent().execute(
             TsfmInput(
                 symbol = ingestionResult.symbol,
                 currentPrice = ingestionResult.lastPrice,
@@ -144,7 +641,7 @@ object AgentDAG {
         ) ?: return null
 
         // Agent 5: Decision Router - determines trade signal
-        val decisionResult = DecisionRouterAgent.execute(
+        val decisionResult = DecisionRouterAgent().execute(
             DecisionRouterInput(
                 symbol = ingestionResult.symbol,
                 triFactorForecast = quantVectorResult.triFactorForecast,
@@ -160,7 +657,7 @@ object AgentDAG {
         ) ?: return null
 
         // Agent 6: Risk/Confidence Agent - computes confidence score and risk metrics
-        val riskResult = RiskConfidenceAgent.execute(
+        val riskResult = RiskConfidenceAgent().execute(
             RiskConfidenceInput(
                 symbol = ingestionResult.symbol,
                 decisionState = decisionResult,
@@ -174,8 +671,8 @@ object AgentDAG {
             )
         ) ?: return null
 
-        // Agent 7: Narrator Agent - generates structured explanation (JSON) without inventing numerical facts
-        val narratorResult = NarratorAgent.execute(
+        // Agent 7: Narrator Agent - structured explanation (JSON) without inventing numerical facts
+        NarratorAgent().execute(
             NarratorInput(
                 symbol = ingestionResult.symbol,
                 decisionState = decisionResult,
@@ -195,525 +692,14 @@ object AgentDAG {
         return decisionResult
     }
 
-    /** Data classes for each agent's inputs and outputs (inner of AgentDAG) */
-
-    /** ----- Agent 1: Ingestion Agent ----- */
-
-    data class IngestionInput(
-        val symbol: String,
-        val marketData: Map<String, Any>,
-        val normalizedPriceData: Map<String, Double>,
-        val orderBookSnapshot: Map<String, Double>,
-        val priceHistory: List<Double>
+    /** Pre-built agent set, useful for the engine and for health dashboards. */
+    val agents: List<BaseAgent<*, *>> = listOf(
+        IngestionAgent(),
+        MarketStateAgent(),
+        QuantVectorAgent(),
+        TsfmAgent(),
+        DecisionRouterAgent(),
+        RiskConfidenceAgent(),
+        NarratorAgent()
     )
-
-    /** IngestionOutput - Output of the Ingestion Agent. */
-    data class IngestionOutput(
-        val symbol: String,
-        val lastPrice: Double,
-        val priceChangePercent: Double,
-        val high24h: Double,
-        val low24h: Double,
-        val volume: Double,
-        val quoteVolume: Double,
-        val priceHistory: List<Double>,
-        val orderBookSnapshot: Map<String, Double>,
-        val currentRegime: String
-    )
-
-    object IngestionAgent : BaseAgent<IngestionInput, IngestionOutput> {
-
-        override val agentId = "Ingestion"
-        override val version = "1.0"
-        override val health = AgentHealth.HEALTHY
-        override val telemetry = AgentTelemetry()
-        override val executionTimeoutMs = 5000L // 5 seconds max
-
-        override fun execute(inputs: IngestionInput): IngestionOutput? {
-            // Validate and normalize market data
-            try {
-                val symbol = inputs.symbol
-                val marketData = inputs.marketData
-
-                // Basic validation
-                if (marketData.isEmpty() || symbol.isBlank()) {
-                    updateHealth(false, "Invalid inputs: empty market data or blank symbol", 0)
-                    return null
-                }
-
-                // Normalize price data - extract key metrics
-                val lastPrice = marketData["lastPrice"] as? Double ?: return null
-                val priceChange = marketData["priceChangePercent"] as? Double ?: 0.0
-                val high24h = marketData["high24h"] as? Double ?: lastPrice
-                val low24h = marketData["low24h"] as? Double ?: lastPrice
-                val volume = marketData["volume"] as? Double ?: 0.0
-                val quoteVolume = marketData["quoteVolume"] as? Double ?: 0.0
-
-                // Simple price history window (last 30 closes) - if not provided, use empty
-                val priceHistory = inputs.priceHistory.take(30).map { it to it }.map { it.first }.toList()
-                    .also { if (it.isEmpty()) listOf(lastPrice) } // fallback
-
-                // Order book snapshot normalization
-                val orderBookSnapshot = mapOf(
-                "bidRatio" to ((marketData["bidRatioPct"] as? Double ?: 50.0) / 100.0),
-                "imbalance" to ((marketData["netImbalanceUsdt"] as? Double ?: 0.0) / max(1.0, lastPrice))
-                )
-
-                val output = IngestionOutput(
-                    symbol = symbol,
-                    lastPrice = lastPrice,
-                    priceChangePercent = priceChange,
-                    high24h = high24h,
-                    low24h = low24h,
-                    volume = volume,
-                    quoteVolume = quoteVolume,
-                    priceHistory = priceHistory,
-                    orderBookSnapshot = orderBookSnapshot,
-                    currentRegime = determineRegime(priceChange)
-                )
-
-                updateHealth(true, null, executionTimeoutMs)
-                return output
-            } catch (e: Exception) {
-                updateHealth(false, e.message, executionTimeoutMs)
-                return null
-            }
-        }
-
-        override fun updateHealth(isSuccessful: Boolean, error: String?, durationMs: Long) {
-            // Update telemetry in a real implementation
-        }
-
-        override fun reset() {
-            // Reset agent state
-        }
-
-        override fun validateInputs(inputs: Any): Boolean {
-            return inputs is IngestionInput
-        }
-
-        /** Determine the current Markov regime based on price change and confidence. */
-        private fun determineRegime(priceChange: Double): String {
-            return if (priceChange > 0.5) "Momentum Burst"
-                else if (priceChange < -0.5) "Mean Reversion"
-                else "State 0: Mean-Reverting"
-        }
-    }
-
-    /** ----- Agent 2: Market-State Agent ----- */
-
-    data class MarketStateInput(
-        val symbol: String,
-        val priceData: Map<String, Double>,
-        val orderBookSnapshot: Map<String, Double>
-    )
-
-    data class MarketStateOutput(
-        val symbol: String,
-        val currentRegime: String,
-        val regimeConfidence: Double,
-        val priceChange: Double,
-        val bidRatio: Double,
-        val imbalance: Double
-    )
-
-    object MarketStateAgent : BaseAgent<MarketStateInput, MarketStateOutput> {
-
-        override val agentId = "Market-State"
-        override val version = "1.0"
-        override val health = AgentHealth.HEALTHY
-        override val telemetry = AgentTelemetry()
-        override val executionTimeoutMs = 3000L
-
-        override fun execute(inputs: MarketStateInput): MarketStateOutput? {
-            try {
-                val priceChange = inputs.priceData["priceChangePercent"] ?: 0.0
-                val bidRatio = inputs.orderBookSnapshot["bidRatio"] ?: 0.5
-                val imbalance = inputs.orderBookSnapshot["imbalance"] ?: 0.0
-
-                // Determine regime
-                val regime: String = when {
-                    abs(priceChange) > 1.0 && bidRatio > 0.6 -> "Momentum Burst"
-                    abs(priceChange) < 0.3 && abs(imbalance) < 0.1 -> "State 0: Mean-Reverting"
-                    else -> "State 1: Momentum Burst"
-                }
-
-                // Calculate regime confidence based on price magnitude and order-book strength
-                val regimeConfidence = abs(priceChange).coerceAtMost(1.0) * bidRatio.coerceAtMost(1.0) * 1.0
-
-                updateHealth(true, null, executionTimeoutMs)
-
-                return MarketStateOutput(
-                    symbol = inputs.symbol,
-                    currentRegime = regime,
-                    regimeConfidence = regimeConfidence,
-                    priceChange = priceChange,
-                    bidRatio = bidRatio,
-                    imbalance = imbalance
-                )
-            } catch (e: Exception) {
-                updateHealth(false, e.message, executionTimeoutMs)
-                return null
-            }
-        }
-
-        override fun updateHealth(isSuccessful: Boolean, error: String?, durationMs: Long) {}
-
-        override fun reset() {}
-
-        override fun validateInputs(inputs: Any): Boolean = inputs is MarketStateInput
-    }
-
-    /** ----- Agent 3: Quant Vector Agent ----- */
-
-    data class QuantVectorInput(
-        val symbol: String,
-        val currentRegime: String,
-        val priceHistory: List<Double>,
-        val depthSnapshot: Map<String, Double>
-    )
-
-    data class QuantVectorOutput(
-        val symbol: String,
-        val triFactorForecast: Double,
-        val liquidityPath: Double,
-        val quantVectorRegime: String,
-        val disagreement: Double
-    )
-
-    object QuantVectorAgent : BaseAgent<QuantVectorInput, QuantVectorOutput> {
-
-        override val agentId = "Quant Vector"
-        override val version = "1.0"
-        override val health = AgentHealth.HEALTHY
-        override val telemetry = AgentTelemetry()
-        override val executionTimeoutMs = 4000L
-
-        override fun execute(inputs: QuantVectorInput): QuantVectorOutput? {
-            try {
-                val regime = inputs.currentRegime
-                val prices = inputs.priceHistory
-                val depth = inputs.depthSnapshot
-
-                // Compute kinematic component (simplified: momentum from price change)
-                val kinematic = when {
-                    regime.contains("Momentum Burst") && prices.size >= 2 ->
-                        (prices.last() - prices[prices.size - 2]) / max(1.0, prices[prices.size - 2])
-                    else -> 0.0
-                }
-
-                // Compute liquidity path component from depth snapshot
-                val bidRatio = depth["bidRatio"] ?: 0.5
-                val liquidityPath = when {
-                    bidRatio > 0.6 -> 0.0005 // Bullish liquidity bias
-                    bidRatio < 0.4 -> -0.0005 // Bearish liquidity bias
-                    else -> 0.0 // Neutral
-                }
-
-                // Model disagreement estimate (simplified: inverse of regime confidence)
-                val disagreement = 0.1 // Placeholder
-
-                updateHealth(true, null, executionTimeoutMs)
-
-                return QuantVectorOutput(
-                    symbol = inputs.symbol,
-                    triFactorForecast = kinematic, // % forecast for Tri-Factor engine
-                    liquidityPath = liquidityPath, // % adjustment for pain path
-                    quantVectorRegime = regime,
-                    disagreement = disagreement
-                )
-            } catch (e: Exception) {
-                updateHealth(false, e.message, executionTimeoutMs)
-                return null
-            }
-        }
-
-        override fun updateHealth(isSuccessful: Boolean, error: String?, durationMs: Long) {}
-
-        override fun reset() {}
-
-        override fun validateInputs(inputs: Any): Boolean = inputs is QuantVectorInput
-    }
-
-    /** ----- Agent 4: TSFM Agent ----- */
-
-    data class TsfmInput(
-        val symbol: String,
-        val currentPrice: Double,
-        val regime: String,
-        val quantVector: Double // from Quant Vector Agent
-    )
-
-    data class TsfmOutput(
-        val symbol: String,
-        val tsfmForecast: Double,
-        val regime: String,
-        val confidence: Double
-    )
-
-    object TsfmAgent : BaseAgent<TsfmInput, TsfmOutput> {
-
-        override val agentId = "TSFM"
-        override val version = "1.0"
-        override val health = AgentHealth.HEALTHY
-        override val telemetry = AgentTelemetry()
-        override val executionTimeoutMs = 8000L // TSFM inference may take longer
-
-        override fun execute(inputs: TsfmInput): TsfmOutput? {
-            // Placeholder TSFM inference - in production, this would use ExecuTorch/ONNX Runtime
-            // For now, compute a deterministic forecast based on regime and quant vector
-            try {
-                val forecast = computeDeterministicForecast(inputs)
-
-                updateHealth(true, null, executionTimeoutMs)
-
-                return TsfmOutput(
-                    symbol = inputs.symbol,
-                    tsfmForecast = forecast, // % forecast
-                    regime = inputs.regime,
-                    confidence = 0.75 // Placeholder confidence
-                )
-            } catch (e: Exception) {
-                updateHealth(false, e.message, executionTimeoutMs)
-                return null
-            }
-        }
-
-        override fun updateHealth(isSuccessful: Boolean, error: String?, durationMs: Long) {}
-
-        override fun reset() {}
-
-        override fun validateInputs(inputs: Any): Boolean = inputs is TsfmInput
-
-        /** Deterministic TSFM forecast computation (placeholder for actual neural/chronos inference). */
-        private fun computeDeterministicForecast(inputs: TsfmInput): Double {
-            // Base forecast from quant vector influence
-            val quantInfluence = inputs.quantVector * 0.6
-
-            // Regime adjustment
-            val regimeAdjustment = when (inputs.regime) {
-                "Momentum Burst" -> 0.3
-                "Mean Reverting" -> -0.2
-                else -> 0.0
-            }
-
-            // Price trend component
-            val priceTrend = (inputs.currentPrice * 0.0001) // 0.01% per unit price
-
-            return quantInfluence + regimeAdjustment + priceTrend
-        }
-    }
-
-    /** ----- Agent 5: Decision Router Agent ----- */
-
-    data class DecisionRouterInput(
-        val symbol: String,
-        val triFactorForecast: Double,
-        val tsfmForecast: Double,
-        val lobConfidence: Double,
-        val liquidityConfidence: Double,
-        val regimeConfidence: Double,
-        val modelDisagreement: Double,
-        val dataFreshness: Double,
-        val coneBreaches: Int,
-        val recentErrors: Double
-    )
-
-    object DecisionRouterAgent : BaseAgent<DecisionRouterInput, DecisionState> {
-
-        override val agentId = "Decision Router"
-        override val version = "1.0"
-        override val health = AgentHealth.HEALTHY
-        override val telemetry = AgentTelemetry()
-        override val executionTimeoutMs = 2000L
-
-        override fun execute(inputs: DecisionRouterInput): DecisionState? {
-            // Delegate to the deterministic decision router (configured as default)
-            return DeterministicDecisionRouter().router(DecisionInputs(
-                triFactorForecast = inputs.triFactorForecast,
-                tsfmForecast = inputs.tsfmForecast,
-                lobConfidence = inputs.lobConfidence,
-                liquidityConfidence = inputs.liquidityConfidence,
-                regimeConfidence = inputs.regimeConfidence,
-                modelDisagreement = inputs.modelDisagreement,
-                dataFreshness = inputs.dataFreshness,
-                coneBreaches = inputs.coneBreaches,
-                recentErrors = inputs.recentErrors
-            ))
-        }
-
-        override fun updateHealth(isSuccessful: Boolean, error: String?, durationMs: Long) {}
-
-        override fun reset() {}
-
-        override fun validateInputs(inputs: Any): Boolean = inputs is DecisionRouterInput
-
-        // Reuse the DecisionInputs from the DecisionRouter module
-        private data class InternalDecisionInputs(
-            val triFactorForecast: Double,
-            val tsfmForecast: Double,
-            val lobConfidence: Double,
-            val liquidityConfidence: Double,
-            val regimeConfidence: Double,
-            val modelDisagreement: Double,
-            val dataFreshness: Double,
-            val coneBreaches: Int,
-            val recentErrors: Double
-        )
-
-        // Extend DecisionInputs or copy the router logic here
-        // For brevity, the router delegates to DeterministicDecisionRouter above
-    }
-
-    /** ----- Agent 6: Risk/Confidence Agent ----- */
-
-    data class RiskConfidenceInput(
-        val symbol: String,
-        val decisionState: DecisionState,
-        val triFactorForecast: Double,
-        val tsfmForecast: Double,
-        val lobConfidence: Double,
-        val liquidityConfidence: Double,
-        val regimeConfidence: Double,
-        val modelDisagreement: Double,
-        val dataFreshness: Double
-    )
-
-    data class RiskConfidenceOutput(
-        val symbol: String,
-        val decisionState: DecisionState,
-        val confidence: Double,
-        val riskMetrics: Map<String, Double>
-    )
-
-    object RiskConfidenceAgent : BaseAgent<RiskConfidenceInput, RiskConfidenceOutput> {
-
-        override val agentId = "Risk/Confidence"
-        override val version = "1.0"
-        override val health = AgentHealth.HEALTHY
-        override val telemetry = AgentTelemetry()
-        override val executionTimeoutMs = 2000L
-
-        override fun execute(inputs: RiskConfidenceInput): RiskConfidenceOutput? {
-            try {
-                // Compute confidence score incorporating all factors
-                val confidence = computeConfidence(inputs)
-
-                // Compute risk metrics
-                val riskMetrics = mapOf(
-                    "triFactorForecast" to inputs.triFactorForecast,
-                    "tsfmForecast" to 0.0, // placeholder
-                    "lobConfidence" to inputs.lobConfidence,
-                    "liquidityConfidence" to inputs.liquidityConfidence,
-                    "modelDisagreement" to inputs.modelDisagreement,
-                    "dataFreshness" to inputs.dataFreshness,
-                    "confidence" to confidence
-                )
-
-                updateHealth(true, null, executionTimeoutMs)
-
-                return RiskConfidenceOutput(
-                    symbol = inputs.symbol,
-                    decisionState = inputs.decisionState,
-                    confidence = confidence,
-                    riskMetrics = riskMetrics
-                )
-            } catch (e: Exception) {
-                updateHealth(false, e.message, executionTimeoutMs)
-                return null
-            }
-        }
-
-        override fun updateHealth(isSuccessful: Boolean, error: String?, durationMs: Long) {}
-
-        override fun reset() {}
-
-        override fun validateInputs(inputs: Any): Boolean = inputs is RiskConfidenceInput
-
-        /** Compute the final confidence score (0.0 to 1.0). */
-        private fun computeConfidence(inputs: RiskConfidenceInput): Double {
-            // Weighted combination of agreement factors
-            val triFactorSign = if (inputs.triFactorForecast > 0) 1.0 else if (inputs.triFactorForecast < 0) -1.0 else 0.0
-            val tsfmSign = if (inputs.tsfmForecast > 0) 1.0 else if (inputs.tsfmForecast < 0) -1.0 else 0.0
-            val agreement = 0.4 * triFactorSign * tsfmSign *
-                    0.3 * inputs.lobConfidence +
-                    0.2 * inputs.liquidityConfidence +
-                    0.1 * inputs.regimeConfidence
-
-            // Penalties
-            val disagreementPenalty = inputs.modelDisagreement * 0.3
-            val stalenessPenalty = (1.0 - inputs.dataFreshness) * 0.2
-
-            return (agreement - disagreementPenalty - stalenessPenalty).coerceIn(0.0, 1.0)
-        }
-    }
-
-    /** ----- Agent 7: Narrator Agent ----- */
-
-    data class NarratorInput(
-        val symbol: String,
-        val decisionState: DecisionState,
-        val triFactorForecast: Double,
-        val tsfmForecast: Double,
-        val lobConfidence: Double,
-        val liquidityConfidence: Double,
-        val modelDisagreement: Double,
-        val dataFreshness: Double,
-        val coneBreaches: Int,
-        val recentErrors: Double,
-        val riskMetrics: Map<String, Double>
-    )
-
-    object NarratorAgent : BaseAgent<NarratorInput, String> {
-
-        override val agentId = "Narrator"
-        override val version = "1.0"
-        override val health = AgentHealth.HEALTHY
-        override val telemetry = AgentTelemetry()
-        override val executionTimeoutMs = 3000L
-
-        override fun execute(inputs: NarratorInput): String? {
-            try {
-                // Generate structured narrative JSON without inventing numerical facts
-                // All numbers must originate from the structured engine state
-                val narrative = mapOf(
-                    "symbol" to inputs.symbol,
-                    "decisionState" to inputs.decisionState.name,
-                    "triFactorForecast" to "%+.4f".format(inputs.triFactorForecast),
-                    "tsfmForecast" to "%+.4f".format(0.0), // placeholder - would have actual TSFM forecast
-                    "lobConfidence" to "%.2f".format(inputs.lobConfidence),
-                    "liquidityConfidence" to "%.2f".format(inputs.liquidityConfidence),
-                    "modelDisagreement" to "%.2f".format(inputs.modelDisagreement),
-                    "dataFreshness" to "%.2f".format(inputs.dataFreshness),
-                    "coneBreaches" to inputs.coneBreaches,
-                    "recentError" to "%+.2f".format(inputs.recentErrors),
-                    "riskMetrics" to inputs.riskMetrics
-                )
-
-                // Convert to JSON string (using simple string building; in production use Moshi/Gson)
-                val entries = mutableListOf<String>()
-                for ((k, v) in narrative) {
-                    val vStr = when (v) {
-                        null -> "null"
-                        else -> "\"$v\""
-                    }
-                    entries.add("\"$k\": $vStr")
-                }
-                val json = entries.joinToString(",\n")
-                val prettyJson = "{{\n$json\n}}"
-
-                updateHealth(true, null, executionTimeoutMs)
-                return prettyJson
-            } catch (e: Exception) {
-                updateHealth(false, e.message, executionTimeoutMs)
-                return null
-            }
-        }
-
-        override fun updateHealth(isSuccessful: Boolean, error: String?, durationMs: Long) {}
-
-        override fun reset() {}
-
-        override fun validateInputs(inputs: Any): Boolean = inputs is NarratorInput
-    }
 }
