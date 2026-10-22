@@ -556,13 +556,13 @@ fun ForecastCard(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
-                    text = "+80% Cone: " + Formatters.formatPrice5Dec(target.upperPrice),
+                    text = "+85% Cone: " + Formatters.formatPrice5Dec(target.upperPrice),
                     color = TextTertiary,
                     fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
-                    text = "-80% Cone: " + Formatters.formatPrice5Dec(target.lowerPrice),
+                    text = "-85% Cone: " + Formatters.formatPrice5Dec(target.lowerPrice),
                     color = TextTertiary,
                     fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace
