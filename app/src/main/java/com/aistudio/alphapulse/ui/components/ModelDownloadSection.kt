@@ -31,8 +31,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aistudio.alphapulse.data.model.ModelArtifacts
 import com.aistudio.alphapulse.data.model.ModelDownloadState
-import com.aistudio.alphapulse.data.model.ModelDownloadStore
 import com.aistudio.alphapulse.data.model.ModelLoadStatus
 import com.aistudio.alphapulse.ui.theme.BrandBorder
 import com.aistudio.alphapulse.ui.theme.BrandNeural
@@ -53,18 +53,19 @@ private data class ModelDockSpec(
     val tint: Color
 )
 
+// Specs come from the published artifact manifest: icon, micro-copy and real size.
 private val DOCK_MODELS = listOf(
     ModelDockSpec(
-        id = ModelDownloadStore.CHRONOS_ID,
-        microcopy = "Zero-shot forecaster",
-        sizeMb = 18,
+        id = ModelArtifacts.CHRONOS.modelId,
+        microcopy = ModelArtifacts.CHRONOS.microcopy,
+        sizeMb = ModelArtifacts.CHRONOS.sizeMb,
         icon = Icons.Default.ShowChart,
         tint = DockCyan
     ),
     ModelDockSpec(
-        id = ModelDownloadStore.TIMESFM_ID,
-        microcopy = "Long-context transformer",
-        sizeMb = 120,
+        id = ModelArtifacts.TIMESFM.modelId,
+        microcopy = ModelArtifacts.TIMESFM.microcopy,
+        sizeMb = ModelArtifacts.TIMESFM.sizeMb,
         icon = Icons.Default.Schedule,
         tint = BrandNeural
     )

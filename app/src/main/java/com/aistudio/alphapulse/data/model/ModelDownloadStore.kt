@@ -3,11 +3,12 @@ package com.aistudio.alphapulse.data.model
 import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import okhttp3.OkHttpClient
+import java.io.File
 
 /** Lifecycle of a mountable TSFM artefact. */
 enum class ModelLoadStatus { NOT_DOWNLOADED, DOWNLOADING, READY }
@@ -20,37 +21,42 @@ data class ModelDownloadState(
 )
 
 /**
- * Streams model artefacts into app storage and owns their mount state.
+ * Downloads the published TSFM artifacts and owns their mount state.
  *
- * The ONNX release endpoints are not published yet, so [download] replays a
- * deterministic streaming transfer that emits real progress events from 0 to
- * 100%. The READY set is persisted, so mounted models survive process death
- * and are restored into the ensemble on the next launch. Swapping in a live
- * endpoint only means replacing the simulated loop inside [download].
+ * Transfers are real HTTPS downloads of the pinned Hugging Face releases (see
+ * [ModelArtifacts]); [ModelArtifactInstaller] verifies size and SHA-256 before
+ * a model is promoted to READY. READY is persisted and re-validated against the
+ * installed file on every [init], so a wiped cache or an interrupted install can
+ * never leave a model marked as mounted.
  */
 object ModelDownloadStore {
 
-    const val CHRONOS_ID = "chronos"
-    const val TIMESFM_ID = "timesfm"
-    val MODEL_IDS = listOf(CHRONOS_ID, TIMESFM_ID)
-
     private const val PREFS_NAME = "alphapulse_model_downloads"
     private const val KEY_READY = "ready_models"
-    private const val STEP_DELAY_MS = 50L
 
+    /** Test seams: specs point these at a local HTTP server and temp storage. */
+    internal var sources: List<ModelArtifactSource> = ModelArtifacts.ALL
+    internal var client: OkHttpClient = OkHttpClient()
+
+    private var appContext: Context? = null
     private var prefs: SharedPreferences? = null
 
     private val _states = MutableStateFlow(initialStates(emptySet()))
     val states: StateFlow<Map<String, ModelDownloadState>> = _states.asStateFlow()
 
-    /** Restore persisted mount state, e.g. after process death. */
+    /** Restore persisted mount state, keeping only artifacts actually on disk. */
     fun init(context: Context) {
-        val restored = context.applicationContext
-            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .also { prefs = it }
-            .getStringSet(KEY_READY, emptySet())
-            .orEmpty()
-        _states.value = initialStates(restored)
+        val ctx = context.applicationContext
+        appContext = ctx
+        val preferences = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs = preferences
+
+        val persisted = preferences.getStringSet(KEY_READY, emptySet()).orEmpty()
+        val installed = persisted.filterTo(mutableSetOf()) { installedFile(it)?.isNonEmpty() == true }
+        if (installed != persisted) {
+            preferences.edit().putStringSet(KEY_READY, installed).apply()
+        }
+        _states.value = initialStates(installed)
     }
 
     fun stateOf(modelId: String): ModelDownloadState =
@@ -58,30 +64,34 @@ object ModelDownloadStore {
 
     fun isReady(modelId: String): Boolean = stateOf(modelId).status == ModelLoadStatus.READY
 
-    fun readyModelIds(): List<String> = MODEL_IDS.filter { isReady(it) }
+    fun readyModelIds(): List<String> = sources.map { it.modelId }.filter { isReady(it) }
 
     /**
-     * Download (stream) [modelId] and mount it into the ensemble.
-     * No-op when the model is already READY or already streaming.
+     * Download and install [modelId] from its published artifact, then mount it.
+     * No-op when the model is already READY or already streaming. Failures leave
+     * the model unmounted and rethrow so callers can surface the reason.
      */
     suspend fun download(modelId: String) {
-        if (modelId !in MODEL_IDS) return
-        if (stateOf(modelId).status != ModelLoadStatus.NOT_DOWNLOADED) return
+        val source = sources.firstOrNull { it.modelId.equals(modelId, ignoreCase = true) } ?: return
+        if (stateOf(source.modelId).status != ModelLoadStatus.NOT_DOWNLOADED) return
 
-        update(modelId, ModelLoadStatus.DOWNLOADING, 0f)
+        val target = installedFile(source.modelId)
+            ?: throw IllegalStateException("ModelDownloadStore.init must be called before downloading")
+
+        update(source.modelId, ModelLoadStatus.DOWNLOADING, 0f)
         try {
-            // Larger artefact streams longer, mirroring a real transfer.
-            val steps = if (modelId == CHRONOS_ID) 40 else 64
-            for (step in 1..steps) {
-                delay(STEP_DELAY_MS)
-                update(modelId, ModelLoadStatus.DOWNLOADING, step.toFloat() / steps)
+            ModelArtifactInstaller(client).install(source, target) { progress ->
+                update(source.modelId, ModelLoadStatus.DOWNLOADING, progress)
             }
         } catch (e: CancellationException) {
-            update(modelId, ModelLoadStatus.NOT_DOWNLOADED, 0f)
+            update(source.modelId, ModelLoadStatus.NOT_DOWNLOADED, 0f)
+            throw e
+        } catch (e: Exception) {
+            update(source.modelId, ModelLoadStatus.NOT_DOWNLOADED, 0f)
             throw e
         }
 
-        markReady(modelId)
+        markReady(source.modelId)
     }
 
     private fun markReady(modelId: String) {
@@ -96,11 +106,20 @@ object ModelDownloadStore {
         }
     }
 
+    /** Destination file for [modelId], or null before [init] or for unknown ids. */
+    internal fun installedFile(modelId: String): File? {
+        val ctx = appContext ?: return null
+        val source = sources.firstOrNull { it.modelId.equals(modelId, ignoreCase = true) } ?: return null
+        return File(ModelFileLocator.getModelDirectory(source.modelId, ctx), source.fileName)
+    }
+
+    private fun File.isNonEmpty(): Boolean = isFile && length() > 0
+
     private fun initialStates(ready: Set<String>): Map<String, ModelDownloadState> =
-        MODEL_IDS.associateWith { id ->
-            ModelDownloadState(
-                modelId = id,
-                status = if (id in ready) ModelLoadStatus.READY else ModelLoadStatus.NOT_DOWNLOADED
+        sources.associate { source ->
+            source.modelId to ModelDownloadState(
+                modelId = source.modelId,
+                status = if (source.modelId in ready) ModelLoadStatus.READY else ModelLoadStatus.NOT_DOWNLOADED
             )
         }
 }

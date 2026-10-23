@@ -407,3 +407,51 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =========================================================================
+  # JOB 4: Published model artifact contract (advisory, real network)
+  # =========================================================================
+  model-artifacts:
+    name: Model Artifact Sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Advisory: a publishing-host outage must not block shipping the APK, but a
+    # red job flags that a pinned artifact moved, shrank or disappeared.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Accept Android SDK Licenses
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses"
+          printf "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16\n" > "$ANDROID_HOME/licenses/android-sdk-license"
+          yes | sdkmanager --licenses || true
+
+      - name: Verify pinned artifact sources
+        env:
+          VERIFY_ARTIFACT_NETWORK: "true"
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest \
+            --tests "com.aistudio.alphapulse.data.model.ModelArtifactSourceContractTest" \
+            --stacktrace
+
+      - name: Upload Contract Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-artifact-contract-${{ github.sha }}
+          path: app/build/test-results/testDebugUnitTest/TEST-*ModelArtifactSourceContractTest.xml
+          if-no-files-found: ignore
+          retention-days: 14

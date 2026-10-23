@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.model.ChartPoint
 import com.aistudio.alphapulse.data.model.ForecastTarget
+import com.aistudio.alphapulse.data.model.ModelArtifacts
 import com.aistudio.alphapulse.data.model.ModelDownloadState
 import com.aistudio.alphapulse.data.model.ModelDownloadStore
 import com.aistudio.alphapulse.data.model.ModelLoadStatus
@@ -132,8 +133,8 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 }
 
                 if (newlyReady.isNotEmpty()) {
-                    val label = newlyReady.first().let {
-                        if (it == ModelDownloadStore.CHRONOS_ID) "Chronos-Bolt" else "TimesFM"
+                    val label = newlyReady.first().let { id ->
+                        ModelArtifacts.byId(id)?.displayName ?: id
                     }
                     _uiState.update {
                         it.copy(
