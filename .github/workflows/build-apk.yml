@@ -292,6 +292,11 @@ jobs:
           fi
 
       - name: Build APK Packages
+        env:
+          # app/build.gradle.kts stamps versionCode/versionName from these so
+          # every released APK is traceable to its run and commit.
+          BUILD_NUMBER: ${{ github.run_number }}
+          GIT_SHA: ${{ github.sha }}
         run: |
           RAW_TYPE="${{ github.event.inputs.build_type }}"
           if [ -n "$RAW_TYPE" ]; then
