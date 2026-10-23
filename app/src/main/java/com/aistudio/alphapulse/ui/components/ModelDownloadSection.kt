@@ -1,229 +1,301 @@
 package com.aistudio.alphapulse.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.vector.ImageVector
-import com.aistudio.alphapulse.data.model.ModelManager
-import com.aistudio.alphapulse.ui.theme.BrandAccent
+import com.aistudio.alphapulse.data.model.ModelDownloadState
+import com.aistudio.alphapulse.data.model.ModelDownloadStore
+import com.aistudio.alphapulse.data.model.ModelLoadStatus
 import com.aistudio.alphapulse.ui.theme.BrandBorder
-import com.aistudio.alphapulse.ui.theme.BrandCard
-import com.aistudio.alphapulse.ui.theme.BrandSurface
-import com.aistudio.alphapulse.ui.theme.BrandAccent
-import com.aistudio.alphapulse.ui.theme.BrandBorder
-import com.aistudio.alphapulse.ui.theme.BrandCard
-import com.aistudio.alphapulse.ui.theme.BrandSurface
-import com.aistudio.alphapulse.ui.theme.BrandBullish
+import com.aistudio.alphapulse.ui.theme.BrandNeural
 import com.aistudio.alphapulse.ui.theme.TextPrimary
 import com.aistudio.alphapulse.ui.theme.TextTertiary
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
 
+// Docked strip palette (#0B0E14 / #111622) with the cyan action accent.
+private val DockDeep = Color(0xFF0B0E14)
+private val DockSurface = Color(0xFF111622)
+private val DockCyan = Color(0xFF22D3EE)
+private val DockReady = Color(0xFF34D399)
+
+private data class ModelDockSpec(
+    val id: String,
+    val microcopy: String,
+    val sizeMb: Int,
+    val icon: ImageVector,
+    val tint: Color
+)
+
+private val DOCK_MODELS = listOf(
+    ModelDockSpec(
+        id = ModelDownloadStore.CHRONOS_ID,
+        microcopy = "Zero-shot forecaster",
+        sizeMb = 18,
+        icon = Icons.Default.ShowChart,
+        tint = DockCyan
+    ),
+    ModelDockSpec(
+        id = ModelDownloadStore.TIMESFM_ID,
+        microcopy = "Long-context transformer",
+        sizeMb = 120,
+        icon = Icons.Default.Schedule,
+        tint = BrandNeural
+    )
+)
+
+/**
+ * Low-profile TSFM dock: one line of state per model, no model titles.
+ * READY models glow green and are reflected in the ensemble cards below.
+ */
 @Composable
 fun ModelDownloadSection(
-    onDownloadClick: (
-        modelId: String,
-        version: String,
-        checksum: String,
-        backend: String,
-        sizeBytes: Long,
-        parameterCount: Int,
-        quantization: String
-    ) -> Unit
+    states: Map<String, ModelDownloadState>,
+    onDownload: (String) -> Unit
 ) {
-    var open by remember { mutableStateOf(true) }
+    val readyCount = DOCK_MODELS.count { states[it.id]?.status == ModelLoadStatus.READY }
+    val allReady = readyCount == DOCK_MODELS.size
 
-    Card(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(8.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .testTag("tsfmModelDock")
+            .clip(RoundedCornerShape(10.dp))
+            .background(DockDeep)
+            .border(1.dp, BrandBorder, RoundedCornerShape(10.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Column(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Text(
+                text = "TSFM MODEL DOCK",
+                color = TextTertiary,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp
+            )
+
             Row(
-                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "MODEL DOWNLOAD",
-                        color = BrandBullish,
-                        fontSize = 14.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Text(
-                        text = "Download mid-tier TSFM models for enhanced inference",
-                        color = TextTertiary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-
-                    if (open) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            ModelDownloadRow(
-                                modelKey = "chronos",
-                                modelName = "Chronos Bolt Tiny",
-                                repo = "bakshinghampalace/chronos-bolt-tiny-onnx",
-                                fileName = "chronos-bolt-tiny-fp16.onnx",
-                                sizeMb = 18,
-                                onClick = { onDownloadClick(
-                                    "chronos",
-                                    "1.0",
-                                    "",
-                                    "KRONOS_SMALL",
-                                    18L * 1024 * 1024,
-                                    1000,
-                                    "FP16"
-                                )}
-                            )
-
-                            ModelDownloadRow(
-                                modelKey = "timesfm",
-                                modelName = "TimesFM 2.5 200M",
-                                repo = "onnx-community/timesfm-2.5-200m-int4",
-                                fileName = "model_quantized.onnx",
-                                sizeMb = 120,
-                                onClick = { onDownloadClick(
-                                    "timesfm",
-                                    "2.5",
-                                    "",
-                                    "TIMES_FM",
-                                    120L * 1024 * 1024,
-                                    200_000_000,
-                                    "INT4"
-                                )}
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = "Models ready for inference",
-                            color = TextTertiary,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-
-                Column(
-                    modifier = Modifier.size(24.dp),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = if (open) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                        contentDescription = "Toggle model details",
-                        tint = BrandAccent,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(if (allReady) DockReady else TextTertiary)
+                )
+                Text(
+                    text = "$readyCount/${DOCK_MODELS.size} READY",
+                    color = if (allReady) DockReady else TextTertiary,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
             }
+        }
 
-            if (open) {
-                Divider(modifier = Modifier.fillMaxWidth(), thickness = 1.dp, color = BrandBorder)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            DOCK_MODELS.forEach { spec ->
+                ModelDockTile(
+                    modifier = Modifier.weight(1f),
+                    spec = spec,
+                    state = states[spec.id] ?: ModelDownloadState(spec.id),
+                    onDownload = onDownload
+                )
             }
         }
     }
 }
 
 @Composable
-fun ModelDownloadRow(
-    modelKey: String,
-    modelName: String,
-    repo: String,
-    fileName: String,
-    sizeMb: Int,
-    onClick: () -> Unit
+private fun ModelDockTile(
+    modifier: Modifier,
+    spec: ModelDockSpec,
+    state: ModelDownloadState,
+    onDownload: (String) -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(BrandSurface)
-            .border(1.dp, BrandBorder, RoundedCornerShape(8.dp))
+    val downloading = state.status == ModelLoadStatus.DOWNLOADING
+    val ready = state.status == ModelLoadStatus.READY
+
+    val shimmerAlpha = if (downloading) {
+        rememberInfiniteTransition(label = "ModelDockShimmer").animateFloat(
+            initialValue = 0.30f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(650), RepeatMode.Reverse),
+            label = "ModelDockShimmerAlpha"
+        ).value
+    } else 1f
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(7.dp))
+            .background(DockSurface)
+            .border(
+                width = 1.dp,
+                color = when {
+                    ready -> DockReady.copy(alpha = 0.35f)
+                    downloading -> DockCyan.copy(alpha = 0.30f)
+                    else -> BrandBorder
+                },
+                shape = RoundedCornerShape(7.dp)
+            )
+            .padding(horizontal = 7.dp, vertical = 5.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        Column(
+        Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(spec.tint.copy(alpha = if (ready) 0.18f else 0.10f)),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        text = modelName,
-                        color = TextPrimary,
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Text(
-                        text = "Repo: $repo",
-                        color = TextTertiary,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-
-                    Text(
-                        text = "$sizeMb MB",
-                        color = TextTertiary,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(BrandCard)
-                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "Download",
-                        color = BrandBullish,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Icon(
+                    imageVector = spec.icon,
+                    contentDescription = null,
+                    tint = spec.tint.copy(alpha = if (ready) 1f else 0.70f),
+                    modifier = Modifier.size(13.dp)
+                )
             }
 
-            // Click handler
-            
+            Spacer(modifier = Modifier.weight(1f))
+
+            when {
+                ready -> ReadyBadge()
+                downloading -> Text(
+                    text = "${(state.progress * 100).toInt()}%",
+                    color = DockCyan,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+                else -> DownloadTrigger { onDownload(spec.id) }
+            }
         }
+
+        // Function micro-copy spans the full tile width.
+        Text(
+            text = spec.microcopy,
+            modifier = Modifier.fillMaxWidth(),
+            color = if (ready) TextPrimary else TextTertiary,
+            fontSize = 9.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        when {
+            downloading -> LinearProgressIndicator(
+                progress = state.progress,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .clip(RoundedCornerShape(50))
+                    .alpha(shimmerAlpha),
+                color = DockCyan,
+                trackColor = BrandBorder
+            )
+            ready -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = null,
+                    tint = DockReady,
+                    modifier = Modifier.size(9.dp)
+                )
+                Text(
+                    text = "IN ENSEMBLE",
+                    color = DockReady,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            else -> Text(
+                text = "${spec.sizeMb} MB",
+                color = TextTertiary,
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReadyBadge() {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(3.dp))
+            .background(DockReady.copy(alpha = 0.15f))
+            .border(1.dp, DockReady.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+            .padding(horizontal = 4.dp, vertical = 1.dp)
+    ) {
+        Text(
+            text = "READY",
+            color = DockReady,
+            fontSize = 8.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun DownloadTrigger(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(20.dp)
+            .clip(RoundedCornerShape(5.dp))
+            .background(DockCyan.copy(alpha = 0.08f))
+            .border(1.dp, DockCyan.copy(alpha = 0.25f), RoundedCornerShape(5.dp))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Download,
+            contentDescription = "Download model",
+            tint = DockCyan,
+            modifier = Modifier.size(13.dp)
+        )
     }
 }

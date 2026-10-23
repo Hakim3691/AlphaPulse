@@ -1,5 +1,6 @@
 package com.aistudio.alphapulse.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -25,6 +26,10 @@ data class PredictionEntity(
     val muK: Double,
     val muP: Double,
     val muAlpha: Double,
+    /** Drift term of mounted member W4 (Chronos-Bolt); 0.0 while unmounted. */
+    @ColumnInfo(defaultValue = "0.0") val muW4: Double = 0.0,
+    /** Drift term of mounted member W5 (TimesFM); 0.0 while unmounted. */
+    @ColumnInfo(defaultValue = "0.0") val muW5: Double = 0.0,
     val settled: Boolean,
     val realizedPrice: Double? = null,
     val errorDollar: Double? = null,

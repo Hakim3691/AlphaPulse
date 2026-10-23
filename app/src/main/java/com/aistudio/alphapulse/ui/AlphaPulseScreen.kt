@@ -85,7 +85,8 @@ fun AlphaPulseScreen(
                     low24h = uiState.low24h,
                     modelState = uiState.modelState,
                     totalSettled = uiState.totalSettledForCoin,
-                    coneHitRate = uiState.coneHitRateForCoin
+                    coneHitRate = uiState.coneHitRateForCoin,
+                    mountedModelIds = uiState.mountedModelIds
                 )
 
                 // Collapsible Accordions (Risk Adjusted, Technical Microstructure, Institutional Filters, Forecasts, Canvas Chart, Cognitive Brief)
@@ -101,7 +102,8 @@ fun AlphaPulseScreen(
                     alphaPoc = uiState.alphaPoc,
                     alphaVah = uiState.alphaVah,
                     alphaVal = uiState.alphaVal,
-                    chartPoints = uiState.chartPoints
+                    chartPoints = uiState.chartPoints,
+                    mountedModelIds = uiState.mountedModelIds
                 )
 
                 // Prediction Audit Ledger (Always Visible)
@@ -116,19 +118,10 @@ fun AlphaPulseScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Model Download Section
+                // Compact TSFM model dock — mounts models into the live ensemble
                 ModelDownloadSection(
-                    onDownloadClick = { modelId, version, checksum, backend, sizeBytes, parameterCount, quantization ->
-                        viewModel.downloadModel(
-                            modelId = modelId,
-                            version = version,
-                            checksum = checksum,
-                            backend = backend,
-                            sizeBytes = sizeBytes,
-                            parameterCount = parameterCount,
-                            quantization = quantization
-                        )
-                    }
+                    states = uiState.modelDownloads,
+                    onDownload = { viewModel.downloadModel(it) }
                 )
             }
         }

@@ -389,10 +389,13 @@ object QuantMath {
                 var wAlpha = 0.5 * empiricalAlpha + 0.5 * 0.35
 
                 val total = wK + wP + wAlpha
-                if (total > 0) {
-                    modelState.weightK = wK / total
-                    modelState.weightP = wP / total
-                    modelState.weightAlpha = wAlpha / total
+                // Keep ΣW = 1.000 across the whole ensemble: mounted W4/W5 members keep
+                // their share and the core tri-factor is fitted into the remaining budget.
+                val coreBudget = (1.0 - modelState.weight4 - modelState.weight5).coerceAtLeast(0.0)
+                if (total > 0 && coreBudget > 0) {
+                    modelState.weightK = wK / total * coreBudget
+                    modelState.weightP = wP / total * coreBudget
+                    modelState.weightAlpha = wAlpha / total * coreBudget
                     modelState.mode = "RMSE Calibrated"
                 }
             }

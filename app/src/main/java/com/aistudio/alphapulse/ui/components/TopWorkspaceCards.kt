@@ -3,6 +3,8 @@ package com.aistudio.alphapulse.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -16,9 +18,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aistudio.alphapulse.domain.quant.ModelState
+import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.ui.theme.*
 import com.aistudio.alphapulse.core.Formatters
@@ -37,7 +41,8 @@ fun TopWorkspaceCards(
     low24h: Double,
     modelState: ModelState,
     totalSettled: Int,
-    coneHitRate: Double?
+    coneHitRate: Double?,
+    mountedModelIds: List<String> = emptyList()
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -70,7 +75,8 @@ fun TopWorkspaceCards(
         MlEnsembleWeightsCard(
             modelState = modelState,
             totalSettled = totalSettled,
-            coneHitRate = coneHitRate
+            coneHitRate = coneHitRate,
+            mountedModelIds = mountedModelIds
         )
     }
 }
@@ -301,8 +307,16 @@ fun SpotPriceCard(
 fun MlEnsembleWeightsCard(
     modelState: ModelState,
     totalSettled: Int,
-    coneHitRate: Double?
+    coneHitRate: Double?,
+    mountedModelIds: List<String> = emptyList()
 ) {
+    val weightedMembers = EnsembleWeighting.weightVector(modelState, mountedModelIds)
+    val totalWeight = weightedMembers.sumOf { it.weight }
+    val modelCount = weightedMembers.size
+    // 3-4 members flex to the card width; 5 members keep their width and scroll.
+    val scrollable = modelCount > 4
+    val memberColors = listOf(BrandAmber, BrandNeural, BrandAccent, Color(0xFF22D3EE), BrandBullish)
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -311,7 +325,7 @@ fun MlEnsembleWeightsCard(
             .border(1.dp, BrandBorder, RoundedCornerShape(10.dp))
             .padding(12.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -343,67 +357,95 @@ fun MlEnsembleWeightsCard(
             }
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(if (scrollable) Modifier.horizontalScroll(rememberScrollState()) else Modifier),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // W_k
-                Column {
-                    Text("W_k (Kinematic)", color = TextTertiary, fontSize = 10.sp)
-                    Text(
-                        text = String.format(Locale.US, "%.3f", modelState.weightK),
-                        color = BrandAmber,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
+                weightedMembers.forEachIndexed { index, member ->
+                    EnsembleWeightChip(
+                        modifier = if (scrollable) Modifier.width(66.dp) else Modifier.weight(1f),
+                        weightSymbol = member.member.weightSymbol,
+                        modelLabel = member.member.modelLabel,
+                        weight = member.weight,
+                        accent = memberColors[index % memberColors.size]
                     )
                 }
-                // W_p
-                Column {
-                    Text("W_p (Pain Path)", color = TextTertiary, fontSize = 10.sp)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "MODELS $modelCount · \u03a3W " +
+                        String.format(Locale.US, "%.1f%%", totalWeight * 100.0),
+                    color = TextSecondary,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = String.format(Locale.US, "%.3f", modelState.weightP),
-                        color = BrandNeural,
+                        text = "VALID $totalSettled",
+                        color = TextTertiary,
                         fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
+                        fontSize = 9.sp
                     )
-                }
-                // W_alpha
-                Column {
-                    Text("W_α (Alpha Confl.)", color = TextTertiary, fontSize = 10.sp)
                     Text(
-                        text = String.format(Locale.US, "%.3f", modelState.weightAlpha),
-                        color = BrandAccent,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                }
-                // Validations
-                Column {
-                    Text("Validations", color = TextTertiary, fontSize = 10.sp)
-                    Text(
-                        text = "$totalSettled",
-                        color = TextPrimary,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                }
-                // Hit Rate
-                Column {
-                    Text("Cone (±1σ)", color = TextTertiary, fontSize = 10.sp)
-                    val hitRateText = if (coneHitRate != null) "${String.format(Locale.US, "%.1f", coneHitRate)}%" else "--"
-                    Text(
-                        text = hitRateText,
+                        text = "CONE " + (
+                            if (coneHitRate != null) String.format(Locale.US, "%.1f%%", coneHitRate) else "--"
+                        ),
                         color = BrandBullish,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
+                        fontSize = 9.sp
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun EnsembleWeightChip(
+    modifier: Modifier,
+    weightSymbol: String,
+    modelLabel: String,
+    weight: Double,
+    accent: Color
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(5.dp))
+            .background(BrandCard)
+            .border(1.dp, accent.copy(alpha = 0.28f), RoundedCornerShape(5.dp))
+            .padding(horizontal = 5.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        Text(
+            text = weightSymbol,
+            color = accent,
+            fontSize = 8.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = modelLabel,
+            color = TextTertiary,
+            fontSize = 8.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = String.format(Locale.US, "%.3f", weight),
+            color = TextPrimary,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp
+        )
     }
 }
 

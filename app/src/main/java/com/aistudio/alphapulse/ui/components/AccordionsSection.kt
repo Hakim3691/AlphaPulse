@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.aistudio.alphapulse.data.model.ChartPoint
 import com.aistudio.alphapulse.data.model.ForecastTarget
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
+import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.ui.theme.*
 import com.aistudio.alphapulse.core.Formatters
@@ -44,8 +45,11 @@ fun AccordionsSection(
     alphaPoc: Double = 0.0,
     alphaVah: Double = 0.0,
     alphaVal: Double = 0.0,
-    chartPoints: List<ChartPoint>
+    chartPoints: List<ChartPoint>,
+    mountedModelIds: List<String> = emptyList()
 ) {
+    val mountedExtraIds = EnsembleWeighting.mountedExtraIds(mountedModelIds)
+    val ensembleModelCount = EnsembleWeighting.activeModelCount(mountedModelIds)
     var openRiskAdjusted by remember { mutableStateOf(false) }
     var openMicrostructure by remember { mutableStateOf(false) }
     var openInstitutionalFilters by remember { mutableStateOf(false) }
@@ -223,9 +227,9 @@ fun AccordionsSection(
             }
         }
 
-        // ACCORDION 4: Tri-Factor Ensemble Target Forecasts
+        // ACCORDION 4: Ensemble Target Forecasts (Tri/Quad/Penta-Factor by mounted models)
         AccordionCard(
-            title = "TRI-FACTOR ENSEMBLE TARGET FORECASTS",
+            title = EnsembleWeighting.forecastTitle(ensembleModelCount),
             icon = Icons.Default.GpsFixed,
             iconTint = BrandAccent,
             tag = heatmapSource,
@@ -235,7 +239,19 @@ fun AccordionsSection(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "ML Integration: W_k (Kinematic) + W_p (LOB Pain) + W_α (FRVP 50-Bin / VWAP / UQ-LOB)",
+                    text = EnsembleWeighting.formula(ensembleModelCount),
+                    color = BrandNeural,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = buildString {
+                        append("ML Integration: W_k (Kinematic) + W_p (LOB Pain) + W_α (FRVP 50-Bin / VWAP / UQ-LOB)")
+                        if (EnsembleWeighting.CHRONOS_ID in mountedExtraIds) append(" + W4 (Chronos-Bolt)")
+                        if (EnsembleWeighting.TIMESFM_ID in mountedExtraIds) append(" + W5 (TimesFM)")
+                    },
                     color = TextTertiary,
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace

@@ -11,6 +11,7 @@ import com.aistudio.alphapulse.domain.quant.LiquidityPainPathResult
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
 import com.aistudio.alphapulse.domain.quant.ConfluenceAlphaResult
 import com.aistudio.alphapulse.domain.quant.ModelState
+import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.data.network.BinanceWebSocketManager
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.domain.quant.KlineData
@@ -413,7 +414,8 @@ class AlphaPulseRepository(
 
     suspend fun executeAssetEvaluation(
         symbol: String,
-        modelState: ModelState
+        modelState: ModelState,
+        activeExtraModels: Collection<String> = emptyList()
     ): AssetEvaluationResult = withContext(Dispatchers.IO) {
         // Reset rolling memory if asset switched
         if (initializedWeightsForSymbol != symbol) {
@@ -581,6 +583,10 @@ class AlphaPulseRepository(
 
         // Generate forecasts for 5 horizons with discrete horizon pain paths & candle boundary phase-locking
         val now = System.currentTimeMillis()
+        val ensembleCount = EnsembleWeighting.activeModelCount(activeExtraModels)
+        val mountedExtras = EnsembleWeighting.mountedExtraIds(activeExtraModels)
+        val chronosMounted = EnsembleWeighting.CHRONOS_ID in mountedExtras
+        val timesFmMounted = EnsembleWeighting.TIMESFM_ID in mountedExtras
         val forecastTargets = mutableListOf<ForecastTarget>()
         val existingPredictions = database.predictionDao().getPredictionsBySymbol(symbol)
 
@@ -605,6 +611,27 @@ class AlphaPulseRepository(
             val muPath = horizonPainResult.muPath * exp(-lambdaDecay * (h.minutes - 1))
             val muAlpha = alphaMetrics.muAlpha
 
+            // Mounted TSFM members contribute their own per-minute drift term. Their ONNX
+            // backends are still stubs, so the term is taken from the market-state tensors
+            // each model consumes: Chronos-Bolt (short context) follows the regime-aware
+            // kinematic drift, TimesFM (long context) follows the temporal-attention drift.
+            // An unmounted member is forced to weight 0.0 by EnsembleWeighting.
+            val muChronos = if (chronosMounted) {
+                when {
+                    h.minutes <= 5 -> mtfMetrics.muKinematic * 0.5
+                    h.minutes <= 30 -> mtfMetrics.muKinematic
+                    else -> htfMetrics.muKinematic * 0.6
+                }
+            } else 0.0
+
+            val muTimesFm = if (timesFmMounted) {
+                when {
+                    h.minutes <= 5 -> htfMetrics.muKinematic * 0.5
+                    h.minutes <= 30 -> htfMetrics.muKinematic * 0.8
+                    else -> htfMetrics.muKinematic
+                }
+            } else 0.0
+
             val effectiveVol = when {
                 h.minutes <= 5 -> baseVol * modelState.volMultiplier * horizonPainResult.spreadSkew
                 h.minutes <= 30 -> baseVol * modelState.volMultiplier * mtfMetrics.regimeVolScale
@@ -617,6 +644,8 @@ class AlphaPulseRepository(
             val combinedDrift = (muKinematic * modelState.weightK) +
                     (muPath * modelState.weightP) +
                     (muAlpha * modelState.weightAlpha) +
+                    (muChronos * modelState.weight4) +
+                    (muTimesFm * modelState.weight5) +
                     modelState.driftBias
 
             val dt = h.minutes.toDouble()
@@ -637,7 +666,7 @@ class AlphaPulseRepository(
                 horizonId = h.id,
                 label = h.label,
                 minutes = h.minutes,
-                modelType = h.modelType,
+                modelType = EnsembleWeighting.modelTypeLabel(ensembleCount),
                 predictedPrice = predPrice,
                 upperPrice = upperPrice,
                 lowerPrice = lowerPrice,
@@ -666,7 +695,7 @@ class AlphaPulseRepository(
                     symbol = symbol,
                     horizonId = h.id,
                     horizonLabel = h.label,
-                    modelType = h.modelType,
+                    modelType = EnsembleWeighting.modelTypeLabel(ensembleCount),
                     minutes = h.minutes,
                     issuedTimestamp = now,
                     targetTimestamp = targetTimestamp,
@@ -677,6 +706,8 @@ class AlphaPulseRepository(
                     muK = muKinematic,
                     muP = muPath,
                     muAlpha = muAlpha,
+                    muW4 = muChronos,
+                    muW5 = muTimesFm,
                     settled = false
                 )
                 database.predictionDao().insert(newEntity)
@@ -830,6 +861,8 @@ class AlphaPulseRepository(
             val muPredicted = (item.muK * modelState.weightK) +
                     (item.muP * modelState.weightP) +
                     (item.muAlpha * modelState.weightAlpha) +
+                    (item.muW4 * modelState.weight4) +
+                    (item.muW5 * modelState.weight5) +
                     modelState.driftBias
             val errorMu = muRealized - muPredicted
 
@@ -840,11 +873,14 @@ class AlphaPulseRepository(
                 modelState.weightAlpha += modelState.learningRate * errorMu * item.muAlpha * gradientMultiplier
                 modelState.driftBias += modelState.learningRate * errorMu
 
+                // Renormalise only the core members into the budget left by any mounted
+                // TSFM members, so SGD never inflates ΣW past 1.000.
+                val coreBudget = (1.0 - modelState.weight4 - modelState.weight5).coerceAtLeast(0.0)
                 val totalW = abs(modelState.weightK) + abs(modelState.weightP) + abs(modelState.weightAlpha)
-                if (totalW > 0) {
-                    modelState.weightK = abs(modelState.weightK) / totalW
-                    modelState.weightP = abs(modelState.weightP) / totalW
-                    modelState.weightAlpha = abs(modelState.weightAlpha) / totalW
+                if (totalW > 0 && coreBudget > 0) {
+                    modelState.weightK = abs(modelState.weightK) / totalW * coreBudget
+                    modelState.weightP = abs(modelState.weightP) / totalW * coreBudget
+                    modelState.weightAlpha = abs(modelState.weightAlpha) / totalW * coreBudget
                     modelState.mode = "Live SGD Active"
                 }
             }

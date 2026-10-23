@@ -84,5 +84,9 @@ data class ModelState(
     var driftBias: Double = 0.0,
     var volMultiplier: Double = 1.0,
     val learningRate: Double = 0.015,
-    var mode: String = "Baseline Init"
+    var mode: String = "Baseline Init",
+    /** Weight of the mounted W4 member (Chronos-Bolt TSFM); 0.0 until downloaded. */
+    var weight4: Double = 0.0,
+    /** Weight of the mounted W5 member (TimesFM TSFM); 0.0 until downloaded. */
+    var weight5: Double = 0.0
 )

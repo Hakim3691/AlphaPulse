@@ -8,11 +8,16 @@ import androidx.lifecycle.viewModelScope
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.model.ChartPoint
 import com.aistudio.alphapulse.data.model.ForecastTarget
+import com.aistudio.alphapulse.data.model.ModelDownloadState
+import com.aistudio.alphapulse.data.model.ModelDownloadStore
+import com.aistudio.alphapulse.data.model.ModelLoadStatus
+import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
 import com.aistudio.alphapulse.di.ServiceLocator
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,14 +27,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
-import java.io.FileOutputStream
-
-import com.aistudio.alphapulse.data.model.ModelFileLocator
-import com.aistudio.alphapulse.data.model.ModelManager
-
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
 
 data class AlphaPulseUiState(
     val pipelineRunning: Boolean = true,
@@ -70,7 +67,9 @@ data class AlphaPulseUiState(
     val horizonFilter: String = "ALL",
     val predictions: List<PredictionEntity> = emptyList(),
     val showRefreshDialog: Boolean = false,
-    val snackbarMessage: String? = null
+    val snackbarMessage: String? = null,
+    val modelDownloads: Map<String, ModelDownloadState> = emptyMap(),
+    val mountedModelIds: List<String> = emptyList()
 )
 
 class AlphaPulseViewModel(application: Application) : AndroidViewModel(application) {
@@ -89,10 +88,63 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
     private val sessionStartTimestamp = System.currentTimeMillis()
 
     init {
+        ModelDownloadStore.init(application)
+        val mounted = EnsembleWeighting.mountedExtraIds(ModelDownloadStore.readyModelIds())
+        _uiState.update { state ->
+            state.copy(
+                modelDownloads = ModelDownloadStore.states.value,
+                mountedModelIds = mounted,
+                modelState = ModelState().also {
+                    EnsembleWeighting.rebalanceForMountedModels(it, mounted)
+                }
+            )
+        }
+        observeModelDownloads()
         startSessionTimer()
         observePredictions()
         observeWebSocketTelemetry()
         bootPipeline()
+    }
+
+    /** Mirrors persisted download state into the UI and rebalances on every new mount. */
+    private fun observeModelDownloads() {
+        viewModelScope.launch {
+            var previouslyReady = ModelDownloadStore.readyModelIds().toSet()
+            ModelDownloadStore.states.collect { downloads ->
+                val readyIds = downloads.values
+                    .filter { it.status == ModelLoadStatus.READY }
+                    .map { it.modelId }
+                    .sorted()
+                val mounted = EnsembleWeighting.mountedExtraIds(readyIds)
+                val newlyReady = readyIds.toSet() - previouslyReady
+
+                _uiState.update { state ->
+                    // Fresh instance so recomposition observes the rebalanced weights.
+                    val rebalanced = state.modelState.copy()
+                    if (newlyReady.isNotEmpty()) {
+                        EnsembleWeighting.rebalanceForMountedModels(rebalanced, mounted)
+                    }
+                    state.copy(
+                        modelDownloads = downloads,
+                        mountedModelIds = mounted,
+                        modelState = rebalanced
+                    )
+                }
+
+                if (newlyReady.isNotEmpty()) {
+                    val label = newlyReady.first().let {
+                        if (it == ModelDownloadStore.CHRONOS_ID) "Chronos-Bolt" else "TimesFM"
+                    }
+                    _uiState.update {
+                        it.copy(
+                            snackbarMessage = "$label mounted — ensemble expanded to " +
+                                "${EnsembleWeighting.activeModelCount(mounted)} models"
+                        )
+                    }
+                }
+                previouslyReady = readyIds.toSet()
+            }
+        }
     }
 
     private fun observeWebSocketTelemetry() {
@@ -256,7 +308,10 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 spotChange = coin.priceChangePercent,
                 high24h = coin.highPrice,
                 low24h = coin.lowPrice,
-                modelState = ModelState() // Reset per asset
+                // Reset per asset, then re-establish the mounted-member split.
+                modelState = ModelState().also {
+                    EnsembleWeighting.rebalanceForMountedModels(it, ModelDownloadStore.readyModelIds())
+                }
             )
         }
         repository.wsManager.connect(symbol)
@@ -283,7 +338,11 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 if (symbol.isNotBlank()) {
                     try {
                         val currentModel = _uiState.value.modelState
-                        val result = repository.executeAssetEvaluation(symbol, currentModel)
+                        val result = repository.executeAssetEvaluation(
+                            symbol = symbol,
+                            modelState = currentModel,
+                            activeExtraModels = ModelDownloadStore.readyModelIds()
+                        )
                         _uiState.update { state ->
                             state.copy(
                                 spotPrice = result.spotPrice,
@@ -407,54 +466,18 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         repository.wsManager.stopStreaming()
     }
 
-    fun downloadModel(
-    modelId: String,
-    version: String,
-    checksum: String,
-    backend: String,
-    sizeBytes: Long,
-    parameterCount: Int,
-    quantization: String
-) {
+    /**
+     * Stream a mountable TSFM artefact and mount it into the live ensemble.
+     * Progress is published through [ModelDownloadStore.states].
+     */
+    fun downloadModel(modelId: String) {
         viewModelScope.launch {
             try {
-                // Initialize ModelManager with application context
-                ModelManager.init(getApplication<Application>().applicationContext)
-                
-                // Download the model from the specified repo
-                val modelFile = downloadModelFile(modelId, sizeBytes, checksum)
-                
-                if (modelFile != null) {
-                    // Calculate SHA-256 checksum of the downloaded file
-                    val actualChecksum = ModelManager.calculateSha256(modelFile)
-                    
-                    // Record the download with metadata using the verified checksum
-                    ModelManager.recordDownload(
-                        modelId = modelId,
-                        version = version,
-                        checksumSha256 = actualChecksum,
-                        parameterCount = parameterCount,
-                        sizeBytes = sizeBytes,
-                        quantization = quantization,
-                        backend = backend
-                    )
-                    
-                    // Activate the downloaded model using the verified checksum
-                    try {
-                        ModelManager.activateModel(modelId, actualChecksum)
-                        _uiState.update { it.copy(
-                            snackbarMessage = "Model activated successfully"
-                        ) }
-                    } catch (e: Exception) {
-                        _uiState.update { it.copy(
-                            snackbarMessage = "Model activated: ${e.message ?: e}"
-                        ) }
-                    }
-                } else {
-                    _uiState.update { it.copy(snackbarMessage = "Download failed: Could not download model file") }
-                }
+                ModelDownloadStore.download(modelId)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(snackbarMessage = "Download failed: ${e.message ?: e}") }
+                _uiState.update { it.copy(snackbarMessage = "Model install failed: ${e.message ?: e}") }
             }
         }
     }
@@ -470,79 +493,5 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         } else {
             state.screenedCoins
         }
-    }
-
-    /**
-     * Download a model file from GitHub repo using OkHttp.
-     * Returns the File if successful, null on failure.
-     * Uses the existing OkHttp dependency (okhttp:4.10.0).
-     */
-    private suspend fun downloadModelFile(modelId: String, sizeBytes: Long, checksum: String): File? {
-        // Called from viewModelScope.launch { }, so we can directly use suspend functions
-        return downloadModelFileSuspend(modelId, sizeBytes, checksum)
-    }
-
-    private suspend fun downloadModelFileSuspend(modelId: String, sizeBytes: Long, checksum: String): File? {
-        val client = OkHttpClient()
-        // Model repos are hosted on GitHub Packages / releases
-        // Format: https://github.com/{repo}/releases/download/{version}/{filename}
-        // For our two models:
-        // - Chronos Bolt Tiny: bakshinghampalace/chronos-bolt-tiny-onnx, chronos-bolt-tiny-fp16.onnx
-        // - TimesFM 2.5 200M: onnx-community/timesfm-2.5-200m-int4, model_quantized.onnx
-        val fileName = when (modelId) {
-            "chronos" -> "chronos-bolt-tiny-fp16.onnx"
-            "timesfm" -> "model_quantized.onnx"
-            else -> "model.onnx"
-        }
-
-        val url = "https://github.com/${modelId}/releases/download/v1.0/${fileName}"
-
-        val request = Request.Builder().url(url).build()
-        val response = client.newCall(request).execute()
-
-        if (!response.isSuccessful || response.body == null) {
-            return null
-        }
-
-        val downloadedBytes = response.body?.contentLength() ?: 0
-
-        // Verify content length matches expected (best-effort)
-        if (sizeBytes > 0L && downloadedBytes != sizeBytes) {
-            // Size mismatch - may be partial download or different version
-            // Still accept if checksum matches later
-        }
-
-        val inputStream = response.body?.byteStream()
-        val modelDir = ModelFileLocator.getModelDirectory(modelId, getApplication<Application>().applicationContext)
-        val outputFile = File(modelDir, fileName)
-
-        // Ensure directory exists
-        modelDir.mkdirs()
-
-        // Write file in chunks to avoid memory issues with large models
-        val outputStream = FileOutputStream(outputFile)
-        inputStream?.use { stream ->
-            val buffer = ByteArray(8192)
-            var totalRead = 0L
-            while (totalRead < sizeBytes) {
-                val read = stream.read(buffer)
-                if (read < 0) break
-                outputStream.write(buffer, 0, read)
-                totalRead += read
-            }
-        }
-        outputStream.close()
-
-        // Verify checksum if provided
-        if (checksum.isNotEmpty()) {
-            val actualChecksum = ModelManager.calculateSha256(outputFile)
-            if (actualChecksum != checksum) {
-                // Checksum mismatch - delete and return null
-                outputFile.delete()
-                return null
-            }
-        }
-
-        return outputFile
     }
 }
