@@ -59,6 +59,19 @@ android {
       signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
+  // ONNX Runtime bundles ~50 MB of native inference libraries per architecture.
+  // Shipping one fat APK would force every device to download all three, so emit
+  // per-ABI APKs (arm64 phones, legacy 32-bit arm, x86_64 emulators). The universal
+  // APK is intentionally disabled; Play delivery uses the AAB, which splits natively.
+  splits {
+    abi {
+      isEnable = true
+      reset()
+      include("arm64-v8a", "armeabi-v7a", "x86_64")
+      isUniversalApk = false
+    }
+  }
+
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
@@ -136,6 +149,10 @@ dependencies {
   implementation(libs.okhttp)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
+  // On-device inference for the mounted TSFM artifacts.
+  implementation(libs.onnxruntime.android)
+  // Unit tests execute the real graphs on the desktop runtime.
+  testImplementation(libs.onnxruntime.desktop)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.mockwebserver)
   testImplementation(libs.androidx.core)
@@ -154,7 +171,17 @@ dependencies {
   "ksp"(libs.moshi.kotlin.codegen)
 }
 
+// Unit tests run the desktop ONNX Runtime; the Android AAR carries device-only
+// native libraries and must not shadow it on the JVM test classpath.
+configurations.configureEach {
+  if (name.startsWith("test") || name.contains("UnitTest", ignoreCase = true)) {
+    exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android")
+  }
+}
+
 // CI runs the live artifact-source contract check with VERIFY_ARTIFACT_NETWORK=true.
 tasks.withType<Test>().configureEach {
   systemProperty("verifyArtifactNetwork", System.getenv("VERIFY_ARTIFACT_NETWORK") ?: "false")
+  // The 250 MB TimesFM parity run is opt-in even when network checks are on.
+  systemProperty("verifyLargeModel", System.getenv("VERIFY_LARGE_MODEL") ?: "false")
 }

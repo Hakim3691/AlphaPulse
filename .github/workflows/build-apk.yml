@@ -447,11 +447,22 @@ jobs:
             --tests "com.aistudio.alphapulse.data.model.ModelArtifactSourceContractTest" \
             --stacktrace
 
+      - name: Execute published ONNX graph (real inference)
+        env:
+          VERIFY_ARTIFACT_NETWORK: "true"
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest \
+            --tests "com.aistudio.alphapulse.domain.ml.onnx.OnnxModelParityTest" \
+            --stacktrace
+
       - name: Upload Contract Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: model-artifact-contract-${{ github.sha }}
-          path: app/build/test-results/testDebugUnitTest/TEST-*ModelArtifactSourceContractTest.xml
+          path: |
+            app/build/test-results/testDebugUnitTest/TEST-*ModelArtifactSourceContractTest.xml
+            app/build/test-results/testDebugUnitTest/TEST-*OnnxModelParityTest.xml
           if-no-files-found: ignore
           retention-days: 14

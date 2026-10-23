@@ -101,6 +101,9 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
             )
         }
         observeModelDownloads()
+        viewModelScope.launch {
+            repository.syncMountedTsfmModels(ModelDownloadStore.readyModelIds())
+        }
         startSessionTimer()
         observePredictions()
         observeWebSocketTelemetry()
@@ -130,6 +133,10 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                         mountedModelIds = mounted,
                         modelState = rebalanced
                     )
+                }
+
+                if (readyIds.toSet() != previouslyReady) {
+                    viewModelScope.launch { repository.syncMountedTsfmModels(mounted) }
                 }
 
                 if (newlyReady.isNotEmpty()) {

@@ -12,6 +12,9 @@ import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
 import com.aistudio.alphapulse.domain.quant.ConfluenceAlphaResult
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
+import com.aistudio.alphapulse.domain.ml.onnx.OnnxTsfmForecaster
+import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecast
+import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecaster
 import com.aistudio.alphapulse.data.network.BinanceWebSocketManager
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.domain.quant.KlineData
@@ -31,15 +34,26 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.*
 
+/** Minimum 1m history required before a mounted TSFM is asked for a forecast. */
+private const val MIN_TSFM_HISTORY = 32
+
+/** Longest docked horizon (1h) in minutes. */
+private const val MAX_FORECAST_MINUTES = 60
+
 class AlphaPulseRepository(
     private val client: ResilientBinanceClient,
     private val database: AppDatabase,
     private val cacheDir: File? = null,
-    val wsManager: BinanceWebSocketManager = BinanceWebSocketManager()
+    val wsManager: BinanceWebSocketManager = BinanceWebSocketManager(),
+    private val tsfmForecaster: TsfmForecaster = OnnxTsfmForecaster()
 ) {
     val allPredictionsFlow: Flow<List<PredictionEntity>> = database.predictionDao().getAllPredictionsFlow()
     fun getPredictionsBySymbolFlow(symbol: String): Flow<List<PredictionEntity>> =
         database.predictionDao().getPredictionsBySymbolFlow(symbol)
+
+    /** Open/close ONNX sessions to match the models currently mounted in the dock. */
+    suspend fun syncMountedTsfmModels(modelIds: List<String>) =
+        tsfmForecaster.syncMountedModels(modelIds)
 
     // Per-asset rolling state
     private val kurtosisHistory = mutableListOf<Double>()
@@ -585,8 +599,20 @@ class AlphaPulseRepository(
         val now = System.currentTimeMillis()
         val ensembleCount = EnsembleWeighting.activeModelCount(activeExtraModels)
         val mountedExtras = EnsembleWeighting.mountedExtraIds(activeExtraModels)
-        val chronosMounted = EnsembleWeighting.CHRONOS_ID in mountedExtras
-        val timesFmMounted = EnsembleWeighting.TIMESFM_ID in mountedExtras
+
+        // One inference pass per mounted TSFM per evaluation cycle, shared by all
+        // five horizons. A model without a live session contributes nothing.
+        val tsfmForecasts: Map<String, TsfmForecast> =
+            if (mountedExtras.isNotEmpty() && klines.size >= MIN_TSFM_HISTORY) {
+                val closes = klines.map { it.close }.toDoubleArray()
+                mountedExtras.mapNotNull { modelId ->
+                    tsfmForecaster.forecast(modelId, closes, MAX_FORECAST_MINUTES)
+                        ?.let { modelId to it }
+                }.toMap()
+            } else {
+                emptyMap()
+            }
+
         val forecastTargets = mutableListOf<ForecastTarget>()
         val existingPredictions = database.predictionDao().getPredictionsBySymbol(symbol)
 
@@ -611,26 +637,13 @@ class AlphaPulseRepository(
             val muPath = horizonPainResult.muPath * exp(-lambdaDecay * (h.minutes - 1))
             val muAlpha = alphaMetrics.muAlpha
 
-            // Mounted TSFM members contribute their own per-minute drift term. Their ONNX
-            // backends are still stubs, so the term is taken from the market-state tensors
-            // each model consumes: Chronos-Bolt (short context) follows the regime-aware
-            // kinematic drift, TimesFM (long context) follows the temporal-attention drift.
-            // An unmounted member is forced to weight 0.0 by EnsembleWeighting.
-            val muChronos = if (chronosMounted) {
-                when {
-                    h.minutes <= 5 -> mtfMetrics.muKinematic * 0.5
-                    h.minutes <= 30 -> mtfMetrics.muKinematic
-                    else -> htfMetrics.muKinematic * 0.6
-                }
-            } else 0.0
-
-            val muTimesFm = if (timesFmMounted) {
-                when {
-                    h.minutes <= 5 -> htfMetrics.muKinematic * 0.5
-                    h.minutes <= 30 -> htfMetrics.muKinematic * 0.8
-                    else -> htfMetrics.muKinematic
-                }
-            } else 0.0
+            // Mounted TSFM drift is the model's own median forecast at this horizon,
+            // converted to a per-minute log drift. With no session (or no forecast)
+            // the member contributes nothing rather than a synthetic signal.
+            val muChronos = tsfmForecasts[EnsembleWeighting.CHRONOS_ID]
+                ?.driftPerMinute(currentSpot, h.minutes) ?: 0.0
+            val muTimesFm = tsfmForecasts[EnsembleWeighting.TIMESFM_ID]
+                ?.driftPerMinute(currentSpot, h.minutes) ?: 0.0
 
             val effectiveVol = when {
                 h.minutes <= 5 -> baseVol * modelState.volMultiplier * horizonPainResult.spreadSkew
