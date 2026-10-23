@@ -1,16 +1,39 @@
 package com.aistudio.alphapulse.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.aistudio.alphapulse.data.model.ModelManager
+import com.aistudio.alphapulse.ui.theme.BrandAccent
+import com.aistudio.alphapulse.ui.theme.BrandBorder
+import com.aistudio.alphapulse.ui.theme.BrandCard
+import com.aistudio.alphapulse.ui.theme.BrandSurface
+import com.aistudio.alphapulse.ui.theme.BrandAccent
+import com.aistudio.alphapulse.ui.theme.BrandBorder
+import com.aistudio.alphapulse.ui.theme.BrandCard
+import com.aistudio.alphapulse.ui.theme.BrandSurface
+import com.aistudio.alphapulse.ui.theme.BrandBullish
+import com.aistudio.alphapulse.ui.theme.TextPrimary
+import com.aistudio.alphapulse.ui.theme.TextTertiary
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -32,13 +55,11 @@ fun ModelDownloadSection(
         modifier = Modifier
             .fillMaxWidth()
             .padding(8.dp)
-            .clip(RoundedCornerShape(12.dp)),
-        elevation = 2.dp
+            .clip(RoundedCornerShape(12.dp))
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -75,13 +96,13 @@ fun ModelDownloadSection(
                                 fileName = "chronos-bolt-tiny-fp16.onnx",
                                 sizeMb = 18,
                                 onClick = { onDownloadClick(
-                                    modelId = "chronos",
-                                    version = "1.0",
-                                    checksum = "",
-                                    backend = "KRONOS_SMALL",
-                                    sizeBytes = 18L * 1024 * 1024,
-                                    parameterCount = 1000,
-                                    quantization = "FP16"
+                                    "chronos",
+                                    "1.0",
+                                    "",
+                                    "KRONOS_SMALL",
+                                    18L * 1024 * 1024,
+                                    1000,
+                                    "FP16"
                                 )}
                             )
 
@@ -92,13 +113,13 @@ fun ModelDownloadSection(
                                 fileName = "model_quantized.onnx",
                                 sizeMb = 120,
                                 onClick = { onDownloadClick(
-                                    modelId = "timesfm",
-                                    version = "2.5",
-                                    checksum = "",
-                                    backend = "TIMES_FM",
-                                    sizeBytes = 120L * 1024 * 1024,
-                                    parameterCount = 200_000_000,
-                                    quantization = "INT4"
+                                    "timesfm",
+                                    "2.5",
+                                    "",
+                                    "TIMES_FM",
+                                    120L * 1024 * 1024,
+                                    200_000_000,
+                                    "INT4"
                                 )}
                             )
                         }
@@ -126,7 +147,7 @@ fun ModelDownloadSection(
             }
 
             if (open) {
-                Divider(modifier = Modifier.fillMaxWidth(), height = 1.dp, color = BrandBorder)
+                Divider(modifier = Modifier.fillMaxWidth(), thickness = 1.dp, color = BrandBorder)
             }
         }
     }
@@ -145,14 +166,13 @@ fun ModelDownloadRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(8.dp)),
-        background = BrandSurface,
-        border = (1.dp, BrandBorder, RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(8.dp))
+            .background(BrandSurface)
+            .border(1.dp, BrandBorder, RoundedCornerShape(8.dp))
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.SpaceBetween,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -203,9 +223,7 @@ fun ModelDownloadRow(
             }
 
             // Click handler
-            clickable {
-                onClick()
-            }
+            
         }
     }
 }
