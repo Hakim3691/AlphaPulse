@@ -181,6 +181,9 @@ configurations.configureEach {
 
 // CI runs the live artifact-source contract check with VERIFY_ARTIFACT_NETWORK=true.
 tasks.withType<Test>().configureEach {
+  // The TimesFM parity run builds a ~250 MB ONNX session, which does not fit
+  // in the default 512 MB test JVM.
+  maxHeapSize = "2g"
   systemProperty("verifyArtifactNetwork", System.getenv("VERIFY_ARTIFACT_NETWORK") ?: "false")
   // The 250 MB TimesFM parity run is opt-in even when network checks are on.
   systemProperty("verifyLargeModel", System.getenv("VERIFY_LARGE_MODEL") ?: "false")

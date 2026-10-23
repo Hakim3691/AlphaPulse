@@ -419,7 +419,7 @@ jobs:
   model-artifacts:
     name: Model Artifact Sources
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     # Advisory: a publishing-host outage must not block shipping the APK, but a
     # red job flags that a pinned artifact moved, shrank or disappeared.
     continue-on-error: true
@@ -452,14 +452,40 @@ jobs:
             --tests "com.aistudio.alphapulse.data.model.ModelArtifactSourceContractTest" \
             --stacktrace
 
-      - name: Execute published ONNX graph (real inference)
+      - name: Execute published ONNX graphs (real inference)
         env:
           VERIFY_ARTIFACT_NETWORK: "true"
+          # Downloads the 250 MB TimesFM artifact as well as Chronos.
+          VERIFY_LARGE_MODEL: "true"
         run: |
           chmod +x gradlew
           ./gradlew :app:testDebugUnitTest \
             --tests "com.aistudio.alphapulse.domain.ml.onnx.OnnxModelParityTest" \
             --stacktrace
+
+      # A skipped parity case still exits 0, so assert the graphs really ran.
+      - name: Assert both published graphs executed
+        run: |
+          python3 - << 'EOF'
+          import glob, sys, xml.etree.ElementTree as ET
+
+          reports = glob.glob(
+              "app/build/test-results/testDebugUnitTest/TEST-*OnnxModelParityTest.xml"
+          )
+          if not reports:
+              sys.exit("::error::No OnnxModelParityTest report was produced")
+
+          root = ET.parse(reports[0]).getroot()
+          tests = int(root.get("tests", 0))
+          failures = int(root.get("failures", 0)) + int(root.get("errors", 0))
+          skipped = int(root.get("skipped", 0))
+          print(f"parity: {tests} tests, {failures} failed, {skipped} skipped")
+
+          if skipped:
+              sys.exit("::error::A published ONNX graph was skipped; both must execute")
+          if tests < 2 or failures:
+              sys.exit("::error::Published ONNX graphs did not both pass")
+          EOF
 
       - name: Upload Contract Report
         if: always()
