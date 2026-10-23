@@ -64,6 +64,10 @@ AlphaPulse is engineered to bring desktop-grade quantitative research, order-boo
   - Integrated Room database pre-loading so the application renders cached screened coins instantly on startup.
 - **GitHub Actions CI/CD Pipeline**:
   - Created `.github/workflows/build-apk.yml` for automated unit testing (`:app:testDebugUnitTest`), debug/release APK assembly (`:app:assembleDebug`, `:app:assembleRelease`), keystore provisioning, and artifact uploads.
+- **On-Device TSFM Inference (ONNX Runtime)**:
+  - Mounted Chronos-Bolt and TimesFM artifacts now execute on-device through ONNX Runtime; each mounted model contributes its own median forecast and quantile bands to the ensemble instead of a drift term synthesised from market-state heuristics.
+  - Sessions open when a model is mounted and close when it is unmounted; a model whose artifact is missing or fails to load is omitted from the ensemble rather than replaced by a synthetic signal.
+  - APKs are split per ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`) because the native inference runtime is ~25-40 MB per architecture.
 
 ---
 
@@ -105,7 +109,11 @@ While AlphaPulse is a complete quantitative screener and forecast workstation, t
 # Run unit & Robolectric tests
 ./gradlew :app:testDebugUnitTest
 
-# Assemble Debug APK
+# Execute the real published ONNX graphs (downloads the pinned artifacts)
+VERIFY_ARTIFACT_NETWORK=true ./gradlew :app:testDebugUnitTest \
+  --tests "com.aistudio.alphapulse.domain.ml.onnx.OnnxModelParityTest"
+
+# Assemble Debug APK (one per ABI under app/build/outputs/apk/debug/)
 ./gradlew :app:assembleDebug
 
 # Assemble Release APK (requires STORE_PASSWORD and KEY_PASSWORD)
