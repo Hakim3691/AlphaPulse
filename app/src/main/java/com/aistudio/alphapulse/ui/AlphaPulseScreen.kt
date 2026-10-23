@@ -115,6 +115,21 @@ fun AlphaPulseScreen(
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                // Model Download Section
+                ModelDownloadSection(
+                    onDownloadClick = { modelId, version, checksum, backend, sizeBytes, parameterCount, quantization ->
+                        viewModel.downloadModel(
+                            modelId = modelId,
+                            version = version,
+                            checksum = checksum,
+                            backend = backend,
+                            sizeBytes = sizeBytes,
+                            parameterCount = parameterCount,
+                            quantization = quantization
+                        )
+                    }
+                )
             }
         }
 

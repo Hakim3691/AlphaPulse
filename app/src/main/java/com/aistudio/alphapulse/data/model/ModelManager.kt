@@ -221,7 +221,7 @@ object ModelManager {
     )
 
     /** Calculate SHA-256 checksum for a file */
-    private fun calculateSha256(file: File): String {
+    fun calculateSha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256").apply {
             val fileInput = FileInputStream(file)
             try {
