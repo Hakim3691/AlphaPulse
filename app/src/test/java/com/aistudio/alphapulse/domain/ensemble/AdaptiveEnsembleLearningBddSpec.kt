@@ -33,14 +33,15 @@ class AdaptiveEnsembleLearningBddSpec {
 
         // Market realised more bullish drift than the ensemble predicted and
         // Chronos pointed the right way (muW4 > 0), so its share must grow.
-        EnsembleWeighting.applySettledSgdStep(
+        EnsembleWeighting.applyAdamWStep(
             state = state,
             errorMu = 1e-3,
             muK = 1e-4,
             muP = 1e-4,
             muAlpha = 1e-4,
             muW4 = 5e-4,
-            muW5 = 0.0
+            muW5 = 0.0,
+            step = 1
         )
 
         assertTrue(
@@ -59,14 +60,15 @@ class AdaptiveEnsembleLearningBddSpec {
 
         // Market realised less bullish drift than predicted while Chronos was
         // bullish (muW4 > 0, errorMu < 0), so its share must shrink.
-        EnsembleWeighting.applySettledSgdStep(
+        EnsembleWeighting.applyAdamWStep(
             state = state,
             errorMu = -1e-3,
             muK = 1e-4,
             muP = 1e-4,
             muAlpha = 1e-4,
             muW4 = 5e-4,
-            muW5 = 0.0
+            muW5 = 0.0,
+            step = 1
         )
 
         assertTrue(
@@ -82,14 +84,15 @@ class AdaptiveEnsembleLearningBddSpec {
         EnsembleWeighting.rebalanceForMountedModels(state, listOf("chronos", "timesfm"))
         val before = listOf(state.weightK, state.weightP, state.weightAlpha, state.weight4, state.weight5)
 
-        EnsembleWeighting.applySettledSgdStep(
+        EnsembleWeighting.applyAdamWStep(
             state = state,
             errorMu = 5e-4,
             muK = 0.0,
             muP = 0.0,
             muAlpha = 0.0,
             muW4 = 0.0,
-            muW5 = 0.0
+            muW5 = 0.0,
+            step = 1
         )
 
         assertEquals(before, listOf(state.weightK, state.weightP, state.weightAlpha, state.weight4, state.weight5))

@@ -18,10 +18,11 @@ interface TsfmForecaster {
     suspend fun syncMountedModels(modelIds: List<String>)
 
     /**
-     * Run the mounted model on [closes] (oldest first) and return its quantile
-     * forecast. Null when the model is not mounted or inference fails.
+     * Run the mounted model on [tfmInput] (structured market-state tensor per §17)
+     * and return its quantile forecast. Null when the model is not mounted or
+     * inference fails. Falls back to [closes] if [tfmInput] is empty.
      */
-    suspend fun forecast(modelId: String, closes: DoubleArray, steps: Int): TsfmForecast?
+    suspend fun forecast(modelId: String, tfmInput: TsfmInput, closes: DoubleArray? = null, steps: Int): TsfmForecast?
 }
 
 /**
@@ -60,14 +61,17 @@ class OnnxTsfmForecaster(
 
     override suspend fun forecast(
         modelId: String,
-        closes: DoubleArray,
+        tfmInput: TsfmInput,
+        closes: DoubleArray? = null,
         steps: Int
     ): TsfmForecast? = withContext(Dispatchers.Default) {
+        // Use closes as fallback if tfmInput is empty (backward compatibility)
+        val effectiveCloses = if (tfmInput.close == 0.0 && tfmInput.open == 0.0) closes else null
         val session = synchronized(lock) { sessions[modelId] } ?: return@withContext null
         try {
             when (modelId) {
-                ModelArtifacts.CHRONOS.modelId -> runChronos(session, closes, steps)
-                ModelArtifacts.TIMESFM.modelId -> runTimesFm(session, closes, steps)
+                ModelArtifacts.CHRONOS.modelId -> runChronos(session, effectiveCloses, steps)
+                ModelArtifacts.TIMESFM.modelId -> runTimesFm(session, effectiveCloses, steps)
                 else -> null
             }
         } catch (t: Throwable) {

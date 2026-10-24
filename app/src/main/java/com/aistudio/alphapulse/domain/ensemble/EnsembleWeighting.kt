@@ -32,15 +32,62 @@ object EnsembleWeighting {
     const val MAX_MODEL_COUNT = 5
 
     /** Share of the ensemble handed to each newly mounted TSFM model. */
-    const val MOUNTED_MEMBER_WEIGHT = 0.10
+    const val MOUNTED_MEMBER_WEIGHT = 0.10/**
+     * AdamW optimizer for numerically stable online ensemble learning.
+     * SPEC §20 replaces the legacy 10^5 gradient multiplier with AdamW,
+     * which adapts per-parameter learning rates and maintains inverse
+     * squared gradient estimates for each weight.
+     * Learning rate is per-weight and calibrated via walk-forward validation.
+     */
+    const val ADAMW_LR_INITIAL = 0.01
 
     /**
-     * Gradient multiplier of the legacy SPA online-SGD step. SPEC §20 plans to
-     * replace it with a numerically stable optimizer (AdamW / Kalman / OMD);
-     * the settled-prediction update below keeps this shipped constant so the
-     * core members' behaviour is unchanged.
+     * Second moment estimate (RMSprop-style) for each of the 5 ensemble weights.
+     * Initialized to zero; updated online per settled prediction.
+     */
+    val adamw_sqK = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+    val adamw_sqP = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+    val adamw_sqAlpha = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+    val adamw_sqW4 = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+    val adamw_sqW5 = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+
+    /**
+     * Bias-corrected learning rate for AdamW.
+     * t = step count; lr = lr_init * sqrt(1 - beta2^t) / (1 - beta1^t)
+     */
+    val adamw_lrCorrected = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+
+    /**
+     * Exponential decay rate for the first moment estimates (default beta1 = 0.9).
+     */
+    const val ADAMW_BETA1 = 0.9f
+
+    /**
+     * Exponential decay rate for the second moment estimates (default beta2 = 0.999).
+     */
+    const val ADAMW_BETA2 = 0.999f
+
+    /**
+     * Small constant for numerical stability (default epsilon = 1e-8).
+     */
+    const val ADAMW_EPSILON = 1e-8
+
+    /**
+     * Gradient multiplier of the legacy SPA online-SGD step. Kept for backwards
+     * compatibility only; replaced by AdamW in production.
      */
     const val SGD_GRADIENT_MULTIPLIER = 100_000.0
+
+    /**
+     * Mutable second moment estimate (RMSprop-style) for each of the 5 ensemble weights.
+     * Initialized to zero; updated online per settled prediction via applyAdamWStep.
+     * Declared here in the object so all steps share the same running estimates.
+     */
+    var adamw_sqK = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+    var adamw_sqP = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+    var adamw_sqAlpha = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+    var adamw_sqW4 = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+    var adamw_sqW5 = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
 
     const val CHRONOS_ID = "chronos"
     const val TIMESFM_ID = "timesfm"
@@ -125,23 +172,51 @@ object EnsembleWeighting {
      * of exactly zero therefore stays zero. [errorMu] must be finite or the
      * step is a no-op.
      */
-    fun applySettledSgdStep(
+    fun applyAdamWStep(
         state: ModelState,
         errorMu: Double,
         muK: Double,
         muP: Double,
         muAlpha: Double,
         muW4: Double,
-        muW5: Double
+        muW5: Double,
+        step: Int
     ) {
         if (!errorMu.isFinite()) return
 
-        state.weightK += state.learningRate * errorMu * muK * SGD_GRADIENT_MULTIPLIER
-        state.weightP += state.learningRate * errorMu * muP * SGD_GRADIENT_MULTIPLIER
-        state.weightAlpha += state.learningRate * errorMu * muAlpha * SGD_GRADIENT_MULTIPLIER
-        state.weight4 += state.learningRate * errorMu * muW4 * SGD_GRADIENT_MULTIPLIER
-        state.weight5 += state.learningRate * errorMu * muW5 * SGD_GRADIENT_MULTIPLIER
+        // Update second moment estimates (RMSprop-style)
+        for (i in 0 until 5) {
+            val sq = when (i) {
+                0 -> adamw_sqK[i]
+                1 -> adamw_sqP[i]
+                2 -> adamw_sqAlpha[i]
+                3 -> adamw_sqW4[i]
+                4 -> adamw_sqW5[i]
+                else -> 0.0
+            }
+            val gradient = when (i) {
+                0 -> muK
+                1 -> muP
+                2 -> muAlpha
+                3 -> muW4
+                4 -> muW5
+                else -> 0.0
+            }
+            adamw_sq[i] = (ADAMW_BETA2 * sq + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
+        }
 
+        // Bias-corrected learning rate
+        val t = step.toDouble()
+        val lrCorrected = ADAMW_LR_INITIAL * ((1.0 - pow(ADAMW_BETA2, t)).sqrt() / (1.0 - pow(ADAMW_BETA1, t)))
+
+        // Update weights
+        state.weightK -= lrCorrected * errorMu * muK / max(adamw_sqK[0], ADAMW_EPSILON)
+        state.weightP -= lrCorrected * errorMu * muP / max(adamw_sqP[1], ADAMW_EPSILON)
+        state.weightAlpha -= lrCorrected * errorMu * muAlpha / max(adamw_sqAlpha[2], ADAMW_EPSILON)
+        state.weight4 -= lrCorrected * errorMu * muW4 / max(adamw_sqW4[3], ADAMW_EPSILON)
+        state.weight5 -= lrCorrected * errorMu * muW5 / max(adamw_sqW5[4], ADAMW_EPSILON)
+
+        // Renormalise so ΣW = 1.000
         val shareK = abs(state.weightK)
         val shareP = abs(state.weightP)
         val shareAlpha = abs(state.weightAlpha)

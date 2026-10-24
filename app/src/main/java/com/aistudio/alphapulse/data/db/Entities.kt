@@ -36,6 +36,8 @@ data class PredictionEntity(
     val errorPct: Double? = null,
     val inCone: Boolean? = null,
     val learningAction: String = "Pending Settlement",
+    /** Model provider that generated this forecast (for §19 independent cross-validation). */
+    val modelProvider: String = "",
     val versionTag: String = "" // Links to ModelVersion for §55 reproducibility
 )
 
@@ -146,4 +148,22 @@ data class SessionEntity(
     val regimeState: String = "Mean-Reverting",
     val symbol: String = "",
     val versionTag: String = "1.0"
+}
+
+/*** Ensemble Weights per symbol/horizon (SPEC §20: persistent per-coin/per-horizon weight tables) ***/
+
+@Entity(tableName = "ensemble_weights")
+data class EnsembleWeightsEntity(
+    @PrimaryKey val compositeKey: String,  // "symbol#horizon"
+    val symbol: String,
+    val horizonId: String,
+    val weightK: Double,
+    val weightP: Double,
+    val weightAlpha: Double,
+    val weight4: Double,
+    val weight5: Double,
+    val lastUpdated: Long = System.currentTimeMillis(),
+    val modelVersion: String = ""
 )
+
+/*** Remaining entities ***/

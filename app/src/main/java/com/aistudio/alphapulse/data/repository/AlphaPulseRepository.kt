@@ -606,7 +606,32 @@ class AlphaPulseRepository(
             if (mountedExtras.isNotEmpty() && klines.size >= MIN_TSFM_HISTORY) {
                 val closes = klines.map { it.close }.toDoubleArray()
                 mountedExtras.mapNotNull { modelId ->
-                    tsfmForecaster.forecast(modelId, closes, MAX_FORECAST_MINUTES)
+                    val tfmInput = TsfmInput(
+                        timestamp = now,
+                        open = klines.first().open,
+                        high = klines.map { it.high }.max() ?: 0.0,
+                        low = klines.map { it.low }.min() ?: 0.0,
+                        close = closes[0],
+                        volume = klines.map { it.volume }.average() ?: 0.0,
+                        logReturn = ln(klines[1].close / klines[0].close),
+                        realizedVolatility = baseVol,
+                        funding = 0.0,
+                        openInterest = tsfmForecasts.keys().asSequence().sumOf { /* not directly available */ 0.0 },
+                        oiChange = 0.0,
+                        takerBuyRatio = 0.0,
+                        vwapDistance = 0.0,
+                        pocDistance = 0.0,
+                        vahDistance = 0.0,
+                        valDistance = 0.0,
+                        l2Imbalance = 0.0,
+                        spread = 0.0,
+                        depthVelocity = 0.0,
+                        liquidationIntensity = 0.0,
+                        upperLiquidityDistance = 0.0,
+                        lowerLiquidityDistance = 0.0,
+                        regime = mtfMetrics.regime
+                    }
+                    tsfmForecaster.forecast(modelId, tfmInput, closes, MAX_FORECAST_MINUTES)
                         ?.let { modelId to it }
                 }.toMap()
             } else {
@@ -703,7 +728,14 @@ class AlphaPulseRepository(
             if (!hasRecentPending && currentSpot > 0.0) {
                 // Deterministic id keyed on the phase-locked candle boundary so a re-issued
                 // forecast within the same candle replaces (REPLACE) rather than duplicates.
-                val newEntity = PredictionEntity(
+                val modelProvider = when {
+                EnsembleWeighting.mountedExtraIds(activeExtraModels).contains(EnsembleWeighting.CHRONOS_ID) && 
+                EnsembleWeighting.mountedExtraIds(activeExtraModels).contains(EnsembleWeighting.TIMESFM_ID) -> "chronos+timesfm"
+                EnsembleWeighting.mountedExtraIds(activeExtraModels).contains(EnsembleWeighting.CHRONOS_ID) -> "chronos"
+                EnsembleWeighting.mountedExtraIds(activeExtraModels).contains(EnsembleWeighting.TIMESFM_ID) -> "timesfm"
+                else -> ""
+            }
+            val newEntity = PredictionEntity(
                     id = "$symbol-${h.id}-$targetTimestamp",
                     symbol = symbol,
                     horizonId = h.id,
@@ -721,6 +753,7 @@ class AlphaPulseRepository(
                     muAlpha = muAlpha,
                     muW4 = muChronos,
                     muW5 = muTimesFm,
+                    modelProvider = modelProvider,
                     settled = false
                 )
                 database.predictionDao().insert(newEntity)
@@ -882,18 +915,20 @@ class AlphaPulseRepository(
             if (!errorMu.isNaN() && !errorMu.isInfinite()) {
                 modelState.driftBias += modelState.learningRate * errorMu
 
-                // One gradient step for every active member — including the
+                // One AdamW optimizer step for every active member — including the
                 // mounted W4/W5 TSFM members, whose drift terms this very
                 // prediction recorded — then renormalise all five shares so
-                // SGD never inflates ΣW past 1.000.
-                EnsembleWeighting.applySettledSgdStep(
+                // AdamW never inflates ΣW past 1.000 (SPEC §20).
+                val stepCount = pendingList.indexOf(item) + 1
+                EnsembleWeighting.applyAdamWStep(
                     state = modelState,
                     errorMu = errorMu,
                     muK = item.muK,
                     muP = item.muP,
                     muAlpha = item.muAlpha,
                     muW4 = item.muW4,
-                    muW5 = item.muW5
+                    muW5 = item.muW5,
+                    step = stepCount
                 )
             }
 
@@ -930,7 +965,7 @@ class AlphaPulseRepository(
             val realizedStr = if (item.settled && item.realizedPrice != null) Formatters.formatRawPrice5Dec(item.realizedPrice) else ""
             val errorStr = if (item.settled && item.errorPct != null) String.format(Locale.US, "%.2f", item.errorPct) else ""
             val coneStr = if (item.settled) (if (item.inCone == true) "HIT" else "BREACH") else "PENDING"
-            sb.append("\"${item.id}\",\"${item.symbol}\",\"${item.horizonLabel}\",\"${item.modelType}\",\"${timeFmt.format(Date(item.issuedTimestamp))}\",\"${timeFmt.format(Date(item.targetTimestamp))}\",${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,\"$coneStr\",\"${item.learningAction}\"\n")
+            sb.append("\"${item.id}\",\"${item.symbol}\",\"${item.horizonLabel}\",\"${item.modelType}\",\"${item.modelProvider}\",\"${timeFmt.format(Date(item.issuedTimestamp))}\",\"${timeFmt.format(Date(item.targetTimestamp))}\",${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,\"$coneStr\",\"${item.learningAction}\"\n")
         }
         sb.toString()
     }
@@ -956,6 +991,7 @@ class AlphaPulseRepository(
             obj.put("errorPct", errorStr)
             obj.put("coneStatus", coneStr)
             obj.put("learningAction", item.learningAction)
+            obj.put("modelProvider", item.modelProvider)
             jsonArray.put(obj)
         }
         return@withContext jsonArray.toString()
@@ -973,7 +1009,7 @@ class AlphaPulseRepository(
             val errorStr = if (item.settled && item.errorPct != null) String.format(Locale.US, "%.2f", item.errorPct) else ""
             val coneStr = if (item.settled) (if (item.inCone == true) "HIT" else "BREACH") else "PENDING"
             lines.add(
-                "${item.id},${item.symbol},${item.horizonLabel},${item.modelType},${timeFmt.format(Date(item.issuedTimestamp))},${timeFmt.format(Date(item.targetTimestamp))},${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,$coneStr,${item.learningAction}"
+                "${item.id},${item.symbol},${item.horizonLabel},${item.modelType},${item.modelProvider},${timeFmt.format(Date(item.issuedTimestamp))},${timeFmt.format(Date(item.targetTimestamp))},${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,$coneStr,${item.learningAction}"
             )
         }
         return@withContext lines.joinToString("\n")
