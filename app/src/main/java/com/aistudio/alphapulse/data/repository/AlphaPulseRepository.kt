@@ -665,10 +665,10 @@ class AlphaPulseRepository(
             val expectedReturn = combinedDrift * dt
             val predPrice = currentSpot * exp(expectedReturn)
 
-            // Cone width at 1.28σ (≈80% two-sided coverage on gaussian markets — realistic
-            // ~70% under the fat-tailed kurtosis regimes this engine flags). A fixed ±1σ cone
-            // structurally breached longer horizons, biasing LTF hit rates over MTF/HTF.
-            val coneSigmas = 1.28
+    // Cone width at 1.645σ (≈90% two-sided coverage on gaussian markets — realistic
+    // ~85% under the fat-tailed kurtosis regimes this engine flags). A fixed ±1σ cone
+    // structurally breached longer horizons, biasing LTF hit rates over MTF/HTF.
+    val coneSigmas = 1.645
             val sigmaSpread = effectiveVol * sqrt(dt)
             val upperPrice = currentSpot * exp(expectedReturn + (sigmaSpread * upperSpreadMultiplier * coneSigmas))
             val lowerPrice = currentSpot * exp(expectedReturn - (sigmaSpread * lowerSpreadMultiplier * coneSigmas))
