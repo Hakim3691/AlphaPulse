@@ -85,8 +85,16 @@ data class ModelState(
     var volMultiplier: Double = 1.0,
     val learningRate: Double = 0.015,
     var mode: String = "Baseline Init",
-    /** Weight of the mounted W4 member (Chronos-Bolt TSFM); 0.0 until downloaded. */
+    /**
+     * Share of the mounted W4 member (Chronos-Bolt TSFM); 0.0 until downloaded,
+     * initialised to EnsembleWeighting.MOUNTED_MEMBER_WEIGHT on mount, then
+     * adapted online by EnsembleWeighting.applySettledSgdStep.
+     */
     var weight4: Double = 0.0,
-    /** Weight of the mounted W5 member (TimesFM TSFM); 0.0 until downloaded. */
+    /**
+     * Share of the mounted W5 member (TimesFM TSFM); 0.0 until downloaded,
+     * initialised to EnsembleWeighting.MOUNTED_MEMBER_WEIGHT on mount, then
+     * adapted online by EnsembleWeighting.applySettledSgdStep.
+     */
     var weight5: Double = 0.0
 )

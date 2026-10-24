@@ -34,6 +34,14 @@ object EnsembleWeighting {
     /** Share of the ensemble handed to each newly mounted TSFM model. */
     const val MOUNTED_MEMBER_WEIGHT = 0.10
 
+    /**
+     * Gradient multiplier of the legacy SPA online-SGD step. SPEC §20 plans to
+     * replace it with a numerically stable optimizer (AdamW / Kalman / OMD);
+     * the settled-prediction update below keeps this shipped constant so the
+     * core members' behaviour is unchanged.
+     */
+    const val SGD_GRADIENT_MULTIPLIER = 100_000.0
+
     const val CHRONOS_ID = "chronos"
     const val TIMESFM_ID = "timesfm"
 
@@ -104,6 +112,50 @@ object EnsembleWeighting {
 
         state.weight4 = if (CHRONOS_ID in mounted) MOUNTED_MEMBER_WEIGHT else 0.0
         state.weight5 = if (TIMESFM_ID in mounted) MOUNTED_MEMBER_WEIGHT else 0.0
+    }
+
+    /**
+     * One settled-prediction SGD step for **every** active member — the core
+     * K/P/alpha tri-factor and the mounted W4/W5 TSFM members alike — followed
+     * by an abs renormalisation of all five shares so ΣW = 1.000 (spec §20
+     * Adaptive Ensemble Learning).
+     *
+     * A member whose recorded drift term for that prediction is zero (an
+     * unmounted TSFM, or a flat forecast) receives no gradient, and a raw share
+     * of exactly zero therefore stays zero. [errorMu] must be finite or the
+     * step is a no-op.
+     */
+    fun applySettledSgdStep(
+        state: ModelState,
+        errorMu: Double,
+        muK: Double,
+        muP: Double,
+        muAlpha: Double,
+        muW4: Double,
+        muW5: Double
+    ) {
+        if (!errorMu.isFinite()) return
+
+        state.weightK += state.learningRate * errorMu * muK * SGD_GRADIENT_MULTIPLIER
+        state.weightP += state.learningRate * errorMu * muP * SGD_GRADIENT_MULTIPLIER
+        state.weightAlpha += state.learningRate * errorMu * muAlpha * SGD_GRADIENT_MULTIPLIER
+        state.weight4 += state.learningRate * errorMu * muW4 * SGD_GRADIENT_MULTIPLIER
+        state.weight5 += state.learningRate * errorMu * muW5 * SGD_GRADIENT_MULTIPLIER
+
+        val shareK = abs(state.weightK)
+        val shareP = abs(state.weightP)
+        val shareAlpha = abs(state.weightAlpha)
+        val shareW4 = abs(state.weight4)
+        val shareW5 = abs(state.weight5)
+        val total = shareK + shareP + shareAlpha + shareW4 + shareW5
+        if (total > 1e-9) {
+            state.weightK = shareK / total
+            state.weightP = shareP / total
+            state.weightAlpha = shareAlpha / total
+            state.weight4 = shareW4 / total
+            state.weight5 = shareW5 / total
+            state.mode = "Live SGD Active"
+        }
     }
 
     fun factorLabel(modelCount: Int): String = when (modelCount) {

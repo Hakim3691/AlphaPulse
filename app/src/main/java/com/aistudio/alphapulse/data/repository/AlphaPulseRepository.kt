@@ -880,22 +880,21 @@ class AlphaPulseRepository(
             val errorMu = muRealized - muPredicted
 
             if (!errorMu.isNaN() && !errorMu.isInfinite()) {
-                val gradientMultiplier = 100000.0
-                modelState.weightK += modelState.learningRate * errorMu * item.muK * gradientMultiplier
-                modelState.weightP += modelState.learningRate * errorMu * item.muP * gradientMultiplier
-                modelState.weightAlpha += modelState.learningRate * errorMu * item.muAlpha * gradientMultiplier
                 modelState.driftBias += modelState.learningRate * errorMu
 
-                // Renormalise only the core members into the budget left by any mounted
-                // TSFM members, so SGD never inflates ΣW past 1.000.
-                val coreBudget = (1.0 - modelState.weight4 - modelState.weight5).coerceAtLeast(0.0)
-                val totalW = abs(modelState.weightK) + abs(modelState.weightP) + abs(modelState.weightAlpha)
-                if (totalW > 0 && coreBudget > 0) {
-                    modelState.weightK = abs(modelState.weightK) / totalW * coreBudget
-                    modelState.weightP = abs(modelState.weightP) / totalW * coreBudget
-                    modelState.weightAlpha = abs(modelState.weightAlpha) / totalW * coreBudget
-                    modelState.mode = "Live SGD Active"
-                }
+                // One gradient step for every active member — including the
+                // mounted W4/W5 TSFM members, whose drift terms this very
+                // prediction recorded — then renormalise all five shares so
+                // SGD never inflates ΣW past 1.000.
+                EnsembleWeighting.applySettledSgdStep(
+                    state = modelState,
+                    errorMu = errorMu,
+                    muK = item.muK,
+                    muP = item.muP,
+                    muAlpha = item.muAlpha,
+                    muW4 = item.muW4,
+                    muW5 = item.muW5
+                )
             }
 
             val learningAction = if (!inCone) {

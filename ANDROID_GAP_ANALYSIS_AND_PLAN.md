@@ -30,7 +30,7 @@ These are the exact items the PRD says were compromises in the SPA that the Andr
 | 1 | **Top-20 depth snapshot only** (`@depth20@250ms` stream not a reconstructed book) | `BinanceWebSocketManager` — depth tiers consumed as-is | FR-006 §7 |
 | 2 | **500-trade REST snapshot** for the institutional shock instead of a rolling tape | `fetchAggTrades(limit=500)` | FR-008 §10 |
 | 3 | **Single exponential pain path** `μp·exp(-λt)` blended heuristically per horizon instead of a real Horizon-Aware Pain Path Engine | `QuantMath.computeHorizonPainPath` (linear blends of L2/POC/VA triggers) | §8 |
-| 4 | **`10^5` gradient multiplier SGD** — the exact SPA hack | `AlphaPulseRepository.auditAndSelfTrain` (line: `val gradientMultiplier = 100000.0`) | §20 |
+| 4 | **`10^5` gradient multiplier SGD** — the exact SPA hack | `EnsembleWeighting.applySettledSgdStep` (constant: `SGD_GRADIENT_MULTIPLIER = 100_000.0`) | §20 |
 | 5 | **Single generic weight state** — not per-coin/per-horizon; reset to defaults (`ModelState()`) when user selects a different coin | `AlphaPulseViewModel.selectCoin` (`// Reset per asset`); `ModelState` is in-memory only, never persisted | §20 |
 | 6 | **Fixed 50-bin volume profile** | `QuantMath.computeVolumeProfileAndVWAP` | FR-012 |
 | 7 | **Kurtosis-threshold Markov approximation** instead of AGA-HMM neural model | `evaluateMarkovRegimeGARCH` | §14 |
