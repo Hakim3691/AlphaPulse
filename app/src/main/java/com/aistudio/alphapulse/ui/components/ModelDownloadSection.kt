@@ -15,19 +15,24 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ShowChart
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.testTag
+import com.aistudio.alphapulse.profiling.DeviceProfile
+import com.aistudio.alphapulse.profiling.HardwareGatekeeper
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,6 +49,8 @@ private val DockDeep = Color(0xFF0B0E14)
 private val DockSurface = Color(0xFF111622)
 private val DockCyan = Color(0xFF22D3EE)
 private val DockReady = Color(0xFF34D399)
+// Amber "do not pass" colour for hardware-blocked downloads.
+private val DockBlocked = Color(0xFFF59E0B)
 
 private data class ModelDockSpec(
     val id: String,
@@ -54,6 +61,8 @@ private data class ModelDockSpec(
 )
 
 // Specs come from the published artifact manifest: icon, micro-copy and real size.
+// Needle 3 sits alongside the two TSFMs; the HardwareGatekeeper still decides
+// whether the device in hand is allowed to fetch it (mid-tier line: 3.5 GB / 4 cores).
 private val DOCK_MODELS = listOf(
     ModelDockSpec(
         id = ModelArtifacts.CHRONOS.modelId,
@@ -68,6 +77,13 @@ private val DOCK_MODELS = listOf(
         sizeMb = ModelArtifacts.TIMESFM.sizeMb,
         icon = Icons.Default.Schedule,
         tint = BrandNeural
+    ),
+    ModelDockSpec(
+        id = ModelArtifacts.NEEDLE3.modelId,
+        microcopy = ModelArtifacts.NEEDLE3.microcopy,
+        sizeMb = ModelArtifacts.NEEDLE3.sizeMb,
+        icon = Icons.Default.Star,
+        tint = DockReady
     )
 )
 
@@ -78,10 +94,19 @@ private val DOCK_MODELS = listOf(
 @Composable
 fun ModelDownloadSection(
     states: Map<String, ModelDownloadState>,
-    onDownload: (String) -> Unit
+    onDownload: (String) -> Unit,
+    // Tests pass a fixed phone; production passes null and reads the real device.
+    deviceProfile: DeviceProfile? = null
 ) {
     val readyCount = DOCK_MODELS.count { states[it.id]?.status == ModelLoadStatus.READY }
     val allReady = readyCount == DOCK_MODELS.size
+
+    // Ask the real phone how much RAM and how many cores it has, once per recompose.
+    // The answer decides whether the download buttons below are clickable.
+    val context = LocalContext.current
+    val profile = remember(context, deviceProfile) {
+        deviceProfile ?: HardwareGatekeeper.fromDevice(context)
+    }
 
     Column(
         modifier = Modifier
@@ -132,10 +157,13 @@ fun ModelDownloadSection(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             DOCK_MODELS.forEach { spec ->
+                // The bouncer's verdict for this model on this phone.
+                val gate = HardwareGatekeeper.decide(spec.id, profile)
                 ModelDockTile(
                     modifier = Modifier.weight(1f),
                     spec = spec,
                     state = states[spec.id] ?: ModelDownloadState(spec.id),
+                    blockedReason = if (gate.allowed) null else gate.reason,
                     onDownload = onDownload
                 )
             }
@@ -148,10 +176,13 @@ private fun ModelDockTile(
     modifier: Modifier,
     spec: ModelDockSpec,
     state: ModelDownloadState,
+    blockedReason: String? = null,
     onDownload: (String) -> Unit
 ) {
     val downloading = state.status == ModelLoadStatus.DOWNLOADING
     val ready = state.status == ModelLoadStatus.READY
+    // Below the mid-tier line the tile shows a lock instead of the download button.
+    val blocked = blockedReason != null && !ready
 
     val shimmerAlpha = if (downloading) {
         rememberInfiniteTransition(label = "ModelDockShimmer").animateFloat(
@@ -202,6 +233,7 @@ private fun ModelDockTile(
 
             when {
                 ready -> ReadyBadge()
+                blocked -> BlockedBadge()
                 downloading -> Text(
                     text = "${(state.progress * 100).toInt()}%",
                     color = DockCyan,
@@ -253,12 +285,45 @@ private fun ModelDockTile(
                 )
             }
             else -> Text(
-                text = "${spec.sizeMb} MB",
-                color = TextTertiary,
+                text = blockedReason?.let { "LOCKED · ${spec.sizeMb} MB" } ?: "${spec.sizeMb} MB",
+                color = if (blocked) DockBlocked else TextTertiary,
                 fontSize = 8.sp,
                 fontFamily = FontFamily.Monospace
             )
         }
+
+        // When the gate says no, show why in one short line so the user is not
+        // left guessing why the button disappeared.
+        if (blocked) {
+            Text(
+                text = blockedReason.orEmpty(),
+                modifier = Modifier.fillMaxWidth(),
+                color = DockBlocked,
+                fontSize = 7.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun BlockedBadge() {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(3.dp))
+            .background(DockBlocked.copy(alpha = 0.15f))
+            .border(1.dp, DockBlocked.copy(alpha = 0.45f), RoundedCornerShape(3.dp))
+            .padding(horizontal = 4.dp, vertical = 1.dp)
+    ) {
+        Text(
+            text = "BLOCKED",
+            color = DockBlocked,
+            fontSize = 8.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 

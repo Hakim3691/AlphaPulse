@@ -3,6 +3,7 @@ package com.aistudio.alphapulse.ui.components
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithTag
@@ -12,6 +13,7 @@ import org.junit.Assert.assertTrue
 import com.aistudio.alphapulse.data.model.ModelDownloadState
 import com.aistudio.alphapulse.data.model.ModelLoadStatus
 import com.aistudio.alphapulse.domain.quant.ModelState
+import com.aistudio.alphapulse.profiling.DeviceProfile
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -28,24 +30,53 @@ class ModelDockUiTest {
 
     private val idleStates = mapOf(
         "chronos" to ModelDownloadState("chronos"),
-        "timesfm" to ModelDownloadState("timesfm")
+        "timesfm" to ModelDownloadState("timesfm"),
+        "needle3" to ModelDownloadState("needle3")
     )
+
+    /** A phone that comfortably meets the mid-tier line, so nothing is gated. */
+    private val midTierPhone = DeviceProfile(totalRamGb = 8.0, cpuCores = 8)
+
+    /** A phone under the mid-tier line (< 3.5 GB RAM or < 4 cores). */
+    private val lowTierPhone = DeviceProfile(totalRamGb = 2.0, cpuCores = 2)
 
     @Test
     fun `idle tiles expose one download trigger each and report the model id`() {
         var clicked: String? = null
         compose.setContent {
-            ModelDownloadSection(states = idleStates, onDownload = { clicked = it })
+            ModelDownloadSection(
+                states = idleStates,
+                onDownload = { clicked = it },
+                deviceProfile = midTierPhone
+            )
         }
 
         compose.onNodeWithText("TSFM MODEL DOCK").assertExists()
-        compose.onNodeWithText("0/2 READY").assertExists()
+        compose.onNodeWithText("0/3 READY").assertExists()
         compose.onNodeWithText("Zero-shot forecaster").assertExists()
         compose.onNodeWithText("Long-context transformer").assertExists()
-        compose.onAllNodesWithContentDescription("Download model").assertCountEquals(2)
+        compose.onNodeWithText("Edge orchestration model").assertExists()
+        compose.onAllNodesWithContentDescription("Download model").assertCountEquals(3)
 
         compose.onAllNodesWithContentDescription("Download model")[0].performClick()
         assertEquals("chronos", clicked)
+    }
+
+    @Test
+    fun `given a below mid-tier phone when the dock renders then every mid-tier model is locked and offers no download button`() {
+        compose.setContent {
+            ModelDownloadSection(
+                states = idleStates,
+                onDownload = {},
+                deviceProfile = lowTierPhone
+            )
+        }
+
+        // Under the mid-tier line (< 3.5 GB RAM or < 4 cores) the three mid-tier
+        // models - Chronos, TimesFM and Needle 3 - must all be locked.
+        compose.onAllNodesWithContentDescription("Download model").assertCountEquals(0)
+        compose.onAllNodesWithText("BLOCKED").assertCountEquals(3)
+        compose.onNodeWithText("0/3 READY").assertExists()
     }
 
     @Test
@@ -57,7 +88,8 @@ class ModelDockUiTest {
                     "chronos" to ModelDownloadState("chronos", ModelLoadStatus.DOWNLOADING, 0.42f),
                     "timesfm" to ModelDownloadState("timesfm", ModelLoadStatus.READY, 1f)
                 ),
-                onDownload = {}
+                onDownload = {},
+                deviceProfile = midTierPhone
             )
         }
         compose.mainClock.advanceTimeByFrame()
@@ -65,15 +97,15 @@ class ModelDockUiTest {
         compose.onNodeWithText("42%").assertExists()
         compose.onNodeWithText("READY").assertExists()
         compose.onNodeWithText("IN ENSEMBLE").assertExists()
-        compose.onNodeWithText("1/2 READY").assertExists()
-        // The downloading tile cannot be triggered again.
-        compose.onAllNodesWithContentDescription("Download model").assertCountEquals(0)
+        compose.onNodeWithText("1/3 READY").assertExists()
+        // The downloading tile cannot be triggered again; only the idle Needle 3 tile can.
+        compose.onAllNodesWithContentDescription("Download model").assertCountEquals(1)
     }
 
     @Test
     fun `dock stays compact - under 110dp versus the previous ~215dp card`() {
         compose.setContent {
-            ModelDownloadSection(states = idleStates, onDownload = {})
+            ModelDownloadSection(states = idleStates, onDownload = {}, deviceProfile = midTierPhone)
         }
 
         val bounds = compose.onNodeWithTag("tsfmModelDock").getUnclippedBoundsInRoot()

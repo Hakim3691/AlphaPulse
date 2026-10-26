@@ -63,7 +63,32 @@ object ModelArtifacts {
         sha256 = "03c0de47701fab96bca31c9e4004f6977572e1d399d8cf4e8b2cf88651f783bb"
     )
 
-    val ALL: List<ModelArtifactSource> = listOf(CHRONOS, TIMESFM)
+    /**
+     * Cactus Needle 3 - the on-device edge/orchestration model of §30.
+     *
+     * Unlike the two TSFMs above this is a `.cact` checkpoint: the bytes are
+     * downloaded and verified here exactly like any other artifact, while the
+     * Cactus static engine (android-arm64/libneedle.a + needle.h, pinned in
+     * [com.aistudio.alphapulse.domain.decision.DecisionModelCatalog]) is what will
+     * actually execute them. Size and digest were taken from the published file
+     * (35,335,380 bytes; sha-256 c9d915ec…70c38), so the installer rejects any
+     * truncated or tampered download before it can be mounted.
+     *
+     * Downloads of this artifact are additionally gated by the HardwareGatekeeper:
+     * a device below the mid-tier line (< 3.5 GB RAM or < 4 CPU cores) cannot
+     * request it at all.
+     */
+    val NEEDLE3 = ModelArtifactSource(
+        modelId = "needle3",
+        displayName = "Cactus Needle 3",
+        microcopy = "Edge orchestration model",
+        repoId = "Cactus-Compute/needle3",
+        filePath = "needle3.cact",
+        sizeBytes = 35_335_380L,
+        sha256 = "c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38"
+    )
+
+    val ALL: List<ModelArtifactSource> = listOf(CHRONOS, TIMESFM, NEEDLE3)
 
     fun byId(modelId: String): ModelArtifactSource? =
         ALL.firstOrNull { it.modelId.equals(modelId, ignoreCase = true) }
