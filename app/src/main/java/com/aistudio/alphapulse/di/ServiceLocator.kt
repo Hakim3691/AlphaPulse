@@ -21,6 +21,8 @@ import java.io.File
  * any production component is resolved, to substitute fakes/in-memory
  * implementations (e.g. Robolectric + in-memory Room). Production code always
  * resolves through [repository]/[database].
+ *
+ * Spec Ref: §61 Recommended Final Architecture
  */
 object ServiceLocator {
 

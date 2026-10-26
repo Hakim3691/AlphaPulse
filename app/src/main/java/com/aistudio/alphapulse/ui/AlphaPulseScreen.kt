@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.ui
 
+/**
+ * The main screen of the app: a single scrolling workspace.
+ *
+ * It lays the header on top, then the workspace cards, then the expandable
+ * explanation panels, and wires them all to one shared view model.
+ *
+ * Spec Ref: §39 User Interface, §40 Primary Dashboard
+ */
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState

@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.data.network
 
+/**
+ * The live market-data feed.
+ *
+ * Streams trades, order-book depth and ticker updates from the exchange and
+ * turns each message into the small data types the engine consumes.
+ *
+ * Spec Ref: §6 Real-Time Market Data Engine, §9 Proprietary Liquidation Heatmap, §10 Institutional Trade-Tape Analysis
+ */
+
 import android.util.Log
 import com.aistudio.alphapulse.data.db.AppDatabase
 import com.aistudio.alphapulse.data.db.TradeBufferDao

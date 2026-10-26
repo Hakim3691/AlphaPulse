@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.ui.components
 
+/**
+ * The audit ledger of every prediction the app has made.
+ *
+ * Each row keeps the forecast as issued, so it can later be compared with what
+ * really happened. Nothing is edited after the fact.
+ *
+ * Spec Ref: §21 Prediction Audit Ledger, §38 Export System
+ */
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable

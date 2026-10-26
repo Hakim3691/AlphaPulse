@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.ui.viewmodel
 
+/**
+ * The bridge between the engine and the screen.
+ *
+ * It holds the state the UI draws, forwards user actions (refresh, export,
+ * research-mode comparison) to the repository, and survives screen rotation.
+ *
+ * Spec Ref: §39 User Interface, §38 Export System, §60 Research Mode
+ */
+
 import android.app.Application
 import android.content.Intent
 import androidx.core.content.FileProvider

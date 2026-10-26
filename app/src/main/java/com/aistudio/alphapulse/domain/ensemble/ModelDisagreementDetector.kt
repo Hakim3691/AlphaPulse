@@ -4,6 +4,8 @@ package com.aistudio.alphapulse.domain.ensemble
  * Model Disagreement Detection Engine - Phase 3 stub
  * Detects divergence between ensemble model components (K, P, Alpha)
  * to surface regime uncertainty and trigger adaptive weighting.
+ *
+ * Spec Ref: §32 Model Disagreement Engine
  */
 data class DisagreementMetrics(
     val kpDisagreement: Double = 0.0,

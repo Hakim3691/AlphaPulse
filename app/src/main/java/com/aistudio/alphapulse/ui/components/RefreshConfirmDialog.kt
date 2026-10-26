@@ -1,5 +1,13 @@
 package com.aistudio.alphapulse.ui.components
 
+/**
+ * A small confirmation dialog shown before a manual refresh.
+ *
+ * It exists so a refresh is never triggered by an accidental tap.
+ *
+ * Spec Ref: §39 User Interface
+ */
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*

@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.ui.components
 
+/**
+ * The headline cards at the top of the workspace.
+ *
+ * They summarise the screened universe, the active regime and the current
+ * confidence, using the same numbers the engine consumed.
+ *
+ * Spec Ref: §40 Primary Dashboard
+ */
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable

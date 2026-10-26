@@ -2,7 +2,10 @@ package com.aistudio.alphapulse.domain.ml
 
 import com.aistudio.alphapulse.data.model.ChartPoint
 
-/** Market-state aggregation layer for TSFM models. */
+/** Market-state aggregation layer for TSFM models.
+ *
+ * Spec Ref: §23 Forecast Scheduling, §31 Model Ensemble Health
+ */
 interface TsfmLayer {
     /** Predict future price distribution using the best available TSFM provider.
      *  @param input market-state tensor including close price, volatility, regime, horizon

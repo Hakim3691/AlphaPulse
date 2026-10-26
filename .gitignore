@@ -22,3 +22,7 @@ debug.keystore
 /app/build/
 .build-outputs/
 .aistudio/
+
+# Python bytecode from the integrity checker
+__pycache__/
+*.pyc

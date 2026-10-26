@@ -6,6 +6,8 @@ plugins {
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.secrets)
   alias(libs.plugins.google.services)
+  // Measures how much of the code the unit tests actually execute (§52 testing).
+  id("jacoco")
 }
 
 android {
@@ -184,7 +186,106 @@ tasks.withType<Test>().configureEach {
   // The TimesFM parity run builds a ~250 MB ONNX session, which does not fit
   // in the default 512 MB test JVM.
   maxHeapSize = "2g"
+  // JaCoCo's agent instruments each test JVM; its output lands in build/jacoco/.
   systemProperty("verifyArtifactNetwork", System.getenv("VERIFY_ARTIFACT_NETWORK") ?: "false")
   // The 250 MB TimesFM parity run is opt-in even when network checks are on.
   systemProperty("verifyLargeModel", System.getenv("VERIFY_LARGE_MODEL") ?: "false")
+}
+
+/**
+ * Framework and generated classes that JaCoCo must not count as app logic.
+ * Declared first so every report/gate task below can share the same list.
+ */
+val androidClassExcludes = listOf(
+  "**/R.class",
+  "**/R\$*.class",
+  "**/BuildConfig.*",
+  "**/*_Factory*.*",
+  "**/*_Impl*.*",
+  "**/Manifest*.*",
+  "**/com/aistudio/alphapulse/databinding/**"
+)
+
+/**
+ * Reports how much of the shipped code the unit tests actually exercise.
+ *
+ * Run `./gradlew jacocoTestReport` after `testDebugUnitTest`; the HTML report
+ * lands in `app/build/reports/jacoco/jacocoTestReport/html/index.html` and a
+ * machine-readable CSV next to it. CI runs this on every push so coverage can
+ * only move deliberately, never by accident.
+ *
+ * Spec Ref: §52 Testing Requirements (TDD + required test groups)
+ */
+tasks.register<JacocoReport>("jacocoTestReport") {
+  group = "verification"
+  description = "Generates a unit-test coverage report for the debug variant."
+
+  dependsOn("testDebugUnitTest")
+
+  // Bytecode produced by the debug build (Kotlin first, then any Java).
+  classDirectories.setFrom(
+    fileTree("build/intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes") {
+      exclude(androidClassExcludes)
+    },
+    fileTree("build/intermediates/javac/debug/compileDebugJavaWithJavac/classes") {
+      exclude(androidClassExcludes)
+    }
+  )
+  sourceDirectories.setFrom(fileTree("src/main/java"))
+  // The JaCoCo agent writes one .exec per test task under build/jacoco/.
+  executionData.setFrom(fileTree(layout.buildDirectory.dir("jacoco")) {
+    include("**/*.exec")
+  })
+
+  reports {
+    xml.required.set(true)
+    csv.required.set(true)
+    html.required.set(true)
+  }
+}
+
+/**
+ * Fails the build if coverage of the *pure Kotlin domain logic* drops below the
+ * measured baseline.
+ *
+ * Only the decision-making packages are gated - `domain`, `service` and
+ * `release`. Compose screens, Room/Retrofit glue and generated code are driven
+ * by Robolectric and on-device tests, which JaCoCo's agent cannot see, so
+ * counting them would only produce a meaningless low number.
+ *
+ * The floor is the coverage measured on this commit (67%), rounded down so a
+ * single deleted test is still caught. Raise it when coverage improves; never
+ * lower it.
+ */
+tasks.register<JacocoCoverageVerification>("jacocoCoverageGate") {
+  group = "verification"
+  description = "Fails if domain-logic coverage regresses below the recorded baseline."
+
+  dependsOn("jacocoTestReport")
+
+  classDirectories.setFrom(
+    fileTree("build/intermediates/built_in_kotlinc/debug/compileDebugKotlin/classes") {
+      exclude(androidClassExcludes)
+      include("**/com/aistudio/alphapulse/domain/**")
+      include("**/com/aistudio/alphapulse/service/**")
+      include("**/com/aistudio/alphapulse/release/**")
+    }
+  )
+  sourceDirectories.setFrom(fileTree("src/main/java"))
+  // The JaCoCo agent writes one .exec per test task under build/jacoco/.
+  executionData.setFrom(fileTree(layout.buildDirectory.dir("jacoco")) {
+    include("**/*.exec")
+  })
+
+  // Coverage must never go *down*: the baseline is the measured number, not a wish.
+  violationRules {
+    rule {
+      limit {
+        counter = "LINE"
+        value = "COVEREDRATIO"
+        // Re-measure after a test-heavy change and ratchet this upward only.
+        minimum = (System.getenv("JACOCO_MIN_LINE_COVERAGE") ?: "0.67").toBigDecimal()
+      }
+    }
+  }
 }

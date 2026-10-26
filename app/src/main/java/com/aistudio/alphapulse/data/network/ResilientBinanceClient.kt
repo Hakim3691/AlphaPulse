@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.data.network
 
+/**
+ * A network client that keeps working when the network does not.
+ *
+ * It retries with backoff, respects rate limits and fails over instead of
+ * throwing the whole scan away on one bad response.
+ *
+ * Spec Ref: §5 Native Networking Layer, §44 Failure Handling
+ */
+
 import android.util.Log
 import com.aistudio.alphapulse.domain.quant.DepthSnapshot
 import com.aistudio.alphapulse.domain.quant.DepthTier

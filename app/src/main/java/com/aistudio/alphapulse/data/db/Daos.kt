@@ -1,5 +1,13 @@
 package com.aistudio.alphapulse.data.db
 
+/**
+ * The typed queries used to read and write the database.
+ *
+ * Every table has its own DAO, so screens never build raw SQL by hand.
+ *
+ * Spec Ref: §37 Room Database, §21 Prediction Audit Ledger
+ */
+
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy

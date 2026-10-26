@@ -8,6 +8,7 @@ AlphaPulse is a native Android institutional quantitative workstation that strea
 > - **HTML5 Specification (V14.3)**: [`AlphaPulse_HTML5_SPEC_V14-3.md`](./AlphaPulse_HTML5_SPEC_V14-3.md)
 > - **Android Specification (V14.3)**: [`AlphaPulse_Android_SPEC_V14-3.md`](./AlphaPulse_Android_SPEC_V14-3.md)
 > - **Native Android Master PRD & Architecture**: [`AlphaPulse_Native_Android_PRD.md`](./AlphaPulse_Native_Android_PRD.md)
+> - **Spec Traceability Matrix** (every § of the Android spec mapped to code and tests): [`SPEC_TRACEABILITY.md`](./SPEC_TRACEABILITY.md)
 > - **HTML5 Baseline Implementations**: [`AlphaPulse_HTML5_IMPL_V14-3.md`](./AlphaPulse_HTML5_IMPL_V14-3.md), [`AlphaPulse_HTML5_IMPL_V14-2.md`](./AlphaPulse_HTML5_IMPL_V14-2.md), [`AlphaPulse_HTML5_IMPL_V14-0.md`](./AlphaPulse_HTML5_IMPL_V14-0.md)
 
 
@@ -104,10 +105,26 @@ While AlphaPulse is a complete quantitative screener and forecast workstation, t
 * Android SDK 36 (minSdk 24)
 * Gradle 8.x (via `./gradlew`)
 
+### First-time setup (once per clone)
+```bash
+# Install the pre-commit guard that blocks corrupted commits
+# (duplicate declarations, conflict markers, stray backups)
+git config core.hooksPath .githooks
+```
+
 ### Local Commands
 ```bash
 # Run unit & Robolectric tests
 ./gradlew :app:testDebugUnitTest
+
+# Check the repository is not corrupted (also runs in CI and before each commit)
+python3 scripts/check_integrity.py
+
+# Measure coverage and enforce the recorded floor (fails the run on regression)
+./gradlew :app:jacocoTestReport :app:jacocoCoverageGate
+
+# User-level tests - these need a connected device or emulator
+./gradlew :app:connectedDebugAndroidTest
 
 # Execute the real published ONNX graphs (downloads the pinned artifacts)
 VERIFY_ARTIFACT_NETWORK=true ./gradlew :app:testDebugUnitTest \

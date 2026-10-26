@@ -7,7 +7,10 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 
-/** BatteryMode - The three operating modes based on battery state. */
+/** BatteryMode - The three operating modes based on battery state.
+ *
+ * Spec Ref: §46 Battery Requirements
+ */
 enum class BatteryMode {
     /** Full power - device is charging or has sufficient battery. */
     FULL,

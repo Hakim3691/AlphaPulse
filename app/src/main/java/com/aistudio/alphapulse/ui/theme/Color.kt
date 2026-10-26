@@ -1,5 +1,13 @@
 package com.aistudio.alphapulse.ui.theme
 
+/**
+ * The brand colours used across the app.
+ *
+ * Kept in one place so every screen uses exactly the same palette.
+ *
+ * Spec Ref: §39 User Interface
+ */
+
 import androidx.compose.ui.graphics.Color
 
 val BrandDark = Color(0xFF080A0F)

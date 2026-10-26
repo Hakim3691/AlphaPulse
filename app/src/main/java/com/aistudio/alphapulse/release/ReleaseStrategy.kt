@@ -179,8 +179,10 @@ fun calculateProgress(pipeline: ReleasePipeline): List<ReleaseProgress> {
         ReleaseProgress(
             release = "Release 3: Multi-Model Intelligence",
             completedFeatures = pipeline.release3.let { countTrue(it) },
-            totalFeatures = 7,
-            progressPercentage = (countTrue(pipeline.release3) / 7.0) * 100.0,
+            // §62 lists exactly six Release 3 features, so six is the denominator.
+            // (An earlier seven made the release look permanently 85.7% complete.)
+            totalFeatures = 6,
+            progressPercentage = (countTrue(pipeline.release3) / 6.0) * 100.0,
             estimatedCompletion = "Sprint 9-12",
             nextMilestone = "Release 4: Edge Intelligence"
         ),

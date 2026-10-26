@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.ui.components
 
+/**
+ * The expandable panels that explain *why* the engine thinks what it thinks.
+ *
+ * Each accordion shows one part of the reasoning: order book, liquidity paths,
+ * model agreement, risk. Collapsed by default so the screen stays readable.
+ *
+ * Spec Ref: §41 Institutional Explanation Panel
+ */
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background

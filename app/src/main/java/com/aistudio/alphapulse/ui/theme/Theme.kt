@@ -1,5 +1,13 @@
 package com.aistudio.alphapulse.ui.theme
 
+/**
+ * The app theme: colour scheme plus light/dark handling.
+ *
+ * Every screen is wrapped in this so styling never drifts between screens.
+ *
+ * Spec Ref: §39 User Interface
+ */
+
 import android.app.Activity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme

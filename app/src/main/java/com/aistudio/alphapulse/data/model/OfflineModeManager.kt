@@ -6,7 +6,10 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Build
 
-/** OfflineMode - The three offline operating states. */
+/** OfflineMode - The three offline operating states.
+ *
+ * Spec Ref: §36 Offline Mode
+ */
 enum class OfflineMode {
     /** Online - network is available and active. */
     ONLINE,

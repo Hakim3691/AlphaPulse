@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.ui.components
 
+/**
+ * The progress banner shown while the universe scanner is running.
+ *
+ * It tells the user how many contracts have been screened so far, so a long
+ * scan never looks like a frozen app.
+ *
+ * Spec Ref: §40 Primary Dashboard
+ */
+
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background

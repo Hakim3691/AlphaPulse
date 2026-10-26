@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.service
 
+/**
+ * The long-running background service.
+ *
+ * Keeps the quantitative pipeline alive 24/7 with a foreground notification,
+ * so forecasts and alerts continue while the app is closed.
+ *
+ * Spec Ref: §24 Persistent Background Engine, §57 Notifications
+ */
+
 import android.app.*
 import android.content.Context
 import android.content.Intent

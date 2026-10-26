@@ -20,6 +20,8 @@ import kotlin.coroutines.coroutineContext
  * only moved into place once the pinned size and SHA-256 both match. Any
  * failure (HTTP error, short body, checksum mismatch, cancellation) deletes the
  * partial file so a broken artifact can never be mounted.
+ *
+ * Spec Ref: §47 Model Download Architecture
  */
 class ModelArtifactInstaller(
     private val client: OkHttpClient = OkHttpClient(),

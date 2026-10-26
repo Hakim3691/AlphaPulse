@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.data.model
 
+/**
+ * Chooses which forecasting models are allowed to run, and keeps their state.
+ *
+ * It decides what the device can support, what the user has downloaded, and
+ * what is currently mounted, then hands that information to the engine.
+ *
+ * Spec Ref: §47 Model Download Architecture, §54 Session Recovery
+ */
+
 import android.content.Context
 import com.aistudio.alphapulse.data.db.AppDatabase
 import com.aistudio.alphapulse.data.db.ModelRegistryDao
@@ -13,6 +22,12 @@ import java.io.File
 import java.io.FileInputStream
 import java.security.MessageDigest
 
+/**
+ * The versions of every component that produced a prediction, so a forecast can
+ * be reproduced later even after the models have been upgraded.
+ *
+ * Spec Ref: §55 Model Versioning
+ */
 data class VersionInfo(
     val quantEngineVersion: String = "1.0",
     val tsfmVersion: String = "1.0",

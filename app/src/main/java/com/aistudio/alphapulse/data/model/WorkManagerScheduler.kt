@@ -14,6 +14,8 @@ import androidx.work.WorkerParameters
  *   1) Data Refresh Job — every 15 min, fetch latest market data
  *   2) Model Re-Eval Job — every 4 hr, re-calibrate model weights
  *   3) State Sync Job — every 24 hr, sync predictions and session state to Room
+ *
+ * Spec Ref: §25 WorkManager, §46 Battery Requirements
  */
 object WorkManagerScheduler {
 

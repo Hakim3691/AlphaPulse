@@ -1,5 +1,15 @@
 package com.aistudio.alphapulse
 
+/**
+ * The app's front door.
+ *
+ * Creates the main screen, asks for notification permission on Android 13+,
+ * and starts the always-on background engine so forecasts keep running when the
+ * screen is off.
+ *
+ * Spec Ref: §39 User Interface, §24 Persistent Background Engine
+ */
+
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager

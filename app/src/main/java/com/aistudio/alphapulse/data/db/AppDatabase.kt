@@ -1,5 +1,15 @@
 package com.aistudio.alphapulse.data.db
 
+/**
+ * The on-device database: one Room database for all saved state.
+ *
+ * Predictions, screened coins, trade buffers, order-book deltas, liquidation
+ * maps, volume profiles, the model registry and sessions all live here, so the
+ * app still has history after a restart.
+ *
+ * Spec Ref: §37 Room Database, §54 Session Recovery
+ */
+
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Room

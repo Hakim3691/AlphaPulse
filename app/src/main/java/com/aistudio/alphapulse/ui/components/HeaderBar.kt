@@ -1,5 +1,13 @@
 package com.aistudio.alphapulse.ui.components
 
+/**
+ * The top bar: product name, live status and symbol counts.
+ *
+ * It also shows whether each horizon has enough data to be trusted yet.
+ *
+ * Spec Ref: §40 Primary Dashboard, §22 Per-Horizon Readiness
+ */
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*

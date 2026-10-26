@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# Pre-commit guard for AlphaPulse.
+#
+# It refuses a commit that contains the exact damage patterns which once left
+# this repository full of "conflicting overloads" compile errors: conflict
+# markers, editor backups, duplicate class declarations and files that lost
+# their package line. The check takes well under a second, so it is safe to run
+# on every commit.
+#
+# Enable it once per clone:
+#     git config core.hooksPath .githooks
+#
+# Bypass only in a genuine emergency (and fix the cause afterwards):
+#     git commit --no-verify
+
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+script="$repo_root/scripts/check_integrity.py"
+
+if [ ! -f "$script" ]; then
+  echo "pre-commit: scripts/check_integrity.py is missing - refusing to commit." >&2
+  exit 1
+fi
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 "$script" --staged
+else
+  echo "pre-commit: python3 not found - skipping integrity check." >&2
+fi

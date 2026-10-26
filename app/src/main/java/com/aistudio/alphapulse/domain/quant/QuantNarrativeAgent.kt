@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.domain.quant
 
+/**
+ * Writes the plain-English explanation shown next to the numbers.
+ *
+ * It only *describes* figures the quant engine already produced - it never
+ * invents a number or changes a forecast.
+ *
+ * Spec Ref: §41 Institutional Explanation Panel, §59 AI Narrator Requirements
+ */
+
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.core.Formatters
 import java.util.Locale

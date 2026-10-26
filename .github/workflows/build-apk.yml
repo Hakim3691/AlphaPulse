@@ -37,6 +37,25 @@ concurrency:
 
 jobs:
   # =========================================================================
+  # JOB 0: Repository Integrity Guard
+  # =========================================================================
+  # Stops the specific damage that once produced hundreds of misleading
+  # "conflicting overloads" errors: duplicate declarations, conflict markers,
+  # backup files, sources without a package line, and a traceability matrix
+  # that no longer covers the whole specification. Cheap, so it runs first.
+  integrity:
+    name: Repository Integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Run Integrity Checks
+        run: python3 scripts/check_integrity.py
+
+  # =========================================================================
   # JOB 1: Test Suite (Gating matrix)
   # =========================================================================
   test:
@@ -204,6 +223,51 @@ jobs:
               with open(summary_path, "a", encoding="utf-8") as f:
                   f.write("\n".join(output_md))
           EOF
+
+      - name: Compile Instrumented Test Sources
+        # Those tests need a device to *run*, but compiling them here means
+        # they can never silently rot between emulator runs.
+        run: ./gradlew :app:compileDebugAndroidTestKotlin --console=plain
+
+      - name: Measure Coverage (JaCoCo) and Enforce the Baseline
+        if: always()
+        continue-on-error: true
+        run: |
+          # report + gate are separate so the HTML/CSV report is uploaded even
+          # when the gate fails - a regression should be visible, not opaque.
+          ./gradlew :app:jacocoTestReport :app:jacocoCoverageGate --console=plain 2>&1 | tee coverage-output.log
+
+          python3 - << 'EOF'
+          import csv, os
+
+          path = "app/build/reports/jacoco/jacocoTestReport/jacocoTestReport.csv"
+          if not os.path.isfile(path):
+              print("::warning title=Coverage::No JaCoCo CSV produced; coverage not measured.")
+              raise SystemExit(0)
+
+          rows = list(csv.DictReader(open(path)))
+          covered = sum(int(r["LINE_COVERED"]) for r in rows)
+          missed = sum(int(r["LINE_MISSED"]) for r in rows)
+          total = covered + missed
+          pct = (100.0 * covered / total) if total else 0.0
+          print(f"Unit-test line coverage: {covered}/{total} = {pct:.1f}%")
+
+          summary = os.getenv("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as f:
+                  f.write("\n### Coverage (unit tests)\n\n")
+                  f.write(f"**{pct:.1f}%** of executable lines ({covered}/{total}).\n\n")
+                  f.write("The `jacocoCoverageGate` task fails the run if domain-logic coverage drops below its recorded floor.\n")
+          EOF
+
+      - name: Upload Coverage Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-api-${{ matrix.api-level }}-${{ github.sha }}
+          path: app/build/reports/jacoco/jacocoTestReport/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload Test Reports Artifact
         if: always()
@@ -390,7 +454,7 @@ jobs:
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [build, model-artifacts]
+    needs: [integrity, build, model-artifacts]
     # !cancelled() is required so the job still evaluates when a needed job
     # failed or was skipped: instead of silently skipping the release, it runs
     # the guard below and fails with an explicit reason.
@@ -400,9 +464,9 @@ jobs:
       # A tag may only publish artifacts whose tests passed AND whose two
       # published ONNX graphs both executed and passed in this same run.
       - name: Refuse to publish unverified artifacts
-        if: ${{ needs.build.result != 'success' || needs.model-artifacts.result != 'success' }}
+        if: ${{ needs.integrity.result != 'success' || needs.build.result != 'success' || needs.model-artifacts.result != 'success' }}
         run: |
-          echo "::error::Release blocked: build result '${{ needs.build.result }}', model artifact verification result '${{ needs.model-artifacts.result }}'. A release requires a successful build and both published ONNX graphs executed and passing in this run."
+          echo "::error::Release blocked: integrity result '${{ needs.integrity.result }}', build result '${{ needs.build.result }}', model artifact verification result '${{ needs.model-artifacts.result }}'. A release requires a clean integrity check, a successful build, and both published ONNX graphs executed and passing in this run."
           exit 1
 
       - name: Checkout Repository

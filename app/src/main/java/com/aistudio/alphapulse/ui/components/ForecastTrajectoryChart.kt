@@ -1,5 +1,14 @@
 package com.aistudio.alphapulse.ui.components
 
+/**
+ * Draws the forecast cone: expected price plus its probability band.
+ *
+ * The middle line is the expected price and the shaded band is the forecast
+ * range, so a user can see at a glance how uncertain each horizon is.
+ *
+ * Spec Ref: §18 Probabilistic Forecasting, §40 Primary Dashboard
+ */
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
