@@ -6,6 +6,7 @@ import ai.onnxruntime.OrtSession
 import android.util.Log
 import com.aistudio.alphapulse.data.model.ModelArtifacts
 import com.aistudio.alphapulse.data.model.ModelDownloadStore
+import com.aistudio.alphapulse.domain.ml.TsfmInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -22,7 +23,7 @@ interface TsfmForecaster {
      * and return its quantile forecast. Null when the model is not mounted or
      * inference fails. Falls back to [closes] if [tfmInput] is empty.
      */
-    suspend fun forecast(modelId: String, tfmInput: TsfmInput, closes: DoubleArray? = null, steps: Int): TsfmForecast?
+    suspend fun forecast(modelId: String, tfmInput: TsfmInput, closes: DoubleArray, steps: Int): TsfmForecast?
 }
 
 /**
@@ -62,11 +63,11 @@ class OnnxTsfmForecaster(
     override suspend fun forecast(
         modelId: String,
         tfmInput: TsfmInput,
-        closes: DoubleArray? = null,
+        closes: DoubleArray,
         steps: Int
     ): TsfmForecast? = withContext(Dispatchers.Default) {
         // Use closes as fallback if tfmInput is empty (backward compatibility)
-        val effectiveCloses = if (tfmInput.close == 0.0 && tfmInput.open == 0.0) closes else null
+        val effectiveCloses = closes
         val session = synchronized(lock) { sessions[modelId] } ?: return@withContext null
         try {
             when (modelId) {

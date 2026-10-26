@@ -14,6 +14,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
 import java.nio.file.Files
+import com.aistudio.alphapulse.domain.ml.TsfmInput
 import kotlin.math.sin
 
 /**
@@ -41,7 +42,7 @@ class OnnxModelParityTest {
                 val forecaster = forecasterFor(source, artifact)
                 forecaster.syncMountedModels(listOf(source.modelId))
 
-                val forecast = forecaster.forecast(source.modelId, closes, 60)
+                val forecast = forecaster.forecast(source.modelId, TsfmInput(), closes, 60)
 
                 assertNotNull("Chronos returned no forecast", forecast)
                 assertPlausible(forecast!!, closes.last())
@@ -68,7 +69,7 @@ class OnnxModelParityTest {
                 val forecaster = forecasterFor(source, artifact)
                 forecaster.syncMountedModels(listOf(source.modelId))
 
-                val forecast = forecaster.forecast(source.modelId, closes, 60)
+                val forecast = forecaster.forecast(source.modelId, TsfmInput(), closes, 60)
 
                 assertNotNull("TimesFM returned no forecast", forecast)
                 assertPlausible(forecast!!, closes.last())

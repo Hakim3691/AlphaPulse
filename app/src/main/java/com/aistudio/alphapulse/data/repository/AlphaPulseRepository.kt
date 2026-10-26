@@ -19,6 +19,7 @@ import com.aistudio.alphapulse.data.network.BinanceWebSocketManager
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.domain.quant.KlineData
 import com.aistudio.alphapulse.domain.quant.QuantMath
+import com.aistudio.alphapulse.domain.ml.TsfmInput
 import com.aistudio.alphapulse.domain.quant.QuantNarrativeAgent
 import com.aistudio.alphapulse.service.AlphaPulseService
 import com.aistudio.alphapulse.core.Formatters
@@ -602,41 +603,44 @@ class AlphaPulseRepository(
 
         // One inference pass per mounted TSFM per evaluation cycle, shared by all
         // five horizons. A model without a live session contributes nothing.
-        val tsfmForecasts: Map<String, TsfmForecast> =
-            if (mountedExtras.isNotEmpty() && klines.size >= MIN_TSFM_HISTORY) {
-                val closes = klines.map { it.close }.toDoubleArray()
-                mountedExtras.mapNotNull { modelId ->
-                    val tfmInput = TsfmInput(
-                        timestamp = now,
-                        open = klines.first().open,
-                        high = klines.map { it.high }.max() ?: 0.0,
-                        low = klines.map { it.low }.min() ?: 0.0,
-                        close = closes[0],
-                        volume = klines.map { it.volume }.average() ?: 0.0,
-                        logReturn = ln(klines[1].close / klines[0].close),
-                        realizedVolatility = baseVol,
-                        funding = 0.0,
-                        openInterest = tsfmForecasts.keys().asSequence().sumOf { /* not directly available */ 0.0 },
-                        oiChange = 0.0,
-                        takerBuyRatio = 0.0,
-                        vwapDistance = 0.0,
-                        pocDistance = 0.0,
-                        vahDistance = 0.0,
-                        valDistance = 0.0,
-                        l2Imbalance = 0.0,
-                        spread = 0.0,
-                        depthVelocity = 0.0,
-                        liquidationIntensity = 0.0,
-                        upperLiquidityDistance = 0.0,
-                        lowerLiquidityDistance = 0.0,
-                        regime = mtfMetrics.regime
-                    }
-                    tsfmForecaster.forecast(modelId, tfmInput, closes, MAX_FORECAST_MINUTES)
-                        ?.let { modelId to it }
-                }.toMap()
-            } else {
-                emptyMap()
+        val tsfmForecasts: Map<String, TsfmForecast> = if (mountedExtras.isNotEmpty() && klines.size >= MIN_TSFM_HISTORY) {
+            val closes = klines.map { it.close }.toDoubleArray()
+            val forecasts = mutableMapOf<String, TsfmForecast>()
+            for ((index, modelId) in mountedExtras.withIndex()) {
+                val tfmInput = TsfmInput(
+                    timestamp = now,
+                    open = klines.first().open,
+                    high = klines.map { it.high }.max() ?: 0.0,
+                    low = klines.map { it.low }.min() ?: 0.0,
+                    close = closes[index],
+                    volume = klines.map { it.volume }.average() ?: 0.0,
+                    logReturn = ln(klines[index + 1].close / klines[index].close),
+                    realizedVolatility = baseVol,
+                    funding = 0.0,
+                    openInterest = 0.0,
+                    oiChange = 0.0,
+                    takerBuyRatio = 0.0,
+                    vwapDistance = 0.0,
+                    pocDistance = 0.0,
+                    vahDistance = 0.0,
+                    valDistance = 0.0,
+                    l2Imbalance = 0.0,
+                    spread = 0.0,
+                    depthVelocity = 0.0,
+                    liquidationIntensity = 0.0,
+                    upperLiquidityDistance = 0.0,
+                    lowerLiquidityDistance = 0.0,
+                    regime = mtfMetrics.regime
+                )
+                val forecast = tsfmForecaster.forecast(modelId, tfmInput, closes, MAX_FORECAST_MINUTES)
+                if (forecast != null) {
+                    forecasts[modelId] = forecast
+                }
             }
+            forecasts
+        } else {
+            emptyMap()
+        }
 
         val forecastTargets = mutableListOf<ForecastTarget>()
         val existingPredictions = database.predictionDao().getPredictionsBySymbol(symbol)
@@ -680,20 +684,20 @@ class AlphaPulseRepository(
             val lowerSpreadMultiplier = if (h.minutes > 30) htfMetrics.lowerConeSkew else 1.0
 
             val combinedDrift = (muKinematic * modelState.weightK) +
-                    (muPath * modelState.weightP) +
-                    (muAlpha * modelState.weightAlpha) +
-                    (muChronos * modelState.weight4) +
-                    (muTimesFm * modelState.weight5) +
-                    modelState.driftBias
+                (muPath * modelState.weightP) +
+                (muAlpha * modelState.weightAlpha) +
+                (muChronos * modelState.weight4) +
+                (muTimesFm * modelState.weight5) +
+                modelState.driftBias
 
             val dt = h.minutes.toDouble()
             val expectedReturn = combinedDrift * dt
             val predPrice = currentSpot * exp(expectedReturn)
 
-    // Cone width at 1.645σ (≈90% two-sided coverage on gaussian markets — realistic
-    // ~85% under the fat-tailed kurtosis regimes this engine flags). A fixed ±1σ cone
-    // structurally breached longer horizons, biasing LTF hit rates over MTF/HTF.
-    val coneSigmas = 1.645
+            // Cone width at 1.645σ (≈90% two-sided coverage on gaussian markets — realistic
+            // ~85% under the fat-tailed kurtosis regimes this engine flags). A fixed ±1σ cone
+            // structurally breached longer horizons, biasing LTF hit rates over MTF/HTF.
+            val coneSigmas = 1.645
             val sigmaSpread = effectiveVol * sqrt(dt)
             val upperPrice = currentSpot * exp(expectedReturn + (sigmaSpread * upperSpreadMultiplier * coneSigmas))
             val lowerPrice = currentSpot * exp(expectedReturn - (sigmaSpread * lowerSpreadMultiplier * coneSigmas))
@@ -736,26 +740,26 @@ class AlphaPulseRepository(
                 else -> ""
             }
             val newEntity = PredictionEntity(
-                    id = "$symbol-${h.id}-$targetTimestamp",
-                    symbol = symbol,
-                    horizonId = h.id,
-                    horizonLabel = h.label,
-                    modelType = EnsembleWeighting.modelTypeLabel(ensembleCount),
-                    minutes = h.minutes,
-                    issuedTimestamp = now,
-                    targetTimestamp = targetTimestamp,
-                    basePrice = currentSpot,
-                    predictedPrice = predPrice,
-                    upperBound = upperPrice,
-                    lowerBound = lowerPrice,
-                    muK = muKinematic,
-                    muP = muPath,
-                    muAlpha = muAlpha,
-                    muW4 = muChronos,
-                    muW5 = muTimesFm,
-                    modelProvider = modelProvider,
-                    settled = false
-                )
+                id = "$symbol-${h.id}-$targetTimestamp",
+                symbol = symbol,
+                horizonId = h.id,
+                horizonLabel = h.label,
+                modelType = EnsembleWeighting.modelTypeLabel(ensembleCount),
+                minutes = h.minutes,
+                issuedTimestamp = now,
+                targetTimestamp = targetTimestamp,
+                basePrice = currentSpot,
+                predictedPrice = predPrice,
+                upperBound = upperPrice,
+                lowerBound = lowerPrice,
+                muK = muKinematic,
+                muP = muPath,
+                muAlpha = muAlpha,
+                muW4 = muChronos,
+                muW5 = muTimesFm,
+                modelProvider = modelProvider,
+                settled = false
+            )
                 database.predictionDao().insert(newEntity)
             }
         }
@@ -905,11 +909,11 @@ class AlphaPulseRepository(
 
             val muRealized = ln(currentSpot / item.basePrice) / max(1, item.minutes)
             val muPredicted = (item.muK * modelState.weightK) +
-                    (item.muP * modelState.weightP) +
-                    (item.muAlpha * modelState.weightAlpha) +
-                    (item.muW4 * modelState.weight4) +
-                    (item.muW5 * modelState.weight5) +
-                    modelState.driftBias
+                (item.muP * modelState.weightP) +
+                (item.muAlpha * modelState.weightAlpha) +
+                (item.muW4 * modelState.weight4) +
+                (item.muW5 * modelState.weight5) +
+                modelState.driftBias
             val errorMu = muRealized - muPredicted
 
             if (!errorMu.isNaN() && !errorMu.isInfinite()) {
@@ -1026,6 +1030,7 @@ class AlphaPulseRepository(
     fun generate4TabUniverseCsv(
         initialUniverse: List<Map<String, Any>>,
         step1Passed: List<ScreenedCoin>,
+
         step2Passed: List<Pair<ScreenedCoin, List<Double>>>,
         step3Ranked: List<ScreenedCoin>
     ): String {

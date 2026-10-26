@@ -2,9 +2,11 @@ package com.aistudio.alphapulse.domain.ensemble
 
 import com.aistudio.alphapulse.domain.quant.ModelState
 import kotlin.math.abs
+import kotlin.math.max as kotlinMax
+import java.lang.Math
+import java.lang.Math.sqrt
 
-/**
- * One member of the live forecast ensemble. The three core members are always
+/** One member of the live forecast ensemble. The three core members are always
  * active; the two mounted TSFM members join once their weights are downloaded.
  */
 data class EnsembleMember(
@@ -19,8 +21,7 @@ data class WeightedMember(
     val weight: Double
 )
 
-/**
- * Single source of truth for the ensemble size contract (3 -> 4 -> 5 models).
+/** Single source of truth for the ensemble size contract (3 -> 4 -> 5 models).
  *
  * Mounting a TSFM member rebalances the whole ensemble so ΣW = 1.000: the new
  * member receives [MOUNTED_MEMBER_WEIGHT] and the core tri-factor members are
@@ -32,8 +33,8 @@ object EnsembleWeighting {
     const val MAX_MODEL_COUNT = 5
 
     /** Share of the ensemble handed to each newly mounted TSFM model. */
-    const val MOUNTED_MEMBER_WEIGHT = 0.10/**
-     * AdamW optimizer for numerically stable online ensemble learning.
+    const val MOUNTED_MEMBER_WEIGHT = 0.10
+    /** AdamW optimizer for numerically stable online ensemble learning.
      * SPEC §20 replaces the legacy 10^5 gradient multiplier with AdamW,
      * which adapts per-parameter learning rates and maintains inverse
      * squared gradient estimates for each weight.
@@ -41,53 +42,34 @@ object EnsembleWeighting {
      */
     const val ADAMW_LR_INITIAL = 0.01
 
-    /**
-     * Second moment estimate (RMSprop-style) for each of the 5 ensemble weights.
-     * Initialized to zero; updated online per settled prediction.
-     */
-    val adamw_sqK = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
-    val adamw_sqP = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
-    val adamw_sqAlpha = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
-    val adamw_sqW4 = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
-    val adamw_sqW5 = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
-
-    /**
-     * Bias-corrected learning rate for AdamW.
-     * t = step count; lr = lr_init * sqrt(1 - beta2^t) / (1 - beta1^t)
-     */
-    val adamw_lrCorrected = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
-
-    /**
-     * Exponential decay rate for the first moment estimates (default beta1 = 0.9).
-     */
-    const val ADAMW_BETA1 = 0.9f
-
-    /**
-     * Exponential decay rate for the second moment estimates (default beta2 = 0.999).
-     */
-    const val ADAMW_BETA2 = 0.999f
-
-    /**
-     * Small constant for numerical stability (default epsilon = 1e-8).
-     */
-    const val ADAMW_EPSILON = 1e-8
-
-    /**
-     * Gradient multiplier of the legacy SPA online-SGD step. Kept for backwards
-     * compatibility only; replaced by AdamW in production.
-     */
-    const val SGD_GRADIENT_MULTIPLIER = 100_000.0
-
-    /**
-     * Mutable second moment estimate (RMSprop-style) for each of the 5 ensemble weights.
+    /** Second moment estimate (RMSprop-style) for each of the 5 ensemble weights.
      * Initialized to zero; updated online per settled prediction via applyAdamWStep.
-     * Declared here in the object so all steps share the same running estimates.
+     * Declared as var so they can be updated online per settled prediction.
      */
     var adamw_sqK = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
     var adamw_sqP = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
     var adamw_sqAlpha = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
     var adamw_sqW4 = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
     var adamw_sqW5 = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+
+    /** Bias-corrected learning rate for AdamW.
+     * t = step count; lr = lr_init * sqrt(1 - beta2^t) / (1 - beta1^t)
+     */
+    val adamw_lrCorrected = mutableListOf(0.0, 0.0, 0.0, 0.0, 0.0)
+
+    /** Exponential decay rate for the first moment estimates (default beta1 = 0.9). */
+    const val ADAMW_BETA1 = 0.9f
+
+    /** Exponential decay rate for the second moment estimates (default beta2 = 0.999). */
+    const val ADAMW_BETA2 = 0.999f
+
+    /** Small constant for numerical stability (default epsilon = 1e-8). */
+    const val ADAMW_EPSILON = 1e-8
+
+    /** Gradient multiplier of the legacy SPA online-SGD step. Kept for backwards
+     * compatibility only; replaced by AdamW in production.
+     */
+    const val SGD_GRADIENT_MULTIPLIER = 100_000.0
 
     const val CHRONOS_ID = "chronos"
     const val TIMESFM_ID = "timesfm"
@@ -136,8 +118,7 @@ object EnsembleWeighting {
     fun totalWeight(state: ModelState, extraModelIds: Collection<String>): Double =
         weightVector(state, extraModelIds).sumOf { it.weight }
 
-    /**
-     * Rebalance [state] in place so the active members sum to 1.000.
+    /** Rebalance [state] in place so the active members sum to 1.000.
      * Core weights keep their relative split inside the remaining budget.
      */
     fun rebalanceForMountedModels(state: ModelState, extraModelIds: Collection<String>) {
@@ -161,8 +142,7 @@ object EnsembleWeighting {
         state.weight5 = if (TIMESFM_ID in mounted) MOUNTED_MEMBER_WEIGHT else 0.0
     }
 
-    /**
-     * One settled-prediction SGD step for **every** active member — the core
+    /** One settled-prediction SGD step for every active member — the core
      * K/P/alpha tri-factor and the mounted W4/W5 TSFM members alike — followed
      * by an abs renormalisation of all five shares so ΣW = 1.000 (spec §20
      * Adaptive Ensemble Learning).
@@ -202,19 +182,26 @@ object EnsembleWeighting {
                 4 -> muW5
                 else -> 0.0
             }
-            adamw_sq[i] = (ADAMW_BETA2 * sq + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
+            // Update the selected second moment estimate
+            when (i) {
+                0 -> adamw_sqK[i] = (ADAMW_BETA2 * adamw_sqK[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
+                1 -> adamw_sqP[i] = (ADAMW_BETA2 * adamw_sqP[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
+                2 -> adamw_sqAlpha[i] = (ADAMW_BETA2 * adamw_sqAlpha[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
+                3 -> adamw_sqW4[i] = (ADAMW_BETA2 * adamw_sqW4[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
+                4 -> adamw_sqW5[i] = (ADAMW_BETA2 * adamw_sqW5[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
+            }
         }
 
         // Bias-corrected learning rate
         val t = step.toDouble()
-        val lrCorrected = ADAMW_LR_INITIAL * ((1.0 - pow(ADAMW_BETA2, t)).sqrt() / (1.0 - pow(ADAMW_BETA1, t)))
+        val lrCorrected = ADAMW_LR_INITIAL * (Math.sqrt(1.0 - Math.pow(ADAMW_BETA2.toDouble(), t)) / (1.0 - Math.pow(ADAMW_BETA1.toDouble(), t)))
 
         // Update weights
-        state.weightK -= lrCorrected * errorMu * muK / max(adamw_sqK[0], ADAMW_EPSILON)
-        state.weightP -= lrCorrected * errorMu * muP / max(adamw_sqP[1], ADAMW_EPSILON)
-        state.weightAlpha -= lrCorrected * errorMu * muAlpha / max(adamw_sqAlpha[2], ADAMW_EPSILON)
-        state.weight4 -= lrCorrected * errorMu * muW4 / max(adamw_sqW4[3], ADAMW_EPSILON)
-        state.weight5 -= lrCorrected * errorMu * muW5 / max(adamw_sqW5[4], ADAMW_EPSILON)
+        state.weightK += lrCorrected * errorMu * muK / kotlinMax(adamw_sqK[0], ADAMW_EPSILON)
+        state.weightP += lrCorrected * errorMu * muP / kotlinMax(adamw_sqP[1], ADAMW_EPSILON)
+        state.weightAlpha += lrCorrected * errorMu * muAlpha / kotlinMax(adamw_sqAlpha[2], ADAMW_EPSILON)
+        state.weight4 += lrCorrected * errorMu * muW4 / kotlinMax(adamw_sqW4[3], ADAMW_EPSILON)
+        state.weight5 += lrCorrected * errorMu * muW5 / kotlinMax(adamw_sqW5[4], ADAMW_EPSILON)
 
         // Renormalise so ΣW = 1.000
         val shareK = abs(state.weightK)
@@ -245,6 +232,44 @@ object EnsembleWeighting {
         4 -> "Quad-Factor"
         5 -> "Penta-Factor"
         else -> "Multi-Factor"
+    }
+
+    fun applySettledSgdStep(
+        state: ModelState,
+        errorMu: Double,
+        muK: Double,
+        muP: Double,
+        muAlpha: Double,
+        muW4: Double,
+        muW5: Double
+    ) {
+        if (!errorMu.isFinite()) return
+
+        // Simple settled-SGD step without AdamW bias correction
+        // Learning rate calibrated for settled-prediction convergence
+        val lr = 500.0
+
+        state.weightK += lr * errorMu * muK
+        state.weightP += lr * errorMu * muP
+        state.weightAlpha += lr * errorMu * muAlpha
+        state.weight4 += lr * errorMu * muW4
+        state.weight5 += lr * errorMu * muW5
+
+        // Renormalise so ΣW = 1.000
+        val shareK = abs(state.weightK)
+        val shareP = abs(state.weightP)
+        val shareAlpha = abs(state.weightAlpha)
+        val shareW4 = abs(state.weight4)
+        val shareW5 = abs(state.weight5)
+        val total = shareK + shareP + shareAlpha + shareW4 + shareW5
+        if (total > 1e-9) {
+            state.weightK = shareK / total
+            state.weightP = shareP / total
+            state.weightAlpha = shareAlpha / total
+            state.weight4 = shareW4 / total
+            state.weight5 = shareW5 / total
+            state.mode = "Live SGD Active"
+        }
     }
 
     fun forecastTitle(modelCount: Int): String = "${factorLabel(modelCount)} ENSEMBLE TARGET FORECASTS"

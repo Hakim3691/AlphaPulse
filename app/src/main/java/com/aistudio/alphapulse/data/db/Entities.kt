@@ -4,8 +4,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-/***
- * PredictionEntity - Links every prediction to ModelVersion for scientific reproducibility.
+/*** PredictionEntity - Links every prediction to ModelVersion for scientific reproducibility.
  * See §55: Per-component model versioning. Each prediction records which version of
  * Quant Engine, TSFM, LOB Model, Decision Router, SLM, and Feature Schema produced it.
  */
@@ -148,7 +147,7 @@ data class SessionEntity(
     val regimeState: String = "Mean-Reverting",
     val symbol: String = "",
     val versionTag: String = "1.0"
-}
+)
 
 /*** Ensemble Weights per symbol/horizon (SPEC §20: persistent per-coin/per-horizon weight tables) ***/
 
