@@ -18,6 +18,10 @@ import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecaster
 import com.aistudio.alphapulse.data.network.BinanceWebSocketManager
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.domain.quant.KlineData
+import com.aistudio.alphapulse.domain.quant.PredictionStateMachine
+import com.aistudio.alphapulse.domain.quant.TapeMetrics
+import com.aistudio.alphapulse.domain.quant.TapePrint
+import com.aistudio.alphapulse.domain.quant.TradeTapeAnalyzer
 import com.aistudio.alphapulse.domain.quant.QuantMath
 import com.aistudio.alphapulse.domain.ml.TsfmInput
 import com.aistudio.alphapulse.domain.quant.QuantNarrativeAgent
@@ -936,13 +940,16 @@ class AlphaPulseRepository(
                 )
             }
 
-            val learningAction = if (!inCone) {
+            // Widen the cone after a breach, tighten it after a hit (§20).
+            if (!inCone) {
                 modelState.volMultiplier = min(3.0, modelState.volMultiplier * 1.05)
-                "Breach: SGD Tri-Update"
             } else {
                 modelState.volMultiplier = max(0.5, modelState.volMultiplier * 0.995)
-                "Preserved: SGD Refined"
             }
+
+            // The ledger wording comes from the state machine (§34) so the row and
+            // the lifecycle can never disagree about what settlement means.
+            val learningAction = PredictionStateMachine.learningActionFor(inCone)
 
             val updated = item.copy(
                 settled = true,
@@ -958,6 +965,35 @@ class AlphaPulseRepository(
 
     suspend fun clearLedger() {
         database.predictionDao().clearAll()
+    }
+
+    /**
+     * Read the stored trade tape for one symbol and turn it into metrics (§10).
+     *
+     * The websocket feed already writes every print to `trade_buffer`; this is the
+     * step that converts those rows into the aggressor imbalance, large prints and
+     * sweeps a desk actually reads, using a rolling window that ends at [nowMs].
+     *
+     * @param symbol market symbol, e.g. "BTCUSDT"
+     * @param limit newest prints to load from the database
+     * @param nowMs right edge of the analysis window
+     * @param windowMs how far back the window reaches
+     */
+    suspend fun institutionalTape(
+        symbol: String,
+        limit: Int = 500,
+        nowMs: Long = System.currentTimeMillis(),
+        windowMs: Long = TradeTapeAnalyzer.DEFAULT_WINDOW_MS
+    ): TapeMetrics = withContext(Dispatchers.IO) {
+        val prints = database.tradeBufferDao().getLatestTrades(symbol, limit).map {
+            TapePrint(
+                timestampMs = it.timestamp,
+                price = it.price,
+                quantity = it.quantity,
+                buyerMaker = it.buyerMaker
+            )
+        }
+        TradeTapeAnalyzer.analyze(prints = prints, nowMs = nowMs, windowMs = windowMs)
     }
 
     suspend fun exportAuditLedgerCsv(): String = withContext(Dispatchers.IO) {

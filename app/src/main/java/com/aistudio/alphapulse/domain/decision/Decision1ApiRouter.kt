@@ -30,7 +30,11 @@ import java.util.concurrent.TimeUnit
 class Decision1ApiRouter(
     private val client: Decision1Client,
     private val fallback: DecisionRouter = DeterministicDecisionRouter(),
-    private val timeoutMs: Long = 900L
+    private val timeoutMs: Long = 900L,
+    // Resolved settings. When this is Unconfigured the router never touches the
+    // network: there is nothing to call, and saying so is more useful than a
+    // timeout that looks like an outage.
+    private val configuration: Decision1ConfigOutcome? = null
 ) : DecisionRouter {
 
     override var lastReason: String = "Decision-1 router: not called yet"
@@ -40,12 +44,32 @@ class Decision1ApiRouter(
         private set
 
     /**
+     * The typed reason Decision-1 cannot be called, or null when it is configured.
+     *
+     * The UI reads this to show an actionable message instead of an unexplained
+     * fallback (§29, §44).
+     */
+    val configurationError: Decision1ConfigError?
+        get() = (configuration as? Decision1ConfigOutcome.Unconfigured)?.error
+
+    /**
      * Route the decision, returning a DecisionState.
      *
      * The whole point of this method is that it cannot throw: a dead API must
      * degrade into the deterministic verdict instead of killing the forecast.
      */
     override fun router(inputs: DecisionInputs): DecisionState {
+        // Missing settings are a configuration problem, not a network one: refuse
+        // immediately and tell the caller exactly what to fix.
+        val unconfigured = configuration as? Decision1ConfigOutcome.Unconfigured
+        if (unconfigured != null) {
+            lastReason = unconfigured.userMessage +
+                " Using the deterministic router instead. Previous: ${fallback.lastReason}"
+            val state = fallback.router(inputs)
+            decisionConfidence = fallback.decisionConfidence
+            return state
+        }
+
         val raw = try {
             // withTimeoutOrNull returns null instead of throwing on timeout.
             kotlinx.coroutines.runBlocking {

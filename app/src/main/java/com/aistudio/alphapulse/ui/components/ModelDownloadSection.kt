@@ -88,6 +88,14 @@ private val DOCK_MODELS = listOf(
 )
 
 /**
+ * Exactly the models shown as downloadable tiles.
+ *
+ * Exposed so a test can prove Microsoft-Decision-1 is never offered as a download:
+ * it is API-only and has no weights to install (§29).
+ */
+val MODEL_DOCK_IDS: List<String> = DOCK_MODELS.map { it.id }
+
+/**
  * Low-profile TSFM dock: one line of state per model, no model titles.
  * READY models glow green and are reflected in the ensemble cards below.
  */

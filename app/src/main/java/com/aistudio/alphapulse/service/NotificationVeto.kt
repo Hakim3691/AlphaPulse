@@ -70,4 +70,58 @@ object NotificationVeto {
         // No veto conditions met
         return Pair(false, null)
     }
+
+    /**
+     * The same veto, driven by a single data-quality verdict (§35).
+     *
+     * Callers that already assessed the feed should use this overload: it removes
+     * the chance of the veto and the dashboard disagreeing about whether data is
+     * fresh, because both read the same report.
+     *
+     * @param lobUncertainty LOB uncertainty in 0.0..1.0
+     * @param modelDisagreement model disagreement in 0.0..1.0
+     * @param quality the report produced by `DataQualityEngine.evaluate`
+     * @return Pair of (shouldVeto, reason) - reason is null when nothing was suppressed
+     */
+    fun checkVeto(
+        lobUncertainty: Float,
+        modelDisagreement: Float,
+        quality: com.aistudio.alphapulse.domain.quality.DataQualityReport
+    ): Pair<Boolean, String?> {
+        // Condition 1 is unchanged: both numbers must be extreme.
+        if (lobUncertainty >= LOB_UNCERTAINTY_EXTREME_THRESHOLD &&
+            modelDisagreement >= MODEL_DISAGREEMENT_HIGH_THRESHOLD
+        ) {
+            val lobUncFormatted = String.format(Locale.US, "%.1f", lobUncertainty)
+            val modelDisagreeFormatted = String.format(Locale.US, "%.1f", modelDisagreement)
+            return Pair(
+                true,
+                "LOB uncertainty extreme $lobUncFormatted\n + model disagreement high " +
+                    modelDisagreeFormatted
+            )
+        }
+
+        // Condition 2: the quality report says the feed cannot be trusted for an alert.
+        if (!quality.isFresh) {
+            val reason = if (quality.issues.contains(
+                    com.aistudio.alphapulse.domain.quality.DataQualityIssue.NO_DATA
+                )
+            ) {
+                "Data freshness unknown - no market data received yet"
+            } else {
+                "Data freshness too old " + (quality.ageMs / 60000) + " min old"
+            }
+            return Pair(true, reason)
+        }
+
+        // Condition 3: a model the decision depends on is missing.
+        if (quality.issues.contains(
+                com.aistudio.alphapulse.domain.quality.DataQualityIssue.MODEL_MISSING
+            )
+        ) {
+            return Pair(true, "Required model unavailable")
+        }
+
+        return Pair(false, null)
+    }
 }

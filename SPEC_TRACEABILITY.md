@@ -31,7 +31,7 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 7 | Full Order Book Reconstruction | Done | `domain/quant/QuantMath.kt` | `domain/quant/OrderBookAnalysisTest.kt` |
 | 8 | Horizon-Specific Liquidity Pain Model | Done | `domain/quant/QuantMath.kt` | `domain/quant/QuantMathTest.kt` |
 | 9 | Proprietary Liquidation Heatmap | Done | `data/repository/AlphaPulseRepository.kt`, `data/network/BinanceWebSocketManager.kt` | `domain/quant/QuantMathTest.kt` |
-| 10 | Institutional Trade-Tape Analysis | Partial | `data/db/Entities.kt` (`TradeBufferEntity`, `AggTradeEvent`), `data/repository/AlphaPulseRepository.kt` | Ingestion covered; rolling-tape UI assertions still open |
+| 10 | Institutional Trade-Tape Analysis | Done | `domain/quant/TradeTapeAnalyzer.kt` (aggressor imbalance, large prints, sweeps, narration); `AlphaPulseRepository.institutionalTape()` reads the stored `trade_buffer` | `domain/quant/TradeTapeAnalyzerBddSpec.kt` |
 | 11 | Existing Tri-Factor Engine | Done | `domain/quant/QuantMath.kt` | `domain/quant/QuantMathTest.kt` |
 | 12 | Full Volume Profile (FRVP, VAH/VAL/LVN) | Done | `domain/quant/QuantMath.kt` | `domain/quant/QuantMathTest.kt` |
 | 13 | Neural UQ-LOB | Done | `domain/ml/UqLobEngine.kt`, `domain/ml/UqLobModel.kt` | `domain/ml/UqLobEngineTest.kt` |
@@ -50,13 +50,13 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 26 | Android Hardware Acceleration | Done | `profiling/HardwareGatekeeper.kt`, `domain/ml/ModelRuntime.kt` | `profiling/HardwareGatekeeperBddSpec.kt` |
 | 27 | CPU/GPU/NPU Work Allocation | Done | `domain/ml/ModelRuntime.kt`, `domain/ml/UqLobEngine.kt` | `domain/ml/UqLobEngineTest.kt` |
 | 28 | Edge SLM | Done | `domain/narrative/EdgeSlmNarrativeLayer.kt` | `domain/narrative/NarratorConstraintValidatorBddSpec.kt` |
-| 29 | Quantitative Decision Router | Done | `domain/decision/DecisionRouter.kt`, `Decision1ApiRouter.kt`, `DecisionModelCatalog.kt` | `domain/decision/DecisionRouterTest.kt`, `Decision1ApiRouterBddSpec.kt` |
-| 30 | Needle / Agent Orchestration | Done | `domain/agent/Agent.kt`, `domain/decision/DecisionModelCatalog.kt`, `profiling/HardwareGatekeeper.kt` | `domain/agent/AgentTest.kt`, `DecisionModelCatalogBddSpec.kt` |
+| 29 | Quantitative Decision Router | Done | `domain/decision/DecisionRouter.kt`, `Decision1ApiRouter.kt`, `DecisionModelCatalog.kt`, `Decision1Configuration.kt` (typed config errors) | `domain/decision/DecisionRouterTest.kt`, `Decision1ApiRouterBddSpec.kt`, `Decision1ConfigurationBddSpec.kt`, `ui/components/ModelDockRemoteOnlyBddSpec.kt` |
+| 30 | Needle / Agent Orchestration | Partial | `domain/agent/Agent.kt`, `domain/decision/DecisionModelCatalog.kt`, `domain/decision/Needle3Engine.kt`, `profiling/HardwareGatekeeper.kt` | `domain/agent/AgentTest.kt`, `DecisionModelCatalogBddSpec.kt`, `Needle3EngineBddSpec.kt` |
 | 31 | Model Ensemble Health | Done | `domain/ensemble/EnsembleWeighting.kt`, `domain/ml/ModelRuntime.kt` | `domain/ensemble/EnsembleWeightingTest.kt` |
 | 32 | Model Disagreement Engine | Done | `domain/ensemble/ModelDisagreementDetector.kt` | `domain/ensemble/EnsembleWeightingTest.kt` |
 | 33 | Forecast Confidence Score | Done | `domain/decision/DecisionRouter.kt` | `domain/decision/DecisionRouterTest.kt` |
-| 34 | Prediction State Machine | Gap | Settlement flags exist (`PredictionEntity.settled`, learning actions); an explicit state machine type does not | — |
-| 35 | Data Quality Engine | Partial | Freshness and staleness checks live in `domain/decision/DecisionRouter.kt` and `service/NotificationVeto.kt` | `service/NotificationVetoBddSpec.kt` |
+| 34 | Prediction State Machine | Done | `domain/quant/PredictionStateMachine.kt` (ISSUED → SETTLED → LEARNED / EXPIRED / VOID, illegal moves rejected), wired into the settlement path in `AlphaPulseRepository` | `domain/quant/PredictionStateMachineBddSpec.kt` |
+| 35 | Data Quality Engine | Done | `domain/quality/DataQualityEngine.kt` (one score + typed issues), consumed by the `NotificationVeto` report overload | `domain/quality/DataQualityEngineBddSpec.kt`, `service/NotificationVetoQualityBddSpec.kt` |
 | 36 | Offline Mode | Done | `data/model/OfflineModeManager.kt` | `model/OfflineModeManagerTest.kt` |
 | 37 | Room Database | Done | `data/db/AppDatabase.kt`, `data/db/Entities.kt`, `data/db/Daos.kt` | `data/db/…` DAO tests, `androidTest/UserJourneyBddTest.kt` |
 | 38 | Export System (CSV) | Done | `data/repository/AlphaPulseRepository.kt` (`exportAuditLedgerCsv`, `generate4TabUniverseCsv`) | Repository export tests |
@@ -92,9 +92,16 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 Four sections are **not** fully implemented. They are listed here so the next
 piece of work starts from a known place rather than rediscovering them:
 
-1. **§34 Prediction State Machine** — settlement is tracked with booleans and
-   free-text learning actions. A typed state machine (Issued → Settled → Learned)
-   would make invalid transitions impossible.
+1. **§30 Needle / Agent Orchestration (engine only)** — everything except
+   execution is in place: the `needle3.cact` weights are registered with their real
+   Hugging Face coordinate, size and SHA-256, the download is gated to mid-tier
+   devices (3.5 GB RAM, 4 CPU cores), and the run path exists. What is missing is
+   the native Cactus engine itself: this build has no NDK directory, no
+   `externalNativeBuild`, and no vendored `android-arm64/libneedle.a`/`needle.h`.
+   `Needle3Engine` therefore **fails closed** with a typed `NotBundled` state
+   instead of fabricating narrative text (§59). Concrete reason: the static engine
+   could not be fetched and verified in this environment, and shipping an
+   unverified native library would be worse than shipping none.
 2. **§48 Model Selection Benchmark** — the benchmark exists only as roadmap text.
    A harness that times each mounted model and records tokens/second and p95
    latency is missing.
@@ -104,6 +111,6 @@ piece of work starts from a known place rather than rediscovering them:
 4. **§51 No Data Leakage Requirement** — nothing prevents a future candle from
    reaching a forecast. A guard test is needed before any backtest can be trusted.
 
-Two further sections are **partial**: §10 (trade-tape ingestion exists, the
-rolling tape view is unfinished) and §35 (freshness checks exist in the decision
-router and veto, but there is no single data-quality engine).
+§10 and §35 were previously partial and are now complete: the trade tape has an
+analyzer reading the stored buffer, and data quality has one engine whose report
+the notification veto now consumes directly.
