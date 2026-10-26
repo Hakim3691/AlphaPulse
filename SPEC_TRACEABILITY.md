@@ -50,7 +50,7 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 26 | Android Hardware Acceleration | Done | `profiling/HardwareGatekeeper.kt`, `domain/ml/ModelRuntime.kt` | `profiling/HardwareGatekeeperBddSpec.kt` |
 | 27 | CPU/GPU/NPU Work Allocation | Done | `domain/ml/ModelRuntime.kt`, `domain/ml/UqLobEngine.kt` | `domain/ml/UqLobEngineTest.kt` |
 | 28 | Edge SLM | Done | `domain/narrative/EdgeSlmNarrativeLayer.kt` | `domain/narrative/NarratorConstraintValidatorBddSpec.kt` |
-| 29 | Quantitative Decision Router | Done | `domain/decision/DecisionRouter.kt`, `Decision1ApiRouter.kt`, `DecisionModelCatalog.kt`, `Decision1Configuration.kt` (typed config errors) | `domain/decision/DecisionRouterTest.kt`, `Decision1ApiRouterBddSpec.kt`, `Decision1ConfigurationBddSpec.kt`, `ui/components/ModelDockRemoteOnlyBddSpec.kt` |
+| 29 | Quantitative Decision Router | Done | `domain/decision/DecisionRouter.kt`, `Decision1ApiRouter.kt`, `DecisionModelCatalog.kt`, `Decision1Configuration.kt` (typed config errors), `ui/components/Decision1StatusBanner.kt` (renders them on the main screen) | `domain/decision/DecisionRouterTest.kt`, `Decision1ApiRouterBddSpec.kt`, `Decision1ConfigurationBddSpec.kt`, `ui/components/ModelDockRemoteOnlyBddSpec.kt`, `ui/components/Decision1StatusBannerBddSpec.kt` |
 | 30 | Needle / Agent Orchestration | Partial | `domain/agent/Agent.kt`, `domain/decision/DecisionModelCatalog.kt`, `domain/decision/Needle3Engine.kt`, `profiling/HardwareGatekeeper.kt` | `domain/agent/AgentTest.kt`, `DecisionModelCatalogBddSpec.kt`, `Needle3EngineBddSpec.kt` |
 | 31 | Model Ensemble Health | Done | `domain/ensemble/EnsembleWeighting.kt`, `domain/ml/ModelRuntime.kt` | `domain/ensemble/EnsembleWeightingTest.kt` |
 | 32 | Model Disagreement Engine | Done | `domain/ensemble/ModelDisagreementDetector.kt` | `domain/ensemble/EnsembleWeightingTest.kt` |
@@ -114,3 +114,7 @@ piece of work starts from a known place rather than rediscovering them:
 §10 and §35 were previously partial and are now complete: the trade tape has an
 analyzer reading the stored buffer, and data quality has one engine whose report
 the notification veto now consumes directly.
+
+Decision-1 no longer has a UI gap: `Decision1StatusBanner` renders the typed
+configuration error directly under the model dock on the main screen, shows
+nothing once the router is configured, and adds no downloadable entry (§29).

@@ -18,13 +18,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aistudio.alphapulse.domain.decision.Decision1ConfigOutcome
+import com.aistudio.alphapulse.domain.decision.Decision1Configuration
+import com.aistudio.alphapulse.domain.decision.Decision1Settings
 import com.aistudio.alphapulse.ui.components.*
 import com.aistudio.alphapulse.ui.theme.BrandDark
 import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 
+/**
+ * @param decision1Status whether the remote Decision-1 router is configured. The
+ *   default resolves whatever is stored today, which is nothing, so the banner
+ *   explains the deterministic routing until settings exist.
+ */
 @Composable
 fun AlphaPulseScreen(
-    viewModel: AlphaPulseViewModel
+    viewModel: AlphaPulseViewModel,
+    decision1Status: Decision1ConfigOutcome = Decision1Configuration.resolve(Decision1Settings())
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrollState = rememberScrollState()
@@ -132,6 +141,10 @@ fun AlphaPulseScreen(
                     states = uiState.modelDownloads,
                     onDownload = { viewModel.downloadModel(it) }
                 )
+
+                // Decision-1 is API-only, so it is explained here (never a dock tile).
+                // Renders nothing once the router is configured.
+                Decision1StatusBanner(status = decision1Status)
             }
         }
 
