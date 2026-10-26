@@ -69,10 +69,10 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 45 | Performance Requirements | Done | `domain/decision/Decision1ApiRouter.kt` (timeouts, budgets) | `domain/decision/Decision1ApiRouterBddSpec.kt` |
 | 46 | Battery Requirements | Done | `data/model/BatteryModeManager.kt`, `data/model/WorkManagerScheduler.kt` | `model/BatteryModeManagerTest.kt` |
 | 47 | Model Download Architecture | Done | `data/model/ModelArtifactSource.kt`, `data/model/ModelArtifactInstaller.kt`, `data/model/ModelDownloadStore.kt` | `data/model/ModelArtifactSourceContractTest.kt`, `profiling/HardwareGatekeeperBddSpec.kt` |
-| 48 | Model Selection Benchmark | Gap | Roadmap text only (`release/ReleaseStrategy.kt`); no on-device benchmark harness | — |
+| 48 | Model Selection Benchmark | Done | `domain/ml/ModelBenchmark.kt` (mean/p95 latency, throughput, error rate, eligibility floor of 10 samples, best-first ranking) | `domain/ml/ModelBenchmarkBddSpec.kt` |
 | 49 | Critical Model Selection Principle | Done | `data/model/ModelManager.kt`, `profiling/HardwareGatekeeper.kt` | `profiling/HardwareGatekeeperBddSpec.kt` |
-| 50 | Walk-Forward Validation | Gap | Learning rate documented as walk-forward calibrated (`domain/ensemble/EnsembleWeighting.kt`); no walk-forward backtest driver | — |
-| 51 | No Data Leakage Requirement | Gap | No explicit guard test asserting future data is never fed to a forecast | — |
+| 50 | Walk-Forward Validation | Done | `domain/validation/WalkForwardValidator.kt` (non-overlapping train/test folds; MAE, RMSE, MAPE, directional accuracy, signed error, cone coverage, calibration error, latency, stability, turnover sensitivity) | `domain/validation/WalkForwardValidatorBddSpec.kt` |
+| 51 | No Data Leakage Requirement | Done | `domain/validation/LeakageGuard.kt` (all eight §51 streams, `requireNoLeakage` fails a run, `upto` trims a series), enforced inside every walk-forward fold | `domain/validation/LeakageGuardBddSpec.kt` |
 | 52 | Testing Requirements | Done | Test suites under `app/src/test` and `app/src/androidTest` | `testing/TestingRequirements.kt`, `jacocoCoverageGate` |
 | 53 | Android Lifecycle Testing | Done | Lifecycle behaviour in `service/AlphaPulseService.kt` | `model/AndroidLifecycleTest.kt` |
 | 54 | Session Recovery | Done | `data/model/ModelManager.kt`, `data/db/Entities.kt` (`SessionEntity`) | `model/…` session tests |
@@ -89,8 +89,8 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 
 ## Open gaps (reported, not hidden)
 
-Four sections are **not** fully implemented. They are listed here so the next
-piece of work starts from a known place rather than rediscovering them:
+One section remains **not** fully implemented. It is listed here so the next
+piece of work starts from a known place rather than rediscovering it:
 
 1. **§30 Needle / Agent Orchestration (engine only)** — everything except
    execution is in place: the `needle3.cact` weights are registered with their real
@@ -102,14 +102,11 @@ piece of work starts from a known place rather than rediscovering them:
    instead of fabricating narrative text (§59). Concrete reason: the static engine
    could not be fetched and verified in this environment, and shipping an
    unverified native library would be worse than shipping none.
-2. **§48 Model Selection Benchmark** — the benchmark exists only as roadmap text.
-   A harness that times each mounted model and records tokens/second and p95
-   latency is missing.
-3. **§50 Walk-Forward Validation** — the ensemble learns online and its learning
-   rate is *documented* as walk-forward calibrated, but no walk-forward driver
-   replays history in train/test folds.
-4. **§51 No Data Leakage Requirement** — nothing prevents a future candle from
-   reaching a forecast. A guard test is needed before any backtest can be trusted.
+§48, §50 and §51 were closed after the v1.0.5 release: `ModelBenchmark` measures
+and ranks models with a minimum-evidence rule, `WalkForwardValidator` runs the §50
+train/predict/observe loop over non-overlapping folds and reports every metric §50
+lists, and `LeakageGuard` makes look-ahead a hard failure enforced inside each fold
+rather than a convention.
 
 §10 and §35 were previously partial and are now complete: the trade tape has an
 analyzer reading the stored buffer, and data quality has one engine whose report
