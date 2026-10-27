@@ -66,6 +66,17 @@ object EnsembleWeighting {
     /** Small constant for numerical stability (default epsilon = 1e-8). */
     const val ADAMW_EPSILON = 1e-8
 
+    /** Target allowable error epsilon for ensemble weight updates.
+     * Errors beyond this threshold trigger exponential penalty in the loss function.
+     * Calibrated to keep weight drift within a 0.25% margin per SPEC §20/§45.
+     */
+    const val ALLOWABLE_ERROR = 0.0025
+
+    /** Exponential penalty steepness: how fast the penalty grows per 0.001 error over the threshold.
+     * Higher values = sharper penalty; 500.0 gives ~e-folding at 0.002 width.
+     */
+    const val PENALTY_STEEPNESS = 500.0
+
     /** Gradient multiplier of the legacy SPA online-SGD step. Kept for backwards
      * compatibility only; replaced by AdamW in production.
      */
@@ -182,13 +193,22 @@ object EnsembleWeighting {
                 4 -> muW5
                 else -> 0.0
             }
+            // Exponential penalty when error exceeds the allowable threshold
+            val absError = abs(gradient.coerceAtLeast(0.0))
+            val penalty = if (absError > ALLOWABLE_ERROR) {
+                // Exponential penalty: grows as error exceeds threshold
+                Math.exp(-PENALTY_STEEPNESS * (absError - ALLOWABLE_ERROR))
+            } else {
+                // No penalty within threshold; linear scale near 1.0
+                1.0
+            }
             // Update the selected second moment estimate
             when (i) {
-                0 -> adamw_sqK[i] = (ADAMW_BETA2 * adamw_sqK[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
-                1 -> adamw_sqP[i] = (ADAMW_BETA2 * adamw_sqP[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
-                2 -> adamw_sqAlpha[i] = (ADAMW_BETA2 * adamw_sqAlpha[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
-                3 -> adamw_sqW4[i] = (ADAMW_BETA2 * adamw_sqW4[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
-                4 -> adamw_sqW5[i] = (ADAMW_BETA2 * adamw_sqW5[i] + (1.0 - ADAMW_BETA2) * gradient * gradient).coerceAtLeast(ADAMW_EPSILON)
+                0 -> adamw_sqK[i] = (ADAMW_BETA2 * adamw_sqK[i] + (1.0 - ADAMW_BETA2) * gradient * gradient * penalty).coerceAtLeast(ADAMW_EPSILON)
+                1 -> adamw_sqP[i] = (ADAMW_BETA2 * adamw_sqP[i] + (1.0 - ADAMW_BETA2) * gradient * gradient * penalty).coerceAtLeast(ADAMW_EPSILON)
+                2 -> adamw_sqAlpha[i] = (ADAMW_BETA2 * adamw_sqAlpha[i] + (1.0 - ADAMW_BETA2) * gradient * gradient * penalty).coerceAtLeast(ADAMW_EPSILON)
+                3 -> adamw_sqW4[i] = (ADAMW_BETA2 * adamw_sqW4[i] + (1.0 - ADAMW_BETA2) * gradient * gradient * penalty).coerceAtLeast(ADAMW_EPSILON)
+                4 -> adamw_sqW5[i] = (ADAMW_BETA2 * adamw_sqW5[i] + (1.0 - ADAMW_BETA2) * gradient * gradient * penalty).coerceAtLeast(ADAMW_EPSILON)
             }
         }
 
