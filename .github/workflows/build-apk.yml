@@ -325,9 +325,32 @@ jobs:
         # build.gradle.kts declares, so a release does not depend on whatever the
         # runner image happens to carry that week.
         run: |
-          sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
+          # sdkmanager is not guaranteed to be on PATH on every runner image, so it
+          # is located explicitly instead of assumed.
+          if command -v sdkmanager > /dev/null 2>&1; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          else
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          echo "Using sdkmanager: $SDKMANAGER"
+          if [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager was not found at $SDKMANAGER, so the engine cannot be linked."
+            exit 1
+          fi
+
+          # The licenses the packages below need, accepted non-interactively.
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses > /dev/null 2>&1 || true
+
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "ndk;27.0.12077973" "cmake;3.22.1"
+
           echo "Installed NDK:"; ls "$ANDROID_HOME/ndk"
           echo "Installed CMake:"; ls "$ANDROID_HOME/cmake"
+
+          # Fail here, with a clear message, rather than inside the CMake build.
+          test -d "$ANDROID_HOME/ndk/27.0.12077973" || {
+            echo "::error::NDK 27.0.12077973 is missing after installation."; exit 1; }
+          test -d "$ANDROID_HOME/cmake/3.22.1" || {
+            echo "::error::CMake 3.22.1 is missing after installation."; exit 1; }
 
       - name: Provision Secrets & Keystores
         run: |
