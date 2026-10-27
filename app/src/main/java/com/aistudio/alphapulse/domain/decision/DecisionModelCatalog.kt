@@ -53,6 +53,8 @@ enum class ModelAvailability {
  * @property integrationStrategy short explanation of how AlphaPulse uses it
  * @property hardwareTierRequired "mid-tier" if it needs the HardwareGatekeeper line
  * @property status human-readable reason when availability is PLANNED
+ * @property bundledAtBuildTime true for artifacts compiled into the APK (engine parts),
+ *           which are therefore never fetched by the downloader at runtime
  */
 data class DecisionModelSpec(
     val id: String,
@@ -65,7 +67,8 @@ data class DecisionModelSpec(
     val license: String,
     val integrationStrategy: String,
     val hardwareTierRequired: String?,
-    val status: String
+    val status: String,
+    val bundledAtBuildTime: Boolean = false
 )
 
 object DecisionModelCatalog {
@@ -96,40 +99,65 @@ object DecisionModelCatalog {
         sha256 = "c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38",
         license = "Cactus Compute community license (open weights)",
         integrationStrategy = "Download .cact weights from Hugging Face, verify size + sha-256, " +
-            "then execute through the Cactus C/C++ static engine (android-arm64/libneedle.a + needle.h) " +
-            "via the NDK/JNI layer.",
+            "then execute them through the Cactus C/C++ static engine (android-arm64/libneedle.a " +
+            "+ needle.h) linked into the app's NDK layer and called over JNI.",
         hardwareTierRequired = "mid-tier",
-        status = "Weights downloadable and verifiable. Native engine linkage is pending " +
-            "(libneedle.a + needle.h are pinned in [NEEDLE3_ENGINE])."
+        status = "Weights downloadable and verifiable; engine linked for arm64-v8a and " +
+            "armeabi-v7a through the vendored static library ([NEEDLE3_ENGINE])."
     )
 
-    /** The native engine files Needle 3 needs, pinned with their real sizes. */
+    /**
+     * The native engine files Needle 3 needs, pinned with their real sizes and digests.
+     *
+     * These are **compiled into the APK**, not downloaded: CMake links the archive for
+     * the ABI being built (see `app/src/main/cpp/CMakeLists.txt`), so
+     * [bundledAtBuildTime] is true and the downloader never offers them. Every digest
+     * below is the published LFS object id, re-checked in
+     * `app/src/test/java/com/aistudio/alphapulse/domain/decision/VendoredEngineArtifactBddSpec.kt`
+     * and by `scripts/check_integrity.py` on every commit.
+     */
     val NEEDLE3_ENGINE: List<DecisionModelSpec> = listOf(
         DecisionModelSpec(
             id = "needle3-engine-lib",
-            displayName = "Needle 3 native engine (libneedle.a)",
+            displayName = "Needle 3 native engine (arm64-v8a)",
             hosting = ModelHosting.ON_DEVICE,
-            availability = ModelAvailability.PLANNED,
+            availability = ModelAvailability.AVAILABLE,
             downloadUrl = "$HF/Cactus-Compute/needle3/resolve/main/android-arm64/libneedle.a",
             sizeBytes = 2_177_676L,
-            sha256 = null, // digest is taken from the release itself when the NDK layer lands
+            sha256 = "7aa6de6132a22bf45f5e903425feb66f159ad46f47fa558921bc4fd02c3a2fa0",
             license = "Cactus Compute community license",
-            integrationStrategy = "Linked into the app's native C++ layer and called over JNI.",
+            integrationStrategy = "Linked into libalphapulse_needle.so by CMake and called over JNI.",
             hardwareTierRequired = "mid-tier",
-            status = "Pinned coordinate: awaiting the NDK/JNI integration task."
+            status = "Vendored at app/src/main/cpp/engine/android-arm64/libneedle.a and linked.",
+            bundledAtBuildTime = true
+        ),
+        DecisionModelSpec(
+            id = "needle3-engine-lib-armv7",
+            displayName = "Needle 3 native engine (armeabi-v7a)",
+            hosting = ModelHosting.ON_DEVICE,
+            availability = ModelAvailability.AVAILABLE,
+            downloadUrl = "$HF/Cactus-Compute/needle3/resolve/main/android-armv7/libneedle.a",
+            sizeBytes = 1_700_760L,
+            sha256 = "9f559a287b201c213e5c753d3cd1076a1849c73f94b445c85d11e4969422a135",
+            license = "Cactus Compute community license",
+            integrationStrategy = "Linked into libalphapulse_needle.so by CMake and called over JNI.",
+            hardwareTierRequired = "mid-tier",
+            status = "Vendored at app/src/main/cpp/engine/android-armv7/libneedle.a and linked.",
+            bundledAtBuildTime = true
         ),
         DecisionModelSpec(
             id = "needle3-engine-header",
             displayName = "Needle 3 engine header (needle.h)",
             hosting = ModelHosting.ON_DEVICE,
-            availability = ModelAvailability.PLANNED,
+            availability = ModelAvailability.AVAILABLE,
             downloadUrl = "$HF/Cactus-Compute/needle3/resolve/main/android-arm64/needle.h",
             sizeBytes = 4_528L,
-            sha256 = null,
+            sha256 = "a27dac4b3239eead91d124b7f7dbce5495c13019903fd817b68c16d39b055a99",
             license = "Cactus Compute community license",
-            integrationStrategy = "Compile-time header for the native engine.",
+            integrationStrategy = "Compile-time header for the native bridge; identical for both ABIs.",
             hardwareTierRequired = null,
-            status = "Pinned coordinate: awaiting the NDK/JNI integration task."
+            status = "Vendored at app/src/main/cpp/engine/needle.h and compiled against.",
+            bundledAtBuildTime = true
         )
     )
 
@@ -190,9 +218,16 @@ object DecisionModelCatalog {
     fun byId(id: String): DecisionModelSpec? =
         ALL.firstOrNull { it.id.equals(id, ignoreCase = true) }
 
-    /** True when this model can be downloaded onto the device today. */
+    /**
+     * True when this model can be downloaded onto the device at runtime.
+     *
+     * Artifacts that are compiled into the APK are excluded: the Cactus engine is
+     * linked by CMake, so offering it in a download list would describe a fetch that
+     * never happens.
+     */
     fun isDownloadable(id: String): Boolean {
         val spec = byId(id) ?: return false
+        if (spec.bundledAtBuildTime) return false
         return spec.hosting == ModelHosting.ON_DEVICE &&
             spec.availability == ModelAvailability.AVAILABLE &&
             spec.downloadUrl != null

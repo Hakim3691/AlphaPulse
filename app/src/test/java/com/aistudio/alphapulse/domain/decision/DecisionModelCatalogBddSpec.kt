@@ -66,19 +66,39 @@ class DecisionModelCatalogBddSpec {
     }
 
     @Test
-    fun `given the native engine files when inspected then both needle coordinates are pinned with their real sizes`() {
-        val lib = DecisionModelCatalog.NEEDLE3_ENGINE.first { it.id == "needle3-engine-lib" }
+    fun `given the native engine files when inspected then each abi is pinned with its real size and digest and is compiled in`() {
+        val arm64 = DecisionModelCatalog.NEEDLE3_ENGINE.first { it.id == "needle3-engine-lib" }
+        val armv7 = DecisionModelCatalog.NEEDLE3_ENGINE.first { it.id == "needle3-engine-lib-armv7" }
         val header = DecisionModelCatalog.NEEDLE3_ENGINE.first { it.id == "needle3-engine-header" }
 
-        assertEquals(2_177_676L, lib.sizeBytes)
+        assertEquals(2_177_676L, arm64.sizeBytes)
+        assertEquals(1_700_760L, armv7.sizeBytes)
         assertEquals(4_528L, header.sizeBytes)
-        assertTrue(lib.downloadUrl!!.endsWith("/android-arm64/libneedle.a"))
+        assertTrue(arm64.downloadUrl!!.endsWith("/android-arm64/libneedle.a"))
+        assertTrue(armv7.downloadUrl!!.endsWith("/android-armv7/libneedle.a"))
         assertTrue(header.downloadUrl!!.endsWith("/android-arm64/needle.h"))
-        assertEquals(
-            "The engine is not linked yet, so it must be reported as PLANNED",
-            ModelAvailability.PLANNED,
-            lib.availability
-        )
+
+        // The engine is linked for both arm ABIs, so it is AVAILABLE...
+        DecisionModelCatalog.NEEDLE3_ENGINE.forEach { part ->
+            assertEquals(
+                "${part.id} is vendored and linked, so it must be AVAILABLE",
+                ModelAvailability.AVAILABLE,
+                part.availability
+            )
+            assertTrue(
+                "${part.id} must be marked as compiled into the APK",
+                part.bundledAtBuildTime
+            )
+        }
+
+        // ...but it is compiled in, never fetched at runtime, so the downloader
+        // must not offer it as a file to download.
+        DecisionModelCatalog.NEEDLE3_ENGINE.forEach { part ->
+            assertFalse(
+                "${part.id} is linked by CMake, not downloaded",
+                DecisionModelCatalog.isDownloadable(part.id)
+            )
+        }
     }
 
     // ------------------------------------------------------ Microsoft-Decision-1

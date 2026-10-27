@@ -21,6 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aistudio.alphapulse.domain.decision.Decision1ConfigOutcome
 import com.aistudio.alphapulse.domain.decision.Decision1Configuration
 import com.aistudio.alphapulse.domain.decision.Decision1Settings
+import com.aistudio.alphapulse.domain.decision.Needle3Engine
 import com.aistudio.alphapulse.ui.components.*
 import com.aistudio.alphapulse.ui.theme.BrandDark
 import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
@@ -38,6 +39,12 @@ fun AlphaPulseScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrollState = rememberScrollState()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Ask the vendored engine itself whether it can run the checkpoint the dock
+    // mounted, so the screen can never claim a capability this build does not have.
+    val needle3Status = remember(uiState.needle3WeightsPath) {
+        Needle3Engine.shared.status(uiState.needle3WeightsPath)
+    }
 
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let {
@@ -145,6 +152,12 @@ fun AlphaPulseScreen(
                 // Decision-1 is API-only, so it is explained here (never a dock tile).
                 // Renders nothing once the router is configured.
                 Decision1StatusBanner(status = decision1Status)
+
+                // Needle 3 is on-device, so the opposite gap is explained here: the
+                // weights may be downloaded and still have no engine to run them on
+                // (an emulator, or a checkpoint the engine rejected).
+                // Renders nothing once the engine is ready.
+                Needle3StatusBanner(status = needle3Status)
             }
         }
 

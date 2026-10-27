@@ -26,6 +26,31 @@ android {
     versionName = "1.0.$versionCode+$buildSha"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    // The Cactus Needle 3 engine (§30) is a per-ABI static library, so the app
+    // builds a small JNI bridge with the NDK. The version is pinned so a build
+    // cannot silently switch toolchains.
+    ndkVersion = "27.0.12077973"
+
+    externalNativeBuild {
+      cmake {
+        // c++_static keeps the C++ runtime inside our one shared library, so the
+        // APK does not also have to ship libc++_shared.so.
+        arguments += listOf("-DANDROID_STL=c++_static")
+        // Exactly the ABIs the APK splits below ship. The engine exists for the
+        // two arm ABIs; x86_64 compiles the documented refusal path.
+        abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+      }
+    }
+  }
+
+  // Where the native bridge is defined. It links the vendored Cactus engine for
+  // arm64/armv7 and reports an unsupported ABI otherwise.
+  externalNativeBuild {
+    cmake {
+      path = file("src/main/cpp/CMakeLists.txt")
+      version = "3.22.1"
+    }
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,
@@ -86,6 +111,14 @@ android {
   lint {
     checkReleaseBuilds = false
     abortOnError = false
+  }
+
+  // The vendored engine archives are already-compiled static libraries, so lint's
+  // Java/Kotlin rules have nothing to say about them.
+  packaging {
+    jniLibs {
+      useLegacyPackaging = false
+    }
   }
   dependenciesInfo {
     includeInApk = false

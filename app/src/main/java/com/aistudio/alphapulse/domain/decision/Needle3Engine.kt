@@ -1,36 +1,39 @@
 package com.aistudio.alphapulse.domain.decision
 
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+
 /**
  * Needle3Engine - the on-device half of Cactus Needle 3 (§30).
  *
- * There are two separate pieces to running Needle 3:
+ * How the two halves fit together
+ * -------------------------------
+ *  1. the **weights** - `needle3.cact`, 35,335,380 bytes, downloaded from Hugging
+ *     Face (`Cactus-Compute/needle3`) through the normal model pipeline, and
+ *     verified by size and SHA-256 before it is mounted. Downloading is gated by
+ *     the HardwareGatekeeper (mid-tier: 3.5 GB RAM, 4 cores).
+ *  2. the **engine** - the Cactus static library (`libneedle.a` + `needle.h`),
+ *     vendored under `app/src/main/cpp/engine/`, linked into the app by CMake and
+ *     reached through JNI. That is what actually executes the weights.
  *
- *  1. the **weights** - `needle3.cact`, ~34 MB, downloaded from Hugging Face
- *     (`Cactus-Compute/needle3`) through the normal model pipeline and verified by
- *     size and SHA-256 before it is mounted. That part is wired and gated by the
- *     HardwareGatekeeper (mid-tier: 3.5 GB RAM, 4 cores).
- *  2. the **engine** - a native C/C++ library (`android-arm64/libneedle.a`) plus
- *     its header (`needle.h`), which is what actually executes the weights through
- *     JNI. This build does **not** contain that native layer: there is no NDK
- *     directory, no `externalNativeBuild` block and no vendored `libneedle.a`.
+ * Both halves are real in this build. The engine is linked for `arm64-v8a` and
+ * `armeabi-v7a`; Cactus publishes no x86_64 engine, so on an x86_64 emulator the
+ * same code reports [Needle3EngineStatus.NotBundled] instead of crashing.
  *
- * Because of (2) this object deliberately **fails closed**. Downloading the weights
- * and then pretending to run them would produce fabricated narrative text, which
- * is exactly what §59 forbids. Instead every run returns
- * [Needle3Result.Unavailable] carrying the reason and the remedy, and the caller
- * keeps using the deterministic narrator until the engine ships.
+ * The rule that never bends: **no engine or no weights means no text.** Every
+ * failure below is a typed state carrying a reason and a remedy, and the caller
+ * falls back to the deterministic narrator. Inventing a sentence would break
+ * §59, so there is deliberately no "best effort" branch.
  *
- * When the native layer lands, only [status] and [generateBrief] change: the
- * request/result types and every caller stay as they are.
- *
- * Spec Ref: §30 Needle / Agent Orchestration, §59 AI Narrator Requirements, §47 Model Download Architecture
+ * Spec Ref: §30 Needle / Agent Orchestration, §59 AI Narrator Requirements,
+ * §47 Model Download Architecture.
  */
 
 /**
  * The structured market state handed to the edge model.
  *
  * The fields mirror the §28 example payload, so the same snapshot can feed the
- * deterministic narrator and, later, the on-device model.
+ * deterministic narrator and the on-device model.
  */
 data class Needle3Request(
     val symbol: String,
@@ -44,87 +47,310 @@ data class Needle3Request(
     val coneBreaches: Int
 )
 
-/** Whether the engine can execute weights in this build. */
+/**
+ * What the engine can do right now.
+ *
+ * Each non-[Ready] state names what is missing and what to do about it, because a
+ * silent failure here would look like a model with nothing to say.
+ */
 sealed class Needle3EngineStatus {
 
-    /** The native engine is present and can run the mounted checkpoint. */
+    /** The engine is linked for this ABI and a checkpoint path was supplied. */
     data class Ready(val engineVersion: String) : Needle3EngineStatus()
 
-    /**
-     * The native engine is not part of this build, so nothing may be inferred.
-     *
-     * @property reason what is missing, in one sentence
-     * @property remedy what the user/engineer can do about it
-     */
-    data class NotBundled(val reason: String, val remedy: String) : Needle3EngineStatus()
+    /** The engine is linked, but no checkpoint has been downloaded and mounted. */
+    data class WeightsNotMounted(
+        val reason: String,
+        val remedy: String
+    ) : Needle3EngineStatus()
+
+    /** This build carries no Cactus engine for the device's ABI. */
+    data class NotBundled(
+        val reason: String,
+        val remedy: String
+    ) : Needle3EngineStatus()
+
+    /** The engine rejected the checkpoint - a truncated or tampered download. */
+    data class LoadFailed(
+        val reason: String,
+        val remedy: String
+    ) : Needle3EngineStatus()
+
+    /** The session or the completion failed; the engine said why. */
+    data class InferenceFailed(
+        val reason: String,
+        val remedy: String
+    ) : Needle3EngineStatus()
 }
 
 /** Outcome of asking Needle 3 for an explanation. */
 sealed class Needle3Result {
 
-    /** The model produced text. Only reachable once the engine is bundled. */
-    data class Generated(val text: String, val engineVersion: String) : Needle3Result()
+    /**
+     * The model produced an explanation.
+     *
+     * @property reasoning the model's own words
+     * @property confidence the calibrated score the engine attaches to the turn,
+     *           or null when the answer carried none
+     * @property rawJson the untouched engine answer, kept for the prediction ledger
+     * @property engineVersion which engine/ABI produced it
+     */
+    data class Generated(
+        val reasoning: String,
+        val confidence: Double?,
+        val rawJson: String,
+        val engineVersion: String
+    ) : Needle3Result()
 
     /**
      * The model could not run. The caller must fall back to the deterministic
      * narrator and surface this state; it must never invent text.
      */
-    data class Unavailable(val status: Needle3EngineStatus.NotBundled) : Needle3Result()
+    data class Unavailable(val status: Needle3EngineStatus) : Needle3Result()
 }
 
-object Needle3Engine {
+/**
+ * The run path: load the checkpoint, start a session, complete one turn.
+ *
+ * The bridge is injected so the path can be exercised in unit tests without a
+ * device or the NDK.
+ */
+class Needle3Engine(
+    private val bridge: Needle3NativeBridge = JniNeedle3Bridge()
+) {
+
+    /** Guards the native calls: the Cactus engine is process-global and not thread safe. */
+    private val lock = Any()
+
+    /** Which checkpoint is currently loaded, so it is loaded once, not per turn. */
+    private var loadedWeightsPath: String? = null
+
+    /** Whether the system prompt and tool schemas have been tokenized for this checkpoint. */
+    private var sessionStarted = false
+
+    /** `cactus-needle3/arm64-v8a`, shown next to generated text. */
+    val engineVersion: String = "cactus-needle3/${bridge.abiDescription}"
 
     /**
-     * Stated once, here, so the reason shown to a user and the reason recorded in
-     * the traceability matrix cannot drift apart.
-     */
-    private val NOT_BUNDLED = Needle3EngineStatus.NotBundled(
-        reason = "The Cactus static engine (android-arm64/libneedle.a + needle.h) is not " +
-            "linked into this build, so needle3 weights cannot be executed on device.",
-        remedy = "Download the needle3.cact weights in the model dock only when the mid-tier " +
-            "gate allows it; narrative output keeps using the deterministic narrator (§59) " +
-            "until the NDK/JNI engine is bundled."
-    )
-
-    /**
-     * Current engine state.
+     * Whether this build could run the given checkpoint.
      *
-     * Always [Needle3EngineStatus.NotBundled] in this build - there is no native
-     * layer to call. It is a `val`, not a guess: the APK contains no `.so` or `.a`
-     * for the Cactus engine.
+     * Deliberately pure: it reports capability and never touches the 34 MB file,
+     * so it is safe to call from the UI thread. The actual load happens in
+     * [generateBrief], where a failure belongs to that turn.
+     *
+     * @param weightsPath absolute path to `needle3.cact`, or null when nothing is mounted
      */
-    val status: Needle3EngineStatus = NOT_BUNDLED
+    fun status(weightsPath: String?): Needle3EngineStatus = when {
+        !bridge.engineLinked -> NOT_BUNDLED
+        weightsPath.isNullOrBlank() -> WEIGHTS_NOT_MOUNTED
+        else -> Needle3EngineStatus.Ready(engineVersion)
+    }
 
-    /** True only when weights could actually be executed. */
-    val isAvailable: Boolean
-        get() = status is Needle3EngineStatus.Ready
+    /** True only when a brief could actually be attempted. */
+    fun isAvailable(weightsPath: String?): Boolean =
+        status(weightsPath) is Needle3EngineStatus.Ready
 
     /**
      * Ask the model for an institutional brief.
      *
-     * Fails closed: with no engine there is no text, and the caller is told exactly
-     * why. This is a deliberate refusal, not an error being swallowed.
+     * Every failure returns [Needle3Result.Unavailable] with the engine's own
+     * reason, so the caller can show it and keep the deterministic narrator.
      *
      * @param request the structured market state to explain
+     * @param weightsPath absolute path to the mounted `needle3.cact`
+     * @param maxNewTokens generation cap; larger caps reserve context room
      */
-    @Suppress("UNUSED_PARAMETER")
-    fun generateBrief(request: Needle3Request): Needle3Result =
-        when (val current = status) {
-            is Needle3EngineStatus.NotBundled -> Needle3Result.Unavailable(current)
-            is Needle3EngineStatus.Ready ->
-                // Unreachable until the native bridge exists; documented rather than
-                // faked so this branch can never fabricate narrative text.
-                Needle3Result.Unavailable(NOT_BUNDLED)
+    fun generateBrief(
+        request: Needle3Request,
+        weightsPath: String?,
+        maxNewTokens: Int = DEFAULT_MAX_NEW_TOKENS
+    ): Needle3Result = synchronized(lock) {
+        // 1. Capability first: no engine or no checkpoint means no text at all.
+        when (val current = status(weightsPath)) {
+            is Needle3EngineStatus.Ready -> Unit
+            else -> return Needle3Result.Unavailable(current)
         }
 
+        val path = weightsPath!!
+
+        // 2. Map the checkpoint once per path. `needle_load` reads it in place.
+        if (loadedWeightsPath != path) {
+            val code = bridge.loadWeights(path)
+            if (code < 0) {
+                return Needle3Result.Unavailable(
+                    Needle3EngineStatus.LoadFailed(
+                        reason = bridge.lastError(),
+                        remedy = "Delete the downloaded Needle 3 weights and download them again; " +
+                            "the engine rejects a truncated or altered checkpoint."
+                    )
+                )
+            }
+            loadedWeightsPath = path
+            sessionStarted = false
+        }
+
+        // 3. Tokenize the static prefix once: the persona and the tool catalogue
+        //    do not change between turns, so this is one call per session.
+        if (!sessionStarted) {
+            val prefixTokens = bridge.beginSession(SYSTEM_PROMPT, TOOLS_JSON)
+            if (prefixTokens < 0) {
+                return Needle3Result.Unavailable(
+                    Needle3EngineStatus.InferenceFailed(
+                        reason = bridge.lastError(),
+                        remedy = "Shorten the narrative system prompt or the tool schemas so the " +
+                            "prefix fits the model context."
+                    )
+                )
+            }
+            sessionStarted = true
+        }
+
+        // 4. One turn.
+        val answer = bridge.complete(promptFor(request), maxNewTokens)
+            ?: return Needle3Result.Unavailable(
+                Needle3EngineStatus.InferenceFailed(
+                    reason = bridge.lastError(),
+                    remedy = "Retry the turn; if it keeps failing the device is out of memory " +
+                        "for the orchestration model."
+                )
+            )
+
+        val parsed = parseAnswer(answer)
+            ?: return Needle3Result.Unavailable(
+                Needle3EngineStatus.InferenceFailed(
+                    reason = "The engine returned text that is not the promised JSON object, so " +
+                        "it cannot be attributed to the market snapshot.",
+                    remedy = "Retry the turn; a malformed answer is never shown to the user (§59)."
+                )
+            )
+
+        // §59: the entity that displays this text must still pass it through
+        // NarratorConstraintValidator, which is what stops the model introducing
+        // a number that is not in the payload.
+        Needle3Result.Generated(
+            reasoning = parsed.reasoning,
+            confidence = parsed.confidence,
+            rawJson = answer,
+            engineVersion = engineVersion
+        )
+    }
+
     /**
-     * One-line state for the model dock and the diagnostics panel.
+     * Forgets the conversation, keeping the loaded checkpoint.
+     *
+     * Called when the app leaves research mode so a new session cannot inherit the
+     * previous session's context.
      */
-    fun describeStatus(): String = when (val current = status) {
-        is Needle3EngineStatus.NotBundled ->
-            "Needle 3 weights can be downloaded, but the native engine is not bundled: " +
-                current.reason
+    fun release() = synchronized(lock) {
+        if (sessionStarted) bridge.reset()
+        sessionStarted = false
+    }
+
+    /**
+     * One line for the model dock and the diagnostics panel.
+     *
+     * It always says whether the engine is present, because "the model has nothing
+     * to say" and "the model cannot run" must not look the same to a user.
+     */
+    fun describeStatus(weightsPath: String?): String = when (val current = status(weightsPath)) {
         is Needle3EngineStatus.Ready ->
-            "Needle 3 engine ${current.engineVersion} ready."
+            "Needle 3 engine ${current.engineVersion} ready; the mounted checkpoint will run on device."
+
+        is Needle3EngineStatus.WeightsNotMounted ->
+            "Needle 3 engine is bundled for ${bridge.abiDescription}, but no checkpoint is " +
+                "downloaded: ${current.reason}"
+
+        is Needle3EngineStatus.NotBundled ->
+            "Needle 3 cannot run on this build: ${current.reason}"
+
+        is Needle3EngineStatus.LoadFailed ->
+            "Needle 3 rejected the downloaded checkpoint: ${current.reason}"
+
+        is Needle3EngineStatus.InferenceFailed ->
+            "Needle 3 could not finish a turn: ${current.reason}"
+    }
+
+    /** The engine's answer, or null when it is not the JSON object §30 promises. */
+    private fun parseAnswer(answer: String): ParsedAnswer? {
+        val map = runCatching { MAP_ADAPTER.fromJson(answer) }.getOrNull() ?: return null
+        val reasoning = map["reasoning"] as? String ?: return null
+        if (reasoning.isBlank()) return null
+        val confidence = (map["confidence"] as? Number)?.toDouble()
+        return ParsedAnswer(reasoning, confidence)
+    }
+
+    /** Builds the single user turn from the market snapshot. */
+    private fun promptFor(request: Needle3Request): String = buildString {
+        append("Snapshot for ")
+        append(request.symbol)
+        append(". Regime: ")
+        append(request.regime)
+        append(". Kinematic score: ")
+        append(request.kinematic)
+        append(". Pain-path score: ")
+        append(request.painPath)
+        append(". Alpha: ")
+        append(request.alpha)
+        append(". TSFM drift: ")
+        append(request.tsfm)
+        append(". LOB confidence: ")
+        append(request.lobConfidence)
+        append(". Liquidation bias: ")
+        append(request.liquidationBias)
+        append(". Cone breaches: ")
+        append(request.coneBreaches)
+        append(". Explain what the ensemble is testing and what would invalidate it.")
+    }
+
+    private data class ParsedAnswer(val reasoning: String, val confidence: Double?)
+
+    companion object {
+
+        /** Generation cap per turn. Kept small: a brief is a paragraph, not an essay. */
+        const val DEFAULT_MAX_NEW_TOKENS = 160
+
+        /**
+         * The persona handed to the engine.
+         *
+         * It restates §59 in the model's own instructions: describe the numbers it
+         * was given, never introduce a new one, never promise a return.
+         */
+        const val SYSTEM_PROMPT =
+            "You are the research narrator of a quantitative crypto forecasting terminal. " +
+                "Explain, in at most four sentences, what the ensemble is currently testing and " +
+                "which single observation would falsify it. Use only the numbers in the " +
+                "snapshot. Never invent a price, a probability or a forecast that is not in the " +
+                "snapshot. Never promise a return. Write plainly, for a professional reader."
+
+        /**
+         * No tools are declared on purpose.
+         *
+         * AlphaPulse asks for an explanation, not an action. Declaring tools would let
+         * the model choose a function the app cannot execute, and the Cactus engine
+         * would then answer with a function call instead of reasoning.
+         */
+        const val TOOLS_JSON = "[]"
+
+        /** The app-wide engine, backed by the vendored Cactus native library. */
+        val shared: Needle3Engine by lazy { Needle3Engine() }
+
+        /** Shared JSON reader: the engine's answer is a plain object, not a typed schema. */
+        private val MAP_ADAPTER = Moshi.Builder().build().adapter<Map<String, Any?>>(
+            Types.newParameterizedType(Map::class.java, String::class.java, Any::class.java)
+        )
+
+        private val NOT_BUNDLED = Needle3EngineStatus.NotBundled(
+            reason = "This build has no Cactus engine for the device ABI. Cactus publishes " +
+                "engines for arm64-v8a and armeabi-v7a only, so the 34 MB weights cannot be " +
+                "executed here.",
+            remedy = "Install the arm64-v8a APK on a physical device; narrative output keeps " +
+                "using the deterministic narrator (§59) until then."
+        )
+
+        private val WEIGHTS_NOT_MOUNTED = Needle3EngineStatus.WeightsNotMounted(
+            reason = "the needle3.cact checkpoint has not been downloaded and verified yet.",
+            remedy = "Download Cactus Needle 3 from the model dock on a mid-tier device " +
+                "(3.5 GB RAM and 4 cores or more)."
+        )
     }
 }

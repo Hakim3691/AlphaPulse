@@ -319,6 +319,16 @@ jobs:
           printf "84831b9409646a918e30573bab4c9c91346d8abd\n" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
           yes | sdkmanager --licenses || true
 
+      - name: Install the NDK & CMake for the vendored Cactus engine
+        # The Needle 3 engine (§30) is a prebuilt static library per ABI, so this job
+        # links it with CMake. Both tools are pinned to the versions the app's
+        # build.gradle.kts declares, so a release does not depend on whatever the
+        # runner image happens to carry that week.
+        run: |
+          sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1"
+          echo "Installed NDK:"; ls "$ANDROID_HOME/ndk"
+          echo "Installed CMake:"; ls "$ANDROID_HOME/cmake"
+
       - name: Provision Secrets & Keystores
         run: |
           if [ ! -f .env ]; then

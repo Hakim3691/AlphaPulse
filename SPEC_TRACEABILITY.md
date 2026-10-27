@@ -51,7 +51,7 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 27 | CPU/GPU/NPU Work Allocation | Done | `domain/ml/ModelRuntime.kt`, `domain/ml/UqLobEngine.kt` | `domain/ml/UqLobEngineTest.kt` |
 | 28 | Edge SLM | Done | `domain/narrative/EdgeSlmNarrativeLayer.kt` | `domain/narrative/NarratorConstraintValidatorBddSpec.kt` |
 | 29 | Quantitative Decision Router | Done | `domain/decision/DecisionRouter.kt`, `Decision1ApiRouter.kt`, `DecisionModelCatalog.kt`, `Decision1Configuration.kt` (typed config errors), `ui/components/Decision1StatusBanner.kt` (renders them on the main screen) | `domain/decision/DecisionRouterTest.kt`, `Decision1ApiRouterBddSpec.kt`, `Decision1ConfigurationBddSpec.kt`, `ui/components/ModelDockRemoteOnlyBddSpec.kt`, `ui/components/Decision1StatusBannerBddSpec.kt` |
-| 30 | Needle / Agent Orchestration | Partial | `domain/agent/Agent.kt`, `domain/decision/DecisionModelCatalog.kt`, `domain/decision/Needle3Engine.kt`, `profiling/HardwareGatekeeper.kt` | `domain/agent/AgentTest.kt`, `DecisionModelCatalogBddSpec.kt`, `Needle3EngineBddSpec.kt` |
+| 30 | Needle / Agent Orchestration | Done | `domain/agent/Agent.kt`, `domain/decision/DecisionModelCatalog.kt`, `domain/decision/Needle3Engine.kt` (run path), `domain/decision/Needle3Jni.kt` (JNI surface + bridge), `app/src/main/cpp/needle_jni.cpp` (JNI bridge), `app/src/main/cpp/CMakeLists.txt` (links the vendored engine per ABI), `app/src/main/cpp/engine/` (vendored `libneedle.a` for arm64/armv7 + `needle.h`), `profiling/HardwareGatekeeper.kt`, `ui/components/Needle3StatusBanner.kt` | `domain/agent/AgentTest.kt`, `DecisionModelCatalogBddSpec.kt`, `Needle3EngineBddSpec.kt`, `JniNeedle3BridgeBddSpec.kt`, `VendoredEngineArtifactBddSpec.kt`, `ui/components/Needle3StatusBannerBddSpec.kt` |
 | 31 | Model Ensemble Health | Done | `domain/ensemble/EnsembleWeighting.kt`, `domain/ml/ModelRuntime.kt` | `domain/ensemble/EnsembleWeightingTest.kt` |
 | 32 | Model Disagreement Engine | Done | `domain/ensemble/ModelDisagreementDetector.kt` | `domain/ensemble/EnsembleWeightingTest.kt` |
 | 33 | Forecast Confidence Score | Done | `domain/decision/DecisionRouter.kt` | `domain/decision/DecisionRouterTest.kt` |
@@ -68,7 +68,7 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 44 | Failure Handling | Done | `domain/decision/Decision1ApiRouter.kt`, `data/network/ResilientBinanceClient.kt` | `domain/decision/Decision1ApiRouterBddSpec.kt` |
 | 45 | Performance Requirements | Done | `domain/decision/Decision1ApiRouter.kt` (timeouts, budgets) | `domain/decision/Decision1ApiRouterBddSpec.kt` |
 | 46 | Battery Requirements | Done | `data/model/BatteryModeManager.kt`, `data/model/WorkManagerScheduler.kt` | `model/BatteryModeManagerTest.kt` |
-| 47 | Model Download Architecture | Done | `data/model/ModelArtifactSource.kt`, `data/model/ModelArtifactInstaller.kt`, `data/model/ModelDownloadStore.kt` | `data/model/ModelArtifactSourceContractTest.kt`, `profiling/HardwareGatekeeperBddSpec.kt` |
+| 47 | Model Download Architecture | Done | `data/model/ModelArtifactSource.kt`, `data/model/ModelArtifactInstaller.kt`, `data/model/ModelDownloadStore.kt`; the engine is **compiled in, never downloaded** (`decision.bundledAtBuildTime`), so the dock offers the 34 MB checkpoint and no engine part | `data/model/ModelArtifactSourceContractTest.kt`, `profiling/HardwareGatekeeperBddSpec.kt`, `VendoredEngineArtifactBddSpec.kt`, `scripts/check_integrity.py` (vendored digest guard) |
 | 48 | Model Selection Benchmark | Done | `domain/ml/ModelBenchmark.kt` (mean/p95 latency, throughput, error rate, eligibility floor of 10 samples, best-first ranking) | `domain/ml/ModelBenchmarkBddSpec.kt` |
 | 49 | Critical Model Selection Principle | Done | `data/model/ModelManager.kt`, `profiling/HardwareGatekeeper.kt` | `profiling/HardwareGatekeeperBddSpec.kt` |
 | 50 | Walk-Forward Validation | Done | `domain/validation/WalkForwardValidator.kt` (non-overlapping train/test folds; MAE, RMSE, MAPE, directional accuracy, signed error, cone coverage, calibration error, latency, stability, turnover sensitivity) | `domain/validation/WalkForwardValidatorBddSpec.kt` |
@@ -80,7 +80,7 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 56 | Observability | Done | `ui/components/ObservabilityDashboard.kt` | `ui/…` observability tests |
 | 57 | Notifications | Done | `service/AlphaPulseService.kt` | `model/…` service tests |
 | 58 | Notification Veto | Done | `service/NotificationVeto.kt` | `service/NotificationVetoBddSpec.kt` |
-| 59 | AI Narrator Requirements | Done | `domain/narrative/EdgeSlmNarrativeLayer.kt` | `domain/narrative/NarratorConstraintValidatorBddSpec.kt` |
+| 59 | AI Narrator Requirements | Done | `domain/narrative/EdgeSlmNarrativeLayer.kt`; the Needle 3 run path returns a typed refusal instead of text whenever the engine or checkpoint cannot run, and only ever returns the model's own JSON answer | `domain/narrative/NarratorConstraintValidatorBddSpec.kt`, `domain/decision/Needle3EngineBddSpec.kt` |
 | 60 | Research Mode | Done | `ui/viewmodel/AlphaPulseViewModel.kt` | `model/ResearchModeTest.kt` |
 | 61 | Recommended Final Architecture | Done | `di/ServiceLocator.kt` | `ServiceLocatorRobolectricTest.kt` |
 | 62 | Release Strategy | Done | `release/ReleaseStrategy.kt` | `release/ReleaseProgressBddSpec.kt` |
@@ -89,19 +89,22 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 
 ## Open gaps (reported, not hidden)
 
-One section remains **not** fully implemented. It is listed here so the next
-piece of work starts from a known place rather than rediscovering it:
+**Every one of the 64 sections is now implemented.** What follows are the honest
+limits of what has been verified, rather than unimplemented requirements:
 
-1. **§30 Needle / Agent Orchestration (engine only)** — everything except
-   execution is in place: the `needle3.cact` weights are registered with their real
-   Hugging Face coordinate, size and SHA-256, the download is gated to mid-tier
-   devices (3.5 GB RAM, 4 CPU cores), and the run path exists. What is missing is
-   the native Cactus engine itself: this build has no NDK directory, no
-   `externalNativeBuild`, and no vendored `android-arm64/libneedle.a`/`needle.h`.
-   `Needle3Engine` therefore **fails closed** with a typed `NotBundled` state
-   instead of fabricating narrative text (§59). Concrete reason: the static engine
-   could not be fetched and verified in this environment, and shipping an
-   unverified native library would be worse than shipping none.
+1. **§30 Needle 3 execution on x86_64** — the Cactus engine is vendored and linked
+   for `arm64-v8a` and `armeabi-v7a` only, because Cactus publishes no x86_64
+   engine for Android. On an x86_64 emulator the bridge compiles its refusal path,
+   `Needle3Engine.status()` returns the typed `NotBundled` state, and the app keeps
+   using the deterministic narrator (§59).
+
+2. **§30 Needle 3 inference has not been executed on a device here** — this
+   environment has no Android device and no arm64 host, so what is proven is: the
+   exact published engine is vendored and linked (digests pinned in the catalog, in
+   `VendoredEngineArtifactBddSpec` and in `scripts/check_integrity.py`), the arm64
+   and armv7 shared libraries export all seven JNI entry points and all eleven
+   Cactus symbols, the x86_64 one contains none, and the whole run path is proved
+   against a scripted engine. The first real turn on hardware is still unverified.
 §48, §50 and §51 were closed after the v1.0.5 release: `ModelBenchmark` measures
 and ranks models with a minimum-evidence rule, `WalkForwardValidator` runs the §50
 train/predict/observe loop over non-overlapping folds and reports every metric §50
@@ -115,3 +118,13 @@ the notification veto now consumes directly.
 Decision-1 no longer has a UI gap: `Decision1StatusBanner` renders the typed
 configuration error directly under the model dock on the main screen, shows
 nothing once the router is configured, and adds no downloadable entry (§29).
+
+§30's remaining gap was closed after v1.0.6. The Cactus engine is no longer a
+promise in a catalog: `android-arm64/libneedle.a` (2,177,676 bytes) and
+`android-armv7/libneedle.a` (1,700,760 bytes) plus `needle.h` are vendored under
+`app/src/main/cpp/engine/` with the digests Hugging Face publishes, CMake links
+them into `libalphapulse_needle.so` for the ABI being built, and
+`Needle3Engine` drives `needle_load` → `needle_init` → `needle_complete` through
+JNI over an mmap'd checkpoint. `Needle3StatusBanner` shows the engine's state on
+the dashboard, and the mounted checkpoint path now reaches the engine from the
+same store the dock reads.

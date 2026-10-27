@@ -18,6 +18,8 @@ What it checks
 3. No Kotlin file declaring the same top-level type twice in the same package.
 4. No Kotlin file that is empty or lost its `package` line.
 5. The spec traceability matrix still covers every section 1-64.
+6. The vendored Cactus Needle 3 engine binaries are byte-for-byte the published
+   ones, so a truncated or edited archive cannot reach a device (§30).
 
 Usage
 -----
@@ -30,6 +32,7 @@ and printed above.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import subprocess
@@ -52,6 +55,29 @@ DECL_PATTERN = re.compile(
     re.MULTILINE,
 )
 PACKAGE_PATTERN = re.compile(r"^package\s+([\w.]+)", re.MULTILINE)
+
+# ---------------------------------------------------------------------------
+# Vendored native engine fingerprints (Cactus-Compute/needle3 on Hugging Face).
+#
+# These archives are linked into the APK, so they are not covered by any source
+# check. Pinning their size and digest here means a corrupt download, a partial
+# checkout or a hand-edited archive fails the commit instead of shipping. The
+# same values are asserted by the unit tests, from the other direction.
+# ---------------------------------------------------------------------------
+VENDORED_ENGINE = {
+    "app/src/main/cpp/engine/needle.h": (
+        4528,
+        "a27dac4b3239eead91d124b7f7dbce5495c13019903fd817b68c16d39b055a99",
+    ),
+    "app/src/main/cpp/engine/android-arm64/libneedle.a": (
+        2177676,
+        "7aa6de6132a22bf45f5e903425feb66f159ad46f47fa558921bc4fd02c3a2fa0",
+    ),
+    "app/src/main/cpp/engine/android-armv7/libneedle.a": (
+        1700760,
+        "9f559a287b201c213e5c753d3cd1076a1849c73f94b445c85d11e4969422a135",
+    ),
+}
 
 SMART_QUOTES = {
     "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\u2013": "-", "\u2014": "-",
@@ -147,6 +173,37 @@ def check_kotlin_files(paths: list[str]) -> None:
             declared.setdefault(key, path)
 
 
+def check_vendored_engine() -> None:
+    """The linked native engine must be exactly the engine that was published."""
+    for relative_path, (expected_size, expected_digest) in VENDORED_ENGINE.items():
+        path = os.path.join(REPO_ROOT, relative_path)
+        if not os.path.isfile(path):
+            fail(
+                f"{relative_path}: the vendored Cactus engine is missing; "
+                "the app cannot run Needle 3 without it"
+            )
+            continue
+
+        actual_size = os.path.getsize(path)
+        if actual_size != expected_size:
+            fail(
+                f"{relative_path}: size is {actual_size} bytes, expected {expected_size} "
+                "(truncated or incomplete download)"
+            )
+            continue
+
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        actual_digest = digest.hexdigest()
+        if actual_digest != expected_digest:
+            fail(
+                f"{relative_path}: sha-256 is {actual_digest}, expected {expected_digest} "
+                "(the vendored engine is not the published one)"
+            )
+
+
 def check_traceability() -> None:
     path = os.path.join(REPO_ROOT, "SPEC_TRACEABILITY.md")
     if not os.path.isfile(path):
@@ -173,6 +230,7 @@ def main() -> int:
     check_conflict_markers(paths)
     check_backup_files(paths)
     check_kotlin_files(paths)
+    check_vendored_engine()
     if not use_staged:
         check_traceability()
 

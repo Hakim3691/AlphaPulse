@@ -20,6 +20,7 @@ import com.aistudio.alphapulse.data.model.ForecastTarget
 import com.aistudio.alphapulse.data.model.ModelArtifacts
 import com.aistudio.alphapulse.data.model.ModelDownloadState
 import com.aistudio.alphapulse.data.model.ModelDownloadStore
+import com.aistudio.alphapulse.data.model.ModelFileLocator
 import com.aistudio.alphapulse.data.model.ModelLoadStatus
 import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
@@ -79,7 +80,15 @@ data class AlphaPulseUiState(
     val showRefreshDialog: Boolean = false,
     val snackbarMessage: String? = null,
     val modelDownloads: Map<String, ModelDownloadState> = emptyMap(),
-    val mountedModelIds: List<String> = emptyList()
+    val mountedModelIds: List<String> = emptyList(),
+
+    /**
+     * The mounted Cactus Needle 3 checkpoint, or null when it is not downloaded.
+     *
+     * The on-device engine (§30) cannot run without this file, so the screen asks the
+     * engine whether it can run *this* path rather than assuming a download worked.
+     */
+    val needle3WeightsPath: String? = null
 )
 
 class AlphaPulseViewModel(application: Application) : AndroidViewModel(application) {
@@ -104,6 +113,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
             state.copy(
                 modelDownloads = ModelDownloadStore.states.value,
                 mountedModelIds = mounted,
+                needle3WeightsPath = needle3WeightsPathFor(ModelDownloadStore.states.value),
                 modelState = ModelState().also {
                     EnsembleWeighting.rebalanceForMountedModels(it, mounted)
                 }
@@ -117,6 +127,19 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         observePredictions()
         observeWebSocketTelemetry()
         bootPipeline()
+    }
+
+    /**
+     * Resolves the Needle 3 checkpoint path once the download is genuinely ready.
+     *
+     * A download is READY only after its size and SHA-256 were verified, so this
+     * hands the engine a file it can trust. Anything less returns null and the run
+     * path reports "no checkpoint mounted" instead of trying to execute a partial
+     * file.
+     */
+    private fun needle3WeightsPathFor(downloads: Map<String, ModelDownloadState>): String? {
+        if (downloads["needle3"]?.status != ModelLoadStatus.READY) return null
+        return ModelFileLocator.locate("needle3", getApplication())?.absolutePath
     }
 
     /** Mirrors persisted download state into the UI and rebalances on every new mount. */
@@ -140,6 +163,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                     state.copy(
                         modelDownloads = downloads,
                         mountedModelIds = mounted,
+                        needle3WeightsPath = needle3WeightsPathFor(downloads),
                         modelState = rebalanced
                     )
                 }
