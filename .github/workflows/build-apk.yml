@@ -491,7 +491,7 @@ jobs:
     # !cancelled() is required so the job still evaluates when a needed job
     # failed or was skipped: instead of silently skipping the release, it runs
     # the guard below and fails with an explicit reason.
-    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ !cancelled() && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
 
     steps:
       # A tag may only publish artifacts whose tests passed AND whose two
