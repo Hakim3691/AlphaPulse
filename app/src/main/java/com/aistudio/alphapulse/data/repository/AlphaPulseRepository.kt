@@ -75,7 +75,17 @@ class AlphaPulseRepository(
     private val database: AppDatabase,
     private val cacheDir: File? = null,
     val wsManager: BinanceWebSocketManager = BinanceWebSocketManager(),
-    private val tsfmForecaster: TsfmForecaster = OnnxTsfmForecaster()
+    private val tsfmForecaster: TsfmForecaster = OnnxTsfmForecaster(),
+    /**
+     * The §29 router for this repository.
+     *
+     * Defaults to the mounted-checkpoint router resolved on first use, so production
+     * wiring is unchanged; the seam exists so the ledger's write path can be driven
+     * with a scripted engine (§52).
+     */
+    private val decisionRouterProvider: () -> DecisionRouter = {
+        Needle3DecisionRouter.forMountedCheckpoint()
+    }
 ) {
     val allPredictionsFlow: Flow<List<PredictionEntity>> = database.predictionDao().getAllPredictionsFlow()
     fun getPredictionsBySymbolFlow(symbol: String): Flow<List<PredictionEntity>> =
@@ -114,9 +124,7 @@ class AlphaPulseRepository(
      * call, so mounting or evicting Needle 3 in the dock changes the verdict on the
      * next cycle with no re-wiring.
      */
-    private val decisionRouter: DecisionRouter by lazy {
-        Needle3DecisionRouter.forMountedCheckpoint()
-    }
+    private val decisionRouter: DecisionRouter by lazy { decisionRouterProvider() }
 
     /** Supplies the regime conviction the router's snapshot needs. */
     private val marketStateAgent = MarketStateAgent()

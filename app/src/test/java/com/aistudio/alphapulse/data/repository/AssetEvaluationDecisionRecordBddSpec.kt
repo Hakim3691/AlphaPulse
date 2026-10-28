@@ -9,6 +9,9 @@ import com.aistudio.alphapulse.data.network.BinanceWebSocketManager
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.domain.decision.DecisionSource
 import com.aistudio.alphapulse.domain.decision.DecisionState
+import com.aistudio.alphapulse.domain.decision.FakeNeedle3Bridge
+import com.aistudio.alphapulse.domain.decision.Needle3DecisionRouter
+import com.aistudio.alphapulse.domain.decision.Needle3Engine
 import com.aistudio.alphapulse.domain.ml.TsfmInput
 import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecast
 import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecaster
@@ -56,6 +59,14 @@ class AssetEvaluationDecisionRecordBddSpec {
     private lateinit var repository: AlphaPulseRepository
 
     private val referenceHorizon = "15m"
+
+    /**
+     * A checkpoint path the engine is told about and never opens: the scripted
+     * bridge answers instead, so these cases exercise the router's attribution
+     * rather than the NDK.
+     */
+    private val checkpointPath =
+        "/data/user/0/com.aistudio.alphapulse/files/models/needle3/needle3.cact"
 
     @Before
     fun setUp() {
@@ -182,7 +193,112 @@ class AssetEvaluationDecisionRecordBddSpec {
         )
     }
 
+    // ------------------------------------- a checkpoint-backed producer (§29)
+
+    @Test
+    fun `given a mounted checkpoint when the model routes a snapshot then the stored row keeps the model source and score`() = runBlocking {
+        val modelBacked = modelBackedRepository(
+            tool = "decide_strong_long",
+            confidence = 0.83,
+            reasoning = "both legs point the same way"
+        )
+
+        val result = modelBacked.executeAssetEvaluation(symbol = "BTCUSDT", modelState = ModelState())
+
+        // Read the verdict back from Room: the persisted row, not the caller's object,
+        // is what an audit will see.
+        val row = db.decisionRecordDao().getAllDecisionRecords().single()
+        assertEquals("A model-backed route must not be downgraded", DecisionSource.NEEDLE3.name, row.source)
+        assertEquals("The engine's own score must be stored, not zeroed", 0.83, row.confidence, 1e-12)
+        assertEquals("The model's route is the stored verdict", "STRONG_LONG", row.state)
+        assertEquals(referenceHorizon, row.referenceHorizon)
+        assertEquals("BTCUSDT", row.symbol)
+        assertTrue(
+            "The model's derivation is kept: ${row.reason}",
+            row.reason.contains("decide_strong_long") && row.reason.contains("both legs")
+        )
+        assertEquals(DecisionSource.NEEDLE3, result.decision.source)
+        assertEquals(0.83, result.decision.confidence, 1e-12)
+    }
+
+    @Test
+    fun `given a subscribed history flow when the model routes a snapshot then the UI receives the model source`() = runBlocking {
+        val modelBacked = modelBackedRepository(tool = "decide_neutral", confidence = 0.74)
+        val emissions = Channel<List<DecisionRecordEntity>>(Channel.UNLIMITED)
+        val collector = launch {
+            modelBacked.getDecisionHistoryFlow("BTCUSDT", limit = 5).collect { emissions.send(it) }
+        }
+
+        assertTrue("The ledger starts empty", withTimeout(10_000) { emissions.receive() }.isEmpty())
+
+        modelBacked.executeAssetEvaluation(symbol = "BTCUSDT", modelState = ModelState())
+
+        val updated = withTimeout(10_000) { emissions.receive() }
+        assertEquals(1, updated.size)
+        assertEquals(
+            "The log must show the model as the author, not the rules",
+            DecisionSource.NEEDLE3.name,
+            updated.single().source
+        )
+        assertEquals(0.74, updated.single().confidence, 1e-12)
+        collector.cancel()
+    }
+
+    @Test
+    fun `given two assets with different provenance when each history is read then neither borrows the other's source`() = runBlocking {
+        val modelBacked = modelBackedRepository(tool = "decide_short", confidence = 0.77)
+        val rulesOnly = AlphaPulseRepository(
+            client = FixtureClient(),
+            database = db,
+            wsManager = OfflineStreamManager(),
+            tsfmForecaster = NoTsfmForecaster(),
+            // The real router, with nothing mounted: the documented §44 fallback.
+            decisionRouterProvider = { Needle3DecisionRouter(weightsPathProvider = { null }) }
+        )
+
+        modelBacked.executeAssetEvaluation(symbol = "BTCUSDT", modelState = ModelState())
+        rulesOnly.executeAssetEvaluation(symbol = "ETHUSDT", modelState = ModelState())
+
+        val btc = repository.getDecisionHistoryFlow("BTCUSDT", limit = 10).first()
+        val eth = repository.getDecisionHistoryFlow("ETHUSDT", limit = 10).first()
+
+        assertEquals(1, btc.size)
+        assertEquals(1, eth.size)
+        assertEquals(DecisionSource.NEEDLE3.name, btc.single().source)
+        assertEquals(0.77, btc.single().confidence, 1e-12)
+        assertEquals(DecisionSource.DETERMINISTIC.name, eth.single().source)
+        assertEquals("The rules carry no calibrated score", 0.0, eth.single().confidence, 0.0)
+        assertTrue("BTC history leaked: $btc", btc.all { it.symbol == "BTCUSDT" })
+        assertTrue("ETH history leaked: $eth", eth.all { it.symbol == "ETHUSDT" })
+    }
+
     // ---------------------------------------------------------------- fixtures
+
+    /**
+     * A repository whose real [Needle3DecisionRouter] is backed by a scripted engine.
+     *
+     * Only the bridge is fake: the router's tool mapping, confidence gate and
+     * attribution are the production code paths.
+     */
+    private fun modelBackedRepository(
+        tool: String,
+        confidence: Double,
+        reasoning: String = "both legs agree"
+    ): AlphaPulseRepository {
+        val answer = "{\"function_calls\":[{\"name\":\"$tool\",\"arguments\":{}}]," +
+            "\"suppressed_calls\":[],\"reasoning\":\"$reasoning\"," +
+            "\"confidence\":$confidence}"
+        val engine = Needle3Engine(FakeNeedle3Bridge(answer = answer))
+        return AlphaPulseRepository(
+            client = FixtureClient(),
+            database = db,
+            wsManager = OfflineStreamManager(),
+            tsfmForecaster = NoTsfmForecaster(),
+            decisionRouterProvider = {
+                Needle3DecisionRouter(engine = engine, weightsPathProvider = { checkpointPath })
+            }
+        )
+    }
 
     /**
      * A client whose exchange is JSON literals.
