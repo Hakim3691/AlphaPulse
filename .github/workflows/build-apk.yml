@@ -485,7 +485,10 @@ jobs:
           if [ -n "$RAW_TYPE" ]; then
             BUILD_TYPE="$RAW_TYPE"
           elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            BUILD_TYPE="release"
+            # A release attaches BOTH APKs (C-04). Building only the release
+            # variant left every published release without the debug asset, and
+            # the upload step's old "ignore" setting hid it.
+            BUILD_TYPE="both"
           else
             BUILD_TYPE="${RAW_TYPE:-debug}"
           fi
@@ -581,7 +584,8 @@ jobs:
           # One artifact per build type, so only the APK that is needed is downloaded.
           name: alphapulse-arm64-v8a-debug
           path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
-          if-no-files-found: ignore
+          # A missing APK must fail the job, never ship a release with one asset.
+          if-no-files-found: error
           retention-days: 30
 
       - name: Upload release APK (arm64-v8a)
@@ -589,7 +593,8 @@ jobs:
         with:
           name: alphapulse-arm64-v8a-release
           path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
-          if-no-files-found: ignore
+          # A missing APK must fail the job, never ship a release with one asset.
+          if-no-files-found: error
           retention-days: 30
 
   # =========================================================================
@@ -629,6 +634,21 @@ jobs:
           pattern: alphapulse-arm64-v8a-*
           merge-multiple: true
           path: release-apks
+
+      - name: Require both arm64-v8a APKs before publishing
+        # C-04 says the release carries the debug and the release APK. The download
+        # step succeeds even when one artifact is absent, so the published release
+        # was previously missing an asset without any job turning red.
+        run: |
+          missing=0
+          for apk in app-arm64-v8a-debug.apk app-arm64-v8a-release.apk; do
+            if [ ! -s "release-apks/$apk" ]; then
+              echo "::error::The release is missing $apk. A release must attach both the debug and the release APK."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          ls -l release-apks
 
       - name: Publish Release with APK Assets
         uses: softprops/action-gh-release@v2

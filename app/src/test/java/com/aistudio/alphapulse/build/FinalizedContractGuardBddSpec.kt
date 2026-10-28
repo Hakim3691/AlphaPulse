@@ -234,6 +234,47 @@ class FinalizedContractGuardBddSpec {
         )
     }
 
+    // ---------------------------------------------------- release completeness
+
+    @Test
+    fun `given the workflow when read then a tag builds both APKs and no upload may silently skip`() {
+        val workflow = repoFile(".github/workflows/build-apk.yml").readText()
+
+        assertTrue(
+            "A tag must build both the debug and the release APK; building only the " +
+                "release variant published releases with a single asset",
+            Regex("""refs/tags/\*[^\n]*then[\s\S]{0,300}BUILD_TYPE="both""")
+                .containsMatchIn(workflow)
+        )
+        // Scoped to the APK uploads: the coverage and contract-report uploads are
+        // legitimately optional, but an APK that is not produced must fail the job.
+        for (step in listOf("Upload debug APK (arm64-v8a)", "Upload release APK (arm64-v8a)")) {
+            val start = workflow.indexOf("- name: $step")
+            assertTrue("The workflow must still have the '$step' step", start >= 0)
+            val block = workflow.substring(start).substringBefore("\n      - name:")
+            assertTrue(
+                "$step must fail the job when its APK is missing: $block",
+                block.contains("if-no-files-found: error")
+            )
+            assertFalse(
+                "$step must not ignore a missing APK - that is how a release shipped " +
+                    "with only one asset: $block",
+                block.contains("if-no-files-found: ignore")
+            )
+        }
+
+        val gate = workflow.indexOf("Require both arm64-v8a APKs before publishing")
+        assertTrue("The release job must refuse a release with only one APK", gate >= 0)
+        assertTrue(
+            "The completeness gate must run before the release is published",
+            gate < workflow.indexOf("Publish Release with APK Assets")
+        )
+        val gateBlock = workflow.substring(gate).substringBefore("      - name: Publish Release with APK Assets")
+        for (apk in listOf("app-arm64-v8a-debug.apk", "app-arm64-v8a-release.apk")) {
+            assertTrue("The completeness gate must require $apk: $gateBlock", gateBlock.contains(apk))
+        }
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** Contract rows, in document order: `| C-xx | behaviour | guards | ... |`. */
