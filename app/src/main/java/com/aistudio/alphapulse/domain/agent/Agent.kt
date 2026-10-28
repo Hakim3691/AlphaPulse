@@ -13,7 +13,8 @@ package com.aistudio.alphapulse.domain.agent
 
 import com.aistudio.alphapulse.domain.decision.DecisionState
 import com.aistudio.alphapulse.domain.decision.DecisionInputs
-import com.aistudio.alphapulse.domain.decision.DeterministicDecisionRouter
+import com.aistudio.alphapulse.domain.decision.DecisionRouter
+import com.aistudio.alphapulse.domain.decision.Needle3DecisionRouter
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -403,19 +404,41 @@ data class DecisionRouterInput(
     val recentErrors: Double = 0.0
 )
 
-/** Decision Router Agent - delegates to the deterministic router (the default configuration). */
-class DecisionRouterAgent : BaseAgentImpl<DecisionRouterInput, DecisionState>() {
+/**
+ * Decision Router Agent - delegates to the §29 router.
+ *
+ * Production construction resolves [Needle3DecisionRouter.forMountedCheckpoint], so
+ * the trade signal is produced on device by Cactus Needle 3 whenever a verified
+ * checkpoint is mounted, and by the deterministic rules whenever it is not, when the
+ * engine cannot run, or when the calibrated confidence is below the act threshold.
+ *
+ * The router is injectable so the pipeline stays testable and §29's interface stays
+ * replaceable. It is resolved on first execution rather than construction: building
+ * it must not touch the native engine or the download store before a decision is
+ * actually asked for.
+ */
+class DecisionRouterAgent(
+    private val injectedRouter: DecisionRouter? = null
+) : BaseAgentImpl<DecisionRouterInput, DecisionState>() {
 
     override val agentId = "Decision Router"
     override val version = "1.0"
     override val executionTimeoutMs = 2000L
 
-    private val router = DeterministicDecisionRouter()
+    private val activeRouter: DecisionRouter by lazy {
+        injectedRouter ?: Needle3DecisionRouter.forMountedCheckpoint()
+    }
+
+    /** Why the last route was chosen: the Needle 3 answer, or the fallback's reason. */
+    val lastReason: String get() = activeRouter.lastReason
+
+    /** Calibrated confidence of the last route; 0.0 when the deterministic rules answered. */
+    val decisionConfidence: Double get() = activeRouter.decisionConfidence
 
     override fun executeInternal(inputs: DecisionRouterInput): DecisionState? {
         if (inputs.symbol.isBlank()) return null
 
-        return router.router(
+        return activeRouter.router(
             DecisionInputs(
                 triFactorForecast = inputs.triFactorForecast,
                 tsfmForecast = inputs.tsfmForecast,
@@ -599,7 +622,9 @@ object AgentDAG {
         dataFreshness: Double = 1.0,
         coneBreaches: Int = 0,
         recentErrors: Double = 0.0,
-        priceHistory: List<Double> = emptyList()
+        priceHistory: List<Double> = emptyList(),
+        // §29: on-device Needle 3 by default; callers and tests may substitute a router.
+        decisionRouter: DecisionRouter? = null
     ): DecisionState? {
 
         // Agent 1: Ingestion Agent - validates and normalizes market data
@@ -641,7 +666,7 @@ object AgentDAG {
         ) ?: return null
 
         // Agent 5: Decision Router - determines trade signal
-        val decisionResult = DecisionRouterAgent().execute(
+        val decisionResult = DecisionRouterAgent(decisionRouter).execute(
             DecisionRouterInput(
                 symbol = ingestionResult.symbol,
                 triFactorForecast = quantVectorResult.triFactorForecast,

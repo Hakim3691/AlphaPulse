@@ -50,8 +50,8 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 26 | Android Hardware Acceleration | Done | `profiling/HardwareGatekeeper.kt`, `domain/ml/ModelRuntime.kt` | `profiling/HardwareGatekeeperBddSpec.kt` |
 | 27 | CPU/GPU/NPU Work Allocation | Done | `domain/ml/ModelRuntime.kt`, `domain/ml/UqLobEngine.kt` | `domain/ml/UqLobEngineTest.kt` |
 | 28 | Edge SLM | Done | `domain/narrative/EdgeSlmNarrativeLayer.kt` | `domain/narrative/NarratorConstraintValidatorBddSpec.kt` |
-| 29 | Quantitative Decision Router | Done | `domain/decision/DecisionRouter.kt`, `Decision1ApiRouter.kt`, `DecisionModelCatalog.kt`, `Decision1Configuration.kt` (typed config errors), `ui/components/Decision1StatusBanner.kt` (renders them on the main screen) | `domain/decision/DecisionRouterTest.kt`, `Decision1ApiRouterBddSpec.kt`, `Decision1ConfigurationBddSpec.kt`, `ui/components/ModelDockRemoteOnlyBddSpec.kt`, `ui/components/Decision1StatusBannerBddSpec.kt` |
-| 30 | Needle / Agent Orchestration | Done | `domain/agent/Agent.kt`, `domain/decision/DecisionModelCatalog.kt`, `domain/decision/Needle3Engine.kt` (run path), `domain/decision/Needle3Jni.kt` (JNI surface + bridge), `app/src/main/cpp/needle_jni.cpp` (JNI bridge), `app/src/main/cpp/CMakeLists.txt` (links the vendored engine per ABI), `app/src/main/cpp/engine/` (vendored `libneedle.a` for arm64/armv7 + `needle.h`), `profiling/HardwareGatekeeper.kt`, `ui/components/Needle3StatusBanner.kt` | `domain/agent/AgentTest.kt`, `DecisionModelCatalogBddSpec.kt`, `Needle3EngineBddSpec.kt`, `JniNeedle3BridgeBddSpec.kt`, `VendoredEngineArtifactBddSpec.kt`, `ui/components/Needle3StatusBannerBddSpec.kt` |
+| 29 | Quantitative Decision Router | Done | `domain/decision/DecisionRouter.kt`, `domain/decision/Needle3DecisionRouter.kt` (on-device routing: one grammar-constrained tool per state, calibrated-confidence gate, deterministic fallback), `domain/agent/Agent.kt` (`DecisionRouterAgent` resolves the on-device router for the 7-agent pipeline and reports why a route was chosen), `domain/decision/DecisionModelCatalog.kt`, `ui/components/DecisionCard.kt` (the live verdict, its calibrated confidence and the router's reason on the dashboard) | `domain/decision/DecisionRouterTest.kt`, `domain/decision/Needle3DecisionRouterBddSpec.kt`, `domain/agent/DecisionRouterAgentBddSpec.kt`, `ui/components/DecisionCardBddSpec.kt`, `domain/decision/DecisionInputsAdapterBddSpec.kt` |
+| 30 | Needle / Agent Orchestration | Done | `domain/agent/Agent.kt`, `domain/decision/DecisionModelCatalog.kt`, `domain/decision/Needle3Engine.kt` (run path), `domain/decision/Needle3Jni.kt` (JNI surface + bridge), `domain/decision/Needle3DecisionRouter.kt` (routing turns over the same engine), `app/src/main/cpp/needle_jni.cpp` (JNI bridge), `app/src/main/cpp/CMakeLists.txt` (links the vendored engine per ABI), `app/src/main/cpp/engine/` (vendored `libneedle.a` for arm64/armv7 + `needle.h`), `profiling/HardwareGatekeeper.kt`, `ui/components/Needle3StatusBanner.kt` | `domain/agent/AgentTest.kt`, `DecisionModelCatalogBddSpec.kt`, `Needle3EngineBddSpec.kt`, `Needle3DecisionRouterBddSpec.kt`, `JniNeedle3BridgeBddSpec.kt`, `VendoredEngineArtifactBddSpec.kt`, `ui/components/Needle3StatusBannerBddSpec.kt` |
 | 31 | Model Ensemble Health | Done | `domain/ensemble/EnsembleWeighting.kt`, `domain/ml/ModelRuntime.kt` | `domain/ensemble/EnsembleWeightingTest.kt` |
 | 32 | Model Disagreement Engine | Done | `domain/ensemble/ModelDisagreementDetector.kt` | `domain/ensemble/EnsembleWeightingTest.kt` |
 | 33 | Forecast Confidence Score | Done | `domain/decision/DecisionRouter.kt` | `domain/decision/DecisionRouterTest.kt` |
@@ -64,9 +64,9 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 40 | Primary Dashboard | Done | `ui/components/TopWorkspaceCards.kt`, `ui/components/HeaderBar.kt` | `ui/components/ModelDockUiTest.kt` |
 | 41 | Institutional Explanation Panel | Done | `ui/components/AccordionsSection.kt`, `domain/quant/QuantNarrativeAgent.kt` | `domain/…` narrative tests |
 | 42 | Security Requirements | Done | `data/security/KeystoreCredentialStore.kt` | `security/…` tests |
-| 43 | API Key Architecture | Done | `data/security/KeystoreCredentialStore.kt`, `domain/decision/Decision1ApiRouter.kt` | `KeystoreCredentialStore` tests |
-| 44 | Failure Handling | Done | `domain/decision/Decision1ApiRouter.kt`, `data/network/ResilientBinanceClient.kt` | `domain/decision/Decision1ApiRouterBddSpec.kt` |
-| 45 | Performance Requirements | Done | `domain/decision/Decision1ApiRouter.kt` (timeouts, budgets) | `domain/decision/Decision1ApiRouterBddSpec.kt` |
+| 43 | API Key Architecture | Done | `data/security/KeystoreCredentialStore.kt` (the only place a secret lives; no decision model ships or calls an API key) | `KeystoreCredentialStore` tests |
+| 44 | Failure Handling | Done | `domain/decision/Needle3DecisionRouter.kt` (every refusal ends in the deterministic rules, never an exception), `data/network/ResilientBinanceClient.kt` | `domain/decision/Needle3DecisionRouterBddSpec.kt` |
+| 45 | Performance Requirements | Done | `domain/decision/Needle3DecisionRouter.kt` (one on-device turn; no network call or timeout in the routing path) | `domain/decision/Needle3DecisionRouterBddSpec.kt` |
 | 46 | Battery Requirements | Done | `data/model/BatteryModeManager.kt`, `data/model/WorkManagerScheduler.kt` | `model/BatteryModeManagerTest.kt` |
 | 47 | Model Download Architecture | Done | `data/model/ModelArtifactSource.kt`, `data/model/ModelArtifactInstaller.kt`, `data/model/ModelDownloadStore.kt`; the engine is **compiled in, never downloaded** (`decision.bundledAtBuildTime`), so the dock offers the 34 MB checkpoint and no engine part | `data/model/ModelArtifactSourceContractTest.kt`, `profiling/HardwareGatekeeperBddSpec.kt`, `VendoredEngineArtifactBddSpec.kt`, `scripts/check_integrity.py` (vendored digest guard) |
 | 48 | Model Selection Benchmark | Done | `domain/ml/ModelBenchmark.kt` (mean/p95 latency, throughput, error rate, eligibility floor of 10 samples, best-first ranking) | `domain/ml/ModelBenchmarkBddSpec.kt` |
@@ -115,9 +115,12 @@ rather than a convention.
 analyzer reading the stored buffer, and data quality has one engine whose report
 the notification veto now consumes directly.
 
-Decision-1 no longer has a UI gap: `Decision1StatusBanner` renders the typed
-configuration error directly under the model dock on the main screen, shows
-nothing once the router is configured, and adds no downloadable entry (§29).
+Microsoft-Decision-1 was removed. §29's decision routing now runs on device through
+Cactus Needle 3 (`Needle3DecisionRouter`): the six decision states are six
+grammar-constrained tools, the engine's calibrated confidence gates the answer, and
+every refusal - no checkpoint, no engine, a suppressed call, an ungrounded
+argument, low confidence - falls back to the deterministic rules. No endpoint, API
+key, network timeout or configuration banner remains.
 
 §30's remaining gap was closed after v1.0.6. The Cactus engine is no longer a
 promise in a catalog: `android-arm64/libneedle.a` (2,177,676 bytes) and

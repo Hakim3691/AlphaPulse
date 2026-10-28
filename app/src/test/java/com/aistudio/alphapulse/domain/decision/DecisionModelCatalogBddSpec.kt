@@ -10,11 +10,11 @@ import org.junit.Test
 /**
  * Contract of the decision-model catalog, specified as Given/When/Then.
  *
- * These assertions pin the facts we verified against the live publishers before
- * writing them down: the Needle 3 coordinates are real and downloadable, the
- * Microsoft-Decision-1 route is API-only (no weights exist to download), and the
- * "local alternative" stays unplugged because the documented ONNX URL does not
- * resolve. A regression here means the app would ship a broken download link.
+ * The catalog now carries exactly one route: Cactus Needle 3, downloaded as a file
+ * and executed by the engine linked into the APK. Microsoft-Decision-1 used to be a
+ * second, API-only route and is deliberately absent - §29's routing moved on device,
+ * so there is no closed-weight endpoint left to catalogue, and the unverified local
+ * alternative went with it.
  *
  * Spec Ref: §29 Quantitative Decision Router, §30 Needle / Agent Orchestration,
  * §47 Model Download Architecture.
@@ -49,19 +49,17 @@ class DecisionModelCatalogBddSpec {
     }
 
     @Test
-    fun `given needle 3 when the downloadability rule is applied then it is downloadable but microsoft decision 1 is not`() {
+    fun `given needle 3 when the downloadability rule is applied then only on-device artifacts are downloadable`() {
         assertTrue(
             "Open weights on a public host must be downloadable",
             DecisionModelCatalog.isDownloadable("needle3")
         )
-        assertFalse(
-            "Closed weights must never be presented as a download",
-            DecisionModelCatalog.isDownloadable("ms-decision-1")
-        )
-        assertFalse(
-            "An unverified alternative must never be presented as a download",
-            DecisionModelCatalog.isDownloadable("decision-1-local")
-        )
+        DecisionModelCatalog.NEEDLE3_ENGINE.forEach { part ->
+            assertFalse(
+                "${part.id} is linked into the APK, not fetched",
+                DecisionModelCatalog.isDownloadable(part.id)
+            )
+        }
         assertFalse("Unknown ids are not downloadable", DecisionModelCatalog.isDownloadable("nope"))
     }
 
@@ -101,40 +99,28 @@ class DecisionModelCatalogBddSpec {
         }
     }
 
-    // ------------------------------------------------------ Microsoft-Decision-1
+    // ------------------------------------------------- Decision-1 removal (§29)
 
     @Test
-    fun `given microsoft decision 1 when inspected then it is described as an api route with no weights in the apk`() {
-        val spec = DecisionModelCatalog.DECISION1_API
-
-        assertEquals(ModelHosting.API_ONLY, spec.hosting)
-        assertEquals(ModelAvailability.AVAILABLE, spec.availability)
-        assertNull("No file may be advertised for a closed-weight model", spec.downloadUrl)
-        assertEquals(0L, spec.sizeBytes)
-        assertNull("No digest can exist for weights we never receive", spec.sha256)
-        assertTrue(
-            "Strategy must name both documented hosts",
-            spec.integrationStrategy.contains("Azure") && spec.integrationStrategy.contains("OpenRouter")
+    fun `given the catalog when it is read then microsoft decision 1 is gone rather than merely hidden`() {
+        // Routing runs on device now; an API-only route must not linger as a
+        // catalogue row, a download tile or a configuration gap.
+        assertNull(
+            "Decision-1 must not survive the move to on-device routing",
+            DecisionModelCatalog.byId("ms-decision-1")
         )
-        assertTrue(
-            "Strategy must state that the key lives in the Keystore (§42/§43)",
-            spec.integrationStrategy.contains("Keystore")
+        assertNull(
+            "The unverified local alternative went with it",
+            DecisionModelCatalog.byId("decision-1-local")
         )
-    }
-
-    @Test
-    fun `given the documented local alternative when inspected then it is parked as planned because the onnx coordinate does not exist`() {
-        val spec = DecisionModelCatalog.DECISION1_LOCAL_ALTERNATIVE
-
         assertEquals(
-            "Offering a URL we verified as HTTP 404 would ship a guaranteed failure",
-            ModelAvailability.PLANNED,
-            spec.availability
+            "The catalog is Needle 3 plus its three vendored engine parts",
+            4,
+            DecisionModelCatalog.ALL.size
         )
-        assertNull(spec.downloadUrl)
-        assertTrue(
-            "The reason must record what we found",
-            spec.status.contains("404")
+        assertFalse(
+            "No route is downloadable under a Decision-1 id any more",
+            DecisionModelCatalog.isDownloadable("ms-decision-1")
         )
     }
 
@@ -143,12 +129,12 @@ class DecisionModelCatalogBddSpec {
     @Test
     fun `given the catalog when searched by id then every entry resolves case-insensitively and unknown ids return null`() {
         assertNotNull(DecisionModelCatalog.byId("NEEDLE3"))
-        assertNotNull(DecisionModelCatalog.byId("ms-decision-1"))
-        assertNotNull(DecisionModelCatalog.byId("decision-1-local"))
+        assertNotNull(DecisionModelCatalog.byId("needle3-engine-lib"))
+        assertNotNull(DecisionModelCatalog.byId("NEEDLE3-ENGINE-HEADER"))
         assertNull(DecisionModelCatalog.byId("does-not-exist"))
         assertTrue(
-            "Catalog must contain the three headline entries plus two engine parts",
-            DecisionModelCatalog.ALL.size >= 3
+            "Catalog must contain the checkpoint plus its three engine parts",
+            DecisionModelCatalog.ALL.size == DecisionModelCatalog.NEEDLE3_ENGINE.size + 1
         )
     }
 }

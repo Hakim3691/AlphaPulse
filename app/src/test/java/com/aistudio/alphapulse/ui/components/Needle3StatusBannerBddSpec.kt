@@ -9,6 +9,7 @@ import com.aistudio.alphapulse.domain.decision.DecisionModelCatalog
 import com.aistudio.alphapulse.domain.decision.Needle3EngineStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -136,7 +137,7 @@ class Needle3StatusBannerBddSpec {
                 DecisionModelCatalog.isDownloadable(enginePart.id)
             )
         }
-        // And the remote-only rule for Decision-1 is unaffected.
-        assertFalse(DecisionModelCatalog.isDownloadable("ms-decision-1"))
+        // Decision-1 is gone from the catalog entirely: routing is on device now.
+        assertNull(DecisionModelCatalog.byId("ms-decision-1"))
     }
 }

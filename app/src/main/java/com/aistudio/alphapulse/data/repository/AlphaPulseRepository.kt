@@ -11,6 +11,12 @@ import com.aistudio.alphapulse.domain.quant.LiquidityPainPathResult
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
 import com.aistudio.alphapulse.domain.quant.ConfluenceAlphaResult
 import com.aistudio.alphapulse.domain.quant.ModelState
+import com.aistudio.alphapulse.domain.agent.MarketStateAgent
+import com.aistudio.alphapulse.domain.agent.MarketStateInput
+import com.aistudio.alphapulse.domain.decision.DecisionReport
+import com.aistudio.alphapulse.domain.decision.DecisionRouter
+import com.aistudio.alphapulse.domain.decision.Needle3DecisionRouter
+import com.aistudio.alphapulse.domain.decision.decisionInputsFor
 import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.domain.ml.onnx.OnnxTsfmForecaster
 import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecast
@@ -45,6 +51,12 @@ private const val MIN_TSFM_HISTORY = 32
 /** Longest docked horizon (1h) in minutes. */
 private const val MAX_FORECAST_MINUTES = 60
 
+/** Horizon whose ensemble legs feed the §29 router - the MTF horizon the UI headlines. */
+private const val DECISION_REFERENCE_HORIZON = "15m"
+
+/** How recent a settlement must be to inform the router's breach and error guards. */
+private const val DECISION_RECENT_WINDOW_MS = 5 * 60 * 1000L
+
 class AlphaPulseRepository(
     private val client: ResilientBinanceClient,
     private val database: AppDatabase,
@@ -68,6 +80,21 @@ class AlphaPulseRepository(
     private var prevDepthTimestamp = 0L
     private var lambdaDecay = 0.035
     private var initializedWeightsForSymbol = ""
+
+    /**
+     * §29 router behind the verdict the dashboard shows.
+     *
+     * The same implementation the agent pipeline resolves, so the two can never
+     * disagree about how a route is chosen. The checkpoint is looked up on every
+     * call, so mounting or evicting Needle 3 in the dock changes the verdict on the
+     * next cycle with no re-wiring.
+     */
+    private val decisionRouter: DecisionRouter by lazy {
+        Needle3DecisionRouter.forMountedCheckpoint()
+    }
+
+    /** Supplies the regime conviction the router's snapshot needs. */
+    private val marketStateAgent = MarketStateAgent()
 
     val HORIZONS = listOf(
         HorizonConfig("1m", "1 Minute", 1, 60 * 1000L, "Tri-Factor"),
@@ -647,6 +674,8 @@ class AlphaPulseRepository(
         }
 
         val forecastTargets = mutableListOf<ForecastTarget>()
+        // Each ensemble leg per horizon, kept for the decision snapshot below.
+        val legDrifts = mutableMapOf<String, ForecastLegs>()
         val existingPredictions = database.predictionDao().getPredictionsBySymbol(symbol)
 
         for (h in HORIZONS) {
@@ -695,6 +724,18 @@ class AlphaPulseRepository(
                 modelState.driftBias
 
             val dt = h.minutes.toDouble()
+
+            // §29: the two legs the router compares, as percent moves at this horizon,
+            // taken from the same components that produced the cone above.
+            val kinematicDrift = (muKinematic * modelState.weightK) +
+                (muPath * modelState.weightP) +
+                (muAlpha * modelState.weightAlpha)
+            val tsfmDrift = (muChronos * modelState.weight4) + (muTimesFm * modelState.weight5)
+            legDrifts[h.id] = ForecastLegs(
+                kinematicPct = (exp(kinematicDrift * dt) - 1.0) * 100.0,
+                tsfmPct = (exp(tsfmDrift * dt) - 1.0) * 100.0
+            )
+
             val expectedReturn = combinedDrift * dt
             val predPrice = currentSpot * exp(expectedReturn)
 
@@ -884,6 +925,39 @@ class AlphaPulseRepository(
             regime = mtfMetrics.regime
         )
 
+        // §29: the verdict the dashboard shows, from the snapshot just evaluated.
+        // The reason travels with the state, so a route can be attributed to Needle 3
+        // or to the deterministic rules that back it up.
+        val recentlySettled = existingPredictions.filter {
+            it.settled && (now - it.targetTimestamp) in 0..DECISION_RECENT_WINDOW_MS
+        }
+        val regimeConfidence = marketStateAgent.execute(
+            MarketStateInput(
+                symbol = symbol,
+                priceData = mapOf("priceChangePercent" to spotChange),
+                orderBookSnapshot = mapOf("bidRatio" to bidRatioPct / 100.0)
+            )
+        )?.regimeConfidence ?: 0.5
+
+        val decisionInputs = decisionInputsFor(
+            kinematicPct = legDrifts[DECISION_REFERENCE_HORIZON]?.kinematicPct ?: 0.0,
+            tsfmPct = legDrifts[DECISION_REFERENCE_HORIZON]?.tsfmPct ?: 0.0,
+            bidRatioPct = bidRatioPct,
+            confluenceConfidence = alphaMetrics.confidence,
+            regimeConfidence = regimeConfidence,
+            coneBreaches = recentlySettled.count { it.inCone == false },
+            recentErrorPct = recentlySettled
+                .mapNotNull { item -> item.errorPct?.let { abs(it) } }
+                .average()
+                .let { if (it.isNaN()) 0.0 else it },
+            dataAvailable = currentSpot > 0.0 && klines.isNotEmpty()
+        )
+        val decision = DecisionReport(
+            state = decisionRouter.router(decisionInputs),
+            confidence = decisionRouter.decisionConfidence,
+            reason = decisionRouter.lastReason
+        )
+
         AssetEvaluationResult(
             spotPrice = currentSpot,
             spotChange = spotChange,
@@ -898,7 +972,8 @@ class AlphaPulseRepository(
             forecastTargets = forecastTargets,
             chartPoints = chartPoints,
             alphaMetrics = alphaMetrics,
-            executiveBrief = executiveBrief
+            executiveBrief = executiveBrief,
+            decision = decision
         )
     }
 
@@ -1129,5 +1204,13 @@ data class AssetEvaluationResult(
     val forecastTargets: List<ForecastTarget>,
     val chartPoints: List<ChartPoint>,
     val alphaMetrics: ConfluenceAlphaResult,
-    val executiveBrief: String
+    val executiveBrief: String,
+    /** §29 verdict for this evaluation: state, calibrated confidence and the reason. */
+    val decision: DecisionReport
+)
+
+/** Percent move of each ensemble leg at one horizon, as the §29 router reads them. */
+private data class ForecastLegs(
+    val kinematicPct: Double,
+    val tsfmPct: Double
 )

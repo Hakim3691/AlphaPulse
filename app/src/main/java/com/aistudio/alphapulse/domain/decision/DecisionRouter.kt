@@ -4,7 +4,7 @@
  * - deterministic rule router
  * - lightweight classifier
  * - validated neural classifier
- * - future Decision-1-compatible model
+ * - on-device Needle 3 router ([Needle3DecisionRouter])
  *
  * Spec Ref: §29, Gap §3 line 108
  *
@@ -44,6 +44,76 @@ data class DecisionInputs(
     val coneBreaches: Int = 0, // Number of recent cone breaches
     val recentErrors: Double = 0.0 // Mean absolute error of recent predictions
 )
+
+/**
+ * The verdict a caller can show: the chosen state, its calibrated confidence and
+ * the router's own reason for choosing it.
+ *
+ * §29 forbids overriding the raw forecasts without recording the reason, so the
+ * reason travels with the state instead of being logged and dropped.
+ */
+data class DecisionReport(
+    val state: DecisionState,
+    /** Calibrated confidence [0,1], or 0.0 when the router has no calibrated number. */
+    val confidence: Double,
+    val reason: String
+) {
+    /** True when [confidence] is a calibrated probability rather than an absence of one. */
+    val isCalibrated: Boolean get() = confidence > 0.0
+}
+
+/**
+ * Build the §29 routing snapshot from one live evaluation.
+ *
+ * The forecasts themselves are the ensemble's own legs at one horizon, so the
+ * verdict is derived from the numbers behind the visible cone rather than from a
+ * separate synthetic snapshot. Two inputs have no published value in the
+ * evaluation path, so their rule is written down here, once:
+ *
+ *  * `lobConfidence` is how one-sided the L2 book is - 0.0 at a balanced 50/50
+ *    book, 1.0 when every top-of-book dollar is on one side.
+ *  * `modelDisagreement` is directional: the kinematic and TSFM legs either point
+ *    the same way (0.0) or they do not (1.0). An unmounted TSFM leg contributes no
+ *    direction to the drift, so it cannot disagree; the deterministic rules then
+ *    find no convergence and stand aside.
+ *
+ * @param kinematicPct kinematic ensemble leg (K+P+Alpha) at the reference horizon, in %
+ * @param tsfmPct mounted TSFM ensemble leg (Chronos+TimesFM) at the same horizon, in %
+ * @param bidRatioPct share of top-of-book notional resting on the bid, 0..100
+ * @param confluenceConfidence the engine's own confluence confidence [0,1]
+ * @param regimeConfidence regime conviction [0,1] from the market-state classifier
+ * @param coneBreaches settled predictions whose cone was breached recently
+ * @param recentErrorPct mean absolute error of those settled predictions, in %
+ * @param dataAvailable false when no live price or history was obtained
+ */
+internal fun decisionInputsFor(
+    kinematicPct: Double,
+    tsfmPct: Double,
+    bidRatioPct: Double,
+    confluenceConfidence: Double,
+    regimeConfidence: Double,
+    coneBreaches: Int,
+    recentErrorPct: Double,
+    dataAvailable: Boolean
+): DecisionInputs {
+    val bookBalance = abs(bidRatioPct.coerceIn(0.0, 100.0) - 50.0) / 50.0
+    val sameDirection = (kinematicPct > 0.0 && tsfmPct > 0.0) ||
+        (kinematicPct < 0.0 && tsfmPct < 0.0)
+    val noDirection = kinematicPct == 0.0 || tsfmPct == 0.0
+
+    return DecisionInputs(
+        triFactorForecast = kinematicPct,
+        tsfmForecast = tsfmPct,
+        lobConfidence = bookBalance,
+        liquidityConfidence = confluenceConfidence.coerceIn(0.0, 1.0),
+        regimeConfidence = regimeConfidence.coerceIn(0.0, 1.0),
+        modelDisagreement = if (noDirection || sameDirection) 0.0 else 1.0,
+        // Stale or missing data cannot be traded on, and the router says NO_TRADE for it.
+        dataFreshness = if (dataAvailable) 1.0 else 0.0,
+        coneBreaches = coneBreaches,
+        recentErrors = recentErrorPct
+    )
+}
 
 /** DecisionRouter - The replaceable interface for trade signal determination. */
 interface DecisionRouter {

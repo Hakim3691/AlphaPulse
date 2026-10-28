@@ -90,8 +90,8 @@ private val DOCK_MODELS = listOf(
 /**
  * Exactly the models shown as downloadable tiles.
  *
- * Exposed so a test can prove Microsoft-Decision-1 is never offered as a download:
- * it is API-only and has no weights to install (§29).
+ * Only on-device artifacts belong here: the Cactus engine is compiled in, so the
+ * dock offers the three weight files and nothing else (§30, §47).
  */
 val MODEL_DOCK_IDS: List<String> = DOCK_MODELS.map { it.id }
 

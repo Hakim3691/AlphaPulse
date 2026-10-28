@@ -22,6 +22,7 @@ import com.aistudio.alphapulse.data.model.ModelDownloadState
 import com.aistudio.alphapulse.data.model.ModelDownloadStore
 import com.aistudio.alphapulse.data.model.ModelFileLocator
 import com.aistudio.alphapulse.data.model.ModelLoadStatus
+import com.aistudio.alphapulse.domain.decision.DecisionReport
 import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
 import com.aistudio.alphapulse.domain.quant.ModelState
@@ -71,6 +72,9 @@ data class AlphaPulseUiState(
     val forecastTargets: List<ForecastTarget> = emptyList(),
     val chartPoints: List<ChartPoint> = emptyList(),
     val executiveBrief: String = "",
+
+    /** §29 verdict for the selected asset: null until the first evaluation completes. */
+    val decision: DecisionReport? = null,
     val sessionElapsedSeconds: Long = 0L,
     val isLTFReady: Boolean = false,
     val isMTFReady: Boolean = false,
@@ -402,6 +406,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                             forecastTargets = result.forecastTargets,
                                 chartPoints = result.chartPoints,
                                 executiveBrief = result.executiveBrief,
+                                decision = result.decision,
                                 modelState = currentModel.copy()
                             )
                         }

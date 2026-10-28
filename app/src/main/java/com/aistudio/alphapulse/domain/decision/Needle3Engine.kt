@@ -125,8 +125,8 @@ class Needle3Engine(
     /** Which checkpoint is currently loaded, so it is loaded once, not per turn. */
     private var loadedWeightsPath: String? = null
 
-    /** Whether the system prompt and tool schemas have been tokenized for this checkpoint. */
-    private var sessionStarted = false
+    /** Which (system prompt, tool schema) prefix is tokenized, so a switch re-opens the session. */
+    private var sessionKey: String? = null
 
     /** `cactus-needle3/arm64-v8a`, shown next to generated text. */
     val engineVersion: String = "cactus-needle3/${bridge.abiDescription}"
@@ -164,56 +164,17 @@ class Needle3Engine(
         request: Needle3Request,
         weightsPath: String?,
         maxNewTokens: Int = DEFAULT_MAX_NEW_TOKENS
-    ): Needle3Result = synchronized(lock) {
-        // 1. Capability first: no engine or no checkpoint means no text at all.
-        when (val current = status(weightsPath)) {
-            is Needle3EngineStatus.Ready -> Unit
-            else -> return Needle3Result.Unavailable(current)
+    ): Needle3Result {
+        val answer = when (val turn = runTurn(
+            systemPrompt = SYSTEM_PROMPT,
+            toolsJson = TOOLS_JSON,
+            prompt = promptFor(request),
+            weightsPath = weightsPath,
+            maxNewTokens = maxNewTokens
+        )) {
+            is TurnRun.Failed -> return Needle3Result.Unavailable(turn.status)
+            is TurnRun.Answered -> turn.answer
         }
-
-        val path = weightsPath!!
-
-        // 2. Map the checkpoint once per path. `needle_load` reads it in place.
-        if (loadedWeightsPath != path) {
-            val code = bridge.loadWeights(path)
-            if (code < 0) {
-                return Needle3Result.Unavailable(
-                    Needle3EngineStatus.LoadFailed(
-                        reason = bridge.lastError(),
-                        remedy = "Delete the downloaded Needle 3 weights and download them again; " +
-                            "the engine rejects a truncated or altered checkpoint."
-                    )
-                )
-            }
-            loadedWeightsPath = path
-            sessionStarted = false
-        }
-
-        // 3. Tokenize the static prefix once: the persona and the tool catalogue
-        //    do not change between turns, so this is one call per session.
-        if (!sessionStarted) {
-            val prefixTokens = bridge.beginSession(SYSTEM_PROMPT, TOOLS_JSON)
-            if (prefixTokens < 0) {
-                return Needle3Result.Unavailable(
-                    Needle3EngineStatus.InferenceFailed(
-                        reason = bridge.lastError(),
-                        remedy = "Shorten the narrative system prompt or the tool schemas so the " +
-                            "prefix fits the model context."
-                    )
-                )
-            }
-            sessionStarted = true
-        }
-
-        // 4. One turn.
-        val answer = bridge.complete(promptFor(request), maxNewTokens)
-            ?: return Needle3Result.Unavailable(
-                Needle3EngineStatus.InferenceFailed(
-                    reason = bridge.lastError(),
-                    remedy = "Retry the turn; if it keeps failing the device is out of memory " +
-                        "for the orchestration model."
-                )
-            )
 
         val parsed = parseAnswer(answer)
             ?: return Needle3Result.Unavailable(
@@ -227,12 +188,130 @@ class Needle3Engine(
         // §59: the entity that displays this text must still pass it through
         // NarratorConstraintValidator, which is what stops the model introducing
         // a number that is not in the payload.
-        Needle3Result.Generated(
+        return Needle3Result.Generated(
             reasoning = parsed.reasoning,
             confidence = parsed.confidence,
             rawJson = answer,
             engineVersion = engineVersion
         )
+    }
+
+    /**
+     * Run one routing turn: the same engine, a different persona and grammar.
+     *
+     * This is the on-device half of §29. The answer is returned untouched so
+     * [Needle3DecisionRouter] can judge the tool that was chosen. Unlike a brief, a
+     * routing turn need not carry prose: the engine may return an empty
+     * `reasoning` for a call, and that is a valid answer rather than a malformed
+     * one.
+     *
+     * @param prompt the decision snapshot, printed verbatim so its values are groundable
+     * @param toolsJson the routing catalogue used as the decode grammar
+     */
+    fun routeDecision(
+        prompt: String,
+        toolsJson: String,
+        weightsPath: String?,
+        maxNewTokens: Int = DEFAULT_ROUTING_MAX_NEW_TOKENS
+    ): Needle3Result {
+        val answer = when (val turn = runTurn(
+            systemPrompt = ROUTING_SYSTEM_PROMPT,
+            toolsJson = toolsJson,
+            prompt = prompt,
+            weightsPath = weightsPath,
+            maxNewTokens = maxNewTokens
+        )) {
+            is TurnRun.Failed -> return Needle3Result.Unavailable(turn.status)
+            is TurnRun.Answered -> turn.answer
+        }
+
+        val map = runCatching { MAP_ADAPTER.fromJson(answer) }.getOrNull()
+        if (map == null ||
+            (!map.containsKey("function_calls") && !map.containsKey("suppressed_calls"))
+        ) {
+            return Needle3Result.Unavailable(
+                Needle3EngineStatus.InferenceFailed(
+                    reason = "The engine returned text that is not the promised routing JSON, " +
+                        "so it cannot be attributed to a decision tool.",
+                    remedy = "Retry the turn; an unparseable route is never executed (§29)."
+                )
+            )
+        }
+
+        return Needle3Result.Generated(
+            reasoning = (map["reasoning"] as? String).orEmpty(),
+            confidence = (map["confidence"] as? Number)?.toDouble(),
+            rawJson = answer,
+            engineVersion = engineVersion
+        )
+    }
+
+    /**
+     * Load the checkpoint, open the session for this (persona, grammar) pair, and
+     * run one turn. Every native call happens under [lock]: the Cactus engine is
+     * process-global and not thread safe.
+     */
+    private fun runTurn(
+        systemPrompt: String,
+        toolsJson: String,
+        prompt: String,
+        weightsPath: String?,
+        maxNewTokens: Int
+    ): TurnRun = synchronized(lock) {
+        // 1. Capability first: no engine or no checkpoint means no answer at all.
+        when (val current = status(weightsPath)) {
+            is Needle3EngineStatus.Ready -> Unit
+            else -> return TurnRun.Failed(current)
+        }
+
+        val path = weightsPath!!
+
+        // 2. Map the checkpoint once per path. `needle_load` reads it in place.
+        if (loadedWeightsPath != path) {
+            val code = bridge.loadWeights(path)
+            if (code < 0) {
+                return TurnRun.Failed(
+                    Needle3EngineStatus.LoadFailed(
+                        reason = bridge.lastError(),
+                        remedy = "Delete the downloaded Needle 3 weights and download them again; " +
+                            "the engine rejects a truncated or altered checkpoint."
+                    )
+                )
+            }
+            loadedWeightsPath = path
+            sessionKey = null
+        }
+
+        // 3. Tokenize the static prefix once per (persona, grammar). Switching
+        //    between the narrator and the router restarts the session, because the
+        //    prefix is what constrains the decode.
+        val key = "$systemPrompt\u0000$toolsJson"
+        if (sessionKey != key) {
+            if (sessionKey != null) bridge.reset()
+            val prefixTokens = bridge.beginSession(systemPrompt, toolsJson)
+            if (prefixTokens < 0) {
+                return TurnRun.Failed(
+                    Needle3EngineStatus.InferenceFailed(
+                        reason = bridge.lastError(),
+                        remedy = "Shorten the system prompt or the tool schemas so the prefix " +
+                            "fits the model context."
+                    )
+                )
+            }
+            sessionKey = key
+        }
+
+        // 4. One turn.
+        val answer = bridge.complete(prompt, maxNewTokens)
+            ?: return TurnRun.Failed(
+                Needle3EngineStatus.InferenceFailed(
+                    reason = bridge.lastError(),
+                    remedy = "Retry the turn; if it keeps failing the device is out of memory " +
+                        "for the orchestration model."
+                )
+            )
+
+        TurnRun.Answered(answer)
     }
 
     /**
@@ -242,8 +321,8 @@ class Needle3Engine(
      * previous session's context.
      */
     fun release() = synchronized(lock) {
-        if (sessionStarted) bridge.reset()
-        sessionStarted = false
+        if (sessionKey != null) bridge.reset()
+        sessionKey = null
     }
 
     /**
@@ -304,10 +383,19 @@ class Needle3Engine(
 
     private data class ParsedAnswer(val reasoning: String, val confidence: Double?)
 
+    /** One turn's outcome: either the engine's own answer or a typed refusal. */
+    private sealed class TurnRun {
+        data class Answered(val answer: String) : TurnRun()
+        data class Failed(val status: Needle3EngineStatus) : TurnRun()
+    }
+
     companion object {
 
         /** Generation cap per turn. Kept small: a brief is a paragraph, not an essay. */
         const val DEFAULT_MAX_NEW_TOKENS = 160
+
+        /** Cap for a routing turn: one tool call plus a one-line derivation. */
+        const val DEFAULT_ROUTING_MAX_NEW_TOKENS = 96
 
         /**
          * The persona handed to the engine.
@@ -330,6 +418,18 @@ class Needle3Engine(
          * would then answer with a function call instead of reasoning.
          */
         const val TOOLS_JSON = "[]"
+
+        /**
+         * Persona for a routing turn (§29), kept apart from the narrator's.
+         *
+         * The rule is the same one the router enforces in code: one tool, and only
+         * numbers that appear in the snapshot.
+         */
+        const val ROUTING_SYSTEM_PROMPT =
+            "You are the decision router of a quantitative crypto forecasting terminal. " +
+                "Read the numeric snapshot and call exactly one decision tool. " +
+                "Use only the numbers in the snapshot, never invent a value, and never " +
+                "call more than one tool. The snapshot is the only evidence you have."
 
         /** The app-wide engine, backed by the vendored Cactus native library. */
         val shared: Needle3Engine by lazy { Needle3Engine() }

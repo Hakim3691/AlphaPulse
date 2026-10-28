@@ -8,9 +8,9 @@ package com.aistudio.alphapulse.ui.components
  * a user could download 34 MB of weights and still get nothing, with no explanation
  * on screen.
  *
- * This banner closes that gap on the surface the user already has, next to the
- * Decision-1 banner so both decision routes are explained in one place. It renders
- * the engine's state in plain words:
+ * This banner closes that gap on the surface the user already has, directly under
+ * the model dock that mounts the weights. It renders the engine's state in plain
+ * words:
  *
  *  * nothing at all when the engine is linked and a checkpoint is mounted;
  *  * otherwise the reason and what to do about it - an emulator without an arm

@@ -8,16 +8,15 @@ package com.aistudio.alphapulse.domain.decision
  *   "The document's proposed Microsoft-Decision-1 layer shall be treated as a
  *    replaceable decision-router interface rather than a hard dependency."  (§29)
  *
- * That is why this catalog describes three routes instead of hard-wiring one:
+ * That is why this catalog describes exactly one route:
  *
- *  1. DECISION1_API   - Microsoft-Decision-1 is closed-weights, so it is called
- *                       over HTTPS (Azure AI Foundry / OpenRouter). The weights
- *                       never ship in the APK.
- *  2. NEEDLE3         - Cactus Needle 3 is openly downloadable and runs on device
- *                       through the Cactus C/C++ engine (§30 orchestration).
- *  3. LOCAL_ALTERNATIVE - an open-weight decision model for fully offline use.
- *                       (No candidate currently ships a verified ONNX file - see
- *                       [status] below - so we do not offer a download for it.)
+ *  NEEDLE3 - Cactus Needle 3 is openly downloadable and runs on device through the
+ *            Cactus C/C++ engine (§30 orchestration).
+ *
+ * Microsoft-Decision-1 is no longer catalogued. It was the API-only third route,
+ * and the same six-state decision job now runs locally through Needle 3, so there
+ * is no endpoint, API key or download left to describe. [Needle3DecisionRouter]
+ * is what replaced it.
  *
  * Every download coordinate below was checked against the live publisher before
  * being pinned; nothing here is a guess.
@@ -161,58 +160,10 @@ object DecisionModelCatalog {
         )
     )
 
-    /**
-     * Microsoft-Decision-1 - closed weights, so it is an API call, not a download.
-     *
-     * Microsoft does not publish the weights (9B backbone), therefore the spec's
-     * instruction applies: expose it as a replaceable interface (§29) and call it
-     * where it is actually served - Azure AI Foundry or OpenRouter.
-     */
-    val DECISION1_API = DecisionModelSpec(
-        id = "ms-decision-1",
-        displayName = "Microsoft-Decision-1",
-        hosting = ModelHosting.API_ONLY,
-        availability = ModelAvailability.AVAILABLE,
-        downloadUrl = null,
-        sizeBytes = 0L,
-        sha256 = null,
-        license = "Closed weights - served by Microsoft/Azure under their API terms",
-        integrationStrategy = "Call the hosted endpoint over HTTPS (Azure AI Foundry or OpenRouter) " +
-            "through Decision1ApiRouter. The API key is kept in the Android Keystore (§42/§43), " +
-            "never in source. Falls back to the deterministic router when the call fails.",
-        hardwareTierRequired = null,
-        status = "Callable once an endpoint URL + API key are configured in Settings."
-    )
 
-    /**
-     * Open-weight local alternative - documented but NOT downloadable today.
-     *
-     * The notes suggested `mukaddamzaid/amos-1-mini/resolve/main/model.onnx`
-     * (~180 MB INT8), but that path returns HTTP 404: the repository publishes a
-     * 1.6 GB `model.pt` checkpoint and no ONNX export, and `fonles-studios/
-     * fonles-decision-1` publishes no weights either. Pinning a URL we know is
-     * broken would ship a guaranteed-failing download, so we record the finding
-     * instead and keep the slot ready.
-     */
-    val DECISION1_LOCAL_ALTERNATIVE = DecisionModelSpec(
-        id = "decision-1-local",
-        displayName = "Decision-1 open-weight alternative",
-        hosting = ModelHosting.ON_DEVICE,
-        availability = ModelAvailability.PLANNED,
-        downloadUrl = null,
-        sizeBytes = 0L,
-        sha256 = null,
-        license = "To be confirmed with the chosen checkpoint",
-        integrationStrategy = "Offline decision scoring when the API route is unavailable. " +
-            "A candidate must publish an ONNX file small enough for mobile before it is pinned here.",
-        hardwareTierRequired = "mid-tier",
-        status = "Blocked: the documented ONNX coordinates do not exist (verified HTTP 404 for " +
-            "mukaddamzaid/amos-1-mini model.onnx; fonles-studios/fonles-decision-1 ships no weights)."
-    )
 
     /** Everything the catalog knows about, including engine parts. */
-    val ALL: List<DecisionModelSpec> =
-        listOf(NEEDLE3, DECISION1_API, DECISION1_LOCAL_ALTERNATIVE) + NEEDLE3_ENGINE
+    val ALL: List<DecisionModelSpec> = listOf(NEEDLE3) + NEEDLE3_ENGINE
 
     /** Look a spec up by id (case-insensitive), or null when unknown. */
     fun byId(id: String): DecisionModelSpec? =

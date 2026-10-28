@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aistudio.alphapulse.domain.decision.DecisionReport
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.data.model.ScreenedCoin
@@ -51,7 +52,8 @@ fun TopWorkspaceCards(
     modelState: ModelState,
     totalSettled: Int,
     coneHitRate: Double?,
-    mountedModelIds: List<String> = emptyList()
+    mountedModelIds: List<String> = emptyList(),
+    decision: DecisionReport? = null
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -87,6 +89,9 @@ fun TopWorkspaceCards(
             coneHitRate = coneHitRate,
             mountedModelIds = mountedModelIds
         )
+
+        // Row 3: the verdict those weights actually produced, with its reason.
+        DecisionCard(decision = decision)
     }
 }
 
