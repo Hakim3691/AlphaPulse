@@ -1,6 +1,8 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 import java.net.URI
 import java.security.MessageDigest
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 
 plugins {
   alias(libs.plugins.android.application)
@@ -362,20 +364,35 @@ tasks.register<JacocoCoverageVerification>("jacocoCoverageGate") {
  * `./gradlew :app:bundleNeedle3Weights`; setting `BUNDLE_NEEDLE3=true` also hooks
  * it into `preBuild` for local release builds.
  */
+/**
+ * The pinned Needle 3 artifact, defined once for both tasks that use it.
+ *
+ * `bundleNeedle3Weights` puts these bytes into the APK; `verifyPackagedWeights`
+ * checks they really are inside it. Two separate copies of the digest would let
+ * the two disagree, which is the exact failure the pair exists to catch.
+ */
+val needle3AssetFile = layout.projectDirectory.file("src/main/assets/needle3.cact").asFile
+val needle3Entry = "assets/needle3.cact"
+val needle3ArtifactUrl = providers.gradleProperty("needle3Url")
+  .orElse(providers.environmentVariable("NEEDLE3_URL"))
+  .orElse("https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3.cact")
+val needle3ArtifactSize = providers.gradleProperty("needle3SizeBytes")
+  .orElse(providers.environmentVariable("NEEDLE3_SIZE_BYTES"))
+  .orElse("35335380")
+val needle3ArtifactSha = providers.gradleProperty("needle3Sha256")
+  .orElse(providers.environmentVariable("NEEDLE3_SHA256"))
+  .orElse("c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38")
+
 tasks.register("bundleNeedle3Weights") {
   group = "build"
   description = "Downloads and verifies needle3.cact into src/main/assets for packaging."
 
-  val target = layout.projectDirectory.file("src/main/assets/needle3.cact").asFile
-  val artifactUrl = providers.gradleProperty("needle3Url")
-    .orElse(providers.environmentVariable("NEEDLE3_URL"))
-    .orElse("https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3.cact")
-  val artifactSize = providers.gradleProperty("needle3SizeBytes")
-    .orElse(providers.environmentVariable("NEEDLE3_SIZE_BYTES"))
-    .orElse("35335380")
-  val artifactSha = providers.gradleProperty("needle3Sha256")
-    .orElse(providers.environmentVariable("NEEDLE3_SHA256"))
-    .orElse("c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38")
+  val target = needle3AssetFile
+  // Captured as locals so the task action never holds the script object itself,
+  // which is what keeps it configuration-cache compatible.
+  val pinnedUrl = needle3ArtifactUrl
+  val pinnedSize = needle3ArtifactSize
+  val pinnedSha = needle3ArtifactSha
 
   outputs.file(target)
   // The digest check is cheap once the file is present, so always re-verify.
@@ -395,8 +412,8 @@ tasks.register("bundleNeedle3Weights") {
       return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    val expectedSize = artifactSize.get().toLong()
-    val expectedSha = artifactSha.get()
+    val expectedSize = pinnedSize.get().toLong()
+    val expectedSha = pinnedSha.get()
 
     if (target.isFile && target.length() == expectedSize && sha256(target) == expectedSha) {
       logger.lifecycle(
@@ -407,9 +424,9 @@ tasks.register("bundleNeedle3Weights") {
 
     target.parentFile.mkdirs()
     val staging = File(target.parentFile, "needle3.cact.part")
-    logger.lifecycle("Downloading Needle 3 weights from ${artifactUrl.get()}")
+    logger.lifecycle("Downloading Needle 3 weights from ${pinnedUrl.get()}")
 
-    val connection = URI(artifactUrl.get()).toURL().openConnection().apply {
+    val connection = URI(pinnedUrl.get()).toURL().openConnection().apply {
       connectTimeout = 30_000
       readTimeout = 180_000
     }
@@ -435,6 +452,95 @@ tasks.register("bundleNeedle3Weights") {
       throw GradleException("Could not move the verified needle3.cact into src/main/assets.")
     }
     logger.lifecycle("Bundled Needle 3 weights: ${target.length()} bytes, sha-256 $actualSha")
+  }
+}
+
+/**
+ * Proves the assembled APK really carries the pinned checkpoint.
+ *
+ * The bundling task verifies the asset on disk, but packaging sits between that
+ * file and the APK: a resource configuration change, a renamed asset or a stale
+ * output could ship an APK without the weights while every earlier check still
+ * passed. This opens each built APK as a ZIP, streams the entry and compares its
+ * uncompressed size, compression method and SHA-256 with the same pinned values
+ * `bundleNeedle3Weights` uses.
+ *
+ * Ordering only (no dependsOn): it verifies whatever the build produced and must
+ * never assemble an APK silently, so a missing APK is a loud failure. The CI
+ * build job runs it explicitly after the APK step.
+ */
+tasks.register("verifyPackagedWeights") {
+  group = "verification"
+  description = "Verifies the built APK carries the pinned needle3.cact asset."
+
+  mustRunAfter("assembleDebug", "assembleRelease")
+
+  val apkRoot = layout.buildDirectory.dir("outputs/apk").get().asFile
+  // Resolved at configuration time: the task action then holds only values, which
+  // is what keeps it configuration-cache compatible.
+  val expectedSize = needle3ArtifactSize.get().toLong()
+  val expectedSha = needle3ArtifactSha.get()
+  val entryName = needle3Entry
+
+  doLast {
+
+    val apks = if (apkRoot.isDirectory) {
+      apkRoot.walkTopDown().filter { it.isFile && it.extension == "apk" }.toList()
+    } else {
+      emptyList()
+    }
+    if (apks.isEmpty()) {
+      throw GradleException(
+        "No APK found under ${apkRoot.path}. Assemble one first " +
+          "(./gradlew :app:assembleDebug) and run this task after it."
+      )
+    }
+
+    for (apk in apks) {
+      ZipFile(apk).use { zip ->
+        val entry = zip.getEntry(entryName)
+          ?: throw GradleException(
+            "${apk.name} does not contain $entryName, so the device would have to " +
+              "download the weights at runtime. Run ./gradlew :app:bundleNeedle3Weights " +
+              "before assembling."
+          )
+
+        if (entry.method != ZipEntry.STORED) {
+          throw GradleException(
+            "$entryName in ${apk.name} is compressed (method ${entry.method}); " +
+              "noCompress must cover .cact so the engine can map it in place."
+          )
+        }
+
+        if (entry.size != expectedSize) {
+          throw GradleException(
+            "$entryName in ${apk.name} is ${entry.size} bytes, expected " +
+              "$expectedSize, so the packaged weights are not the pinned artifact."
+          )
+        }
+
+        val digest = MessageDigest.getInstance("SHA-256")
+        zip.getInputStream(entry).use { input ->
+          val buffer = ByteArray(1 shl 16)
+          while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            digest.update(buffer, 0, read)
+          }
+        }
+        val actualSha = digest.digest().joinToString("") { "%02x".format(it) }
+        if (actualSha != expectedSha) {
+          throw GradleException(
+            "$entryName in ${apk.name} has sha-256 $actualSha, expected " +
+              "$expectedSha, so the APK does not carry the pinned weights."
+          )
+        }
+
+        logger.lifecycle(
+          "Verified ${apk.name}: $entryName, ${entry.size} bytes, sha-256 $actualSha"
+        )
+      }
+    }
   }
 }
 

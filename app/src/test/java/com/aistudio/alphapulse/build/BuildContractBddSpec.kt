@@ -273,6 +273,48 @@ class BuildContractBddSpec {
         )
     }
 
+    @Test
+    fun `given the build script when read then a packaged-weights task verifies the in-apk asset`() {
+        val marker = "tasks.register(\"verifyPackagedWeights\")"
+        val start = moduleBuild.indexOf(marker)
+        assertTrue("The verification task must be registered: $marker", start >= 0)
+        val block = moduleBuild.substring(start).substringBefore("\n}\n")
+
+        assertTrue(
+            "The task must be ordered after the APK is assembled: $block",
+            block.contains("mustRunAfter(\"assembleDebug\"")
+        )
+        assertTrue(
+            "It must look in the APK output directory: $block",
+            block.contains("outputs/apk")
+        )
+        assertTrue(
+            "It must read the entry the app mounts, not an unrelated file: $block",
+            block.contains("entryName = needle3Entry")
+        )
+        assertTrue(
+            "The entry name must be the packaged asset path",
+            moduleBuild.contains("val needle3Entry = \"assets/needle3.cact\"")
+        )
+        assertTrue(
+            "It must reuse the digest the bundling task pins: $block",
+            block.contains("needle3ArtifactSha")
+        )
+        assertFalse(
+            "A second hard-coded digest could disagree with the bundling task: $block",
+            Regex("[0-9a-f]{64}").containsMatchIn(block)
+        )
+
+        assertTrue(
+            "The build job must actually run it",
+            workflow.contains(":app:verifyPackagedWeights")
+        )
+        assertTrue(
+            "It must run after the APK is built, or it would check before packaging",
+            workflow.indexOf(":app:verifyPackagedWeights") > workflow.indexOf("Build APK Packages")
+        )
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** The `versionCodeOffset` the module build declares, as a number. */

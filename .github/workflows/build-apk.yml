@@ -569,6 +569,12 @@ jobs:
             esac
           done < <(find app/build/outputs/apk -type f -name "*.apk")
 
+      - name: Verify the packaged Needle 3 weights
+        # The pre-build task checked the asset on disk; this checks the APK a user
+        # actually downloads. It fails on a missing entry, a compressed entry
+        # (which cannot be mapped), a wrong size or a wrong digest.
+        run: ./gradlew :app:verifyPackagedWeights --console=plain
+
       - name: Upload debug APK (arm64-v8a)
         uses: actions/upload-artifact@v4
         with:
