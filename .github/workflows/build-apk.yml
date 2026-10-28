@@ -602,7 +602,12 @@ jobs:
     # !cancelled() is required so the job still evaluates when a needed job
     # failed or was skipped: instead of silently skipping the release, it runs
     # the guard below and fails with an explicit reason.
-    if: ${{ !cancelled() && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') }}
+    #
+    # Tags only. A branch push has no tag to publish, and
+    # softprops/action-gh-release then fails with "GitHub Releases requires a
+    # tag", which turned every ordinary push to main red after all of its gates
+    # had already passed. Branch pushes are still fully built and tested above.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') }}
 
     steps:
       # A tag may only publish artifacts whose tests passed AND whose two

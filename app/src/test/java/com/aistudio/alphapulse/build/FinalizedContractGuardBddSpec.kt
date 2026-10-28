@@ -166,6 +166,74 @@ class FinalizedContractGuardBddSpec {
         )
     }
 
+    // --------------------------------------------- contributor instructions
+
+    @Test
+    fun `given the contributor instructions when read then the pull request template and agent guide keep every required item`() {
+        val template = repoFile(".github/pull_request_template.md").readText()
+        for (required in listOf(
+            "BDD checklist",
+            "*BddSpec.kt",
+            "FINALIZED_CONTRACTS.md",
+            "./gradlew :app:testDebugUnitTest",
+            "scripts/check_integrity.py",
+            ":app:assembleDebug",
+            ":app:verifyPackagedWeights",
+            "weakened"
+        )) {
+            assertTrue(
+                "The pull request template lost the required item '$required'. Removing a " +
+                    "checklist item is how the BDD/CI discipline quietly disappears",
+                template.contains(required)
+            )
+        }
+
+        val agents = repoFile("AGENTS.md").readText()
+        for (required in listOf(
+            "BDD scenario first",
+            "FINALIZED_CONTRACTS.md",
+            ":app:testDebugUnitTest",
+            "check_integrity.py",
+            "guard spec"
+        )) {
+            assertTrue(
+                "AGENTS.md lost the required instruction '$required' - agents would have to " +
+                    "be reminded of the process again",
+                agents.contains(required)
+            )
+        }
+
+        assertTrue(
+            "README.md must point contributors and agents at AGENTS.md",
+            repoFile("README.md").readText().contains("AGENTS.md")
+        )
+        assertTrue(
+            "scripts/check_integrity.py must pin these files too, or CI cannot catch their loss",
+            repoFile("scripts/check_integrity.py").readText().contains("AGENTS.md")
+        )
+    }
+
+    // ----------------------------------------------------------- release gate
+
+    @Test
+    fun `given the workflow when read then the release job only publishes on a version tag`() {
+        val workflow = repoFile(".github/workflows/build-apk.yml").readText()
+        val start = workflow.indexOf("  release:")
+        assertTrue("The release job must exist", start >= 0)
+        val block = workflow.substring(start).substringBefore("  model-artifacts:")
+
+        assertTrue(
+            "The release job must be gated on a v* tag: $block",
+            block.contains("startsWith(github.ref, 'refs/tags/v')")
+        )
+        assertFalse(
+            "A branch push has no tag to publish, so action-gh-release fails with 'GitHub " +
+                "Releases requires a tag' and every main push turns red after its gates " +
+                "passed: $block",
+            block.contains("refs/heads/main")
+        )
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** Contract rows, in document order: `| C-xx | behaviour | guards | ... |`. */

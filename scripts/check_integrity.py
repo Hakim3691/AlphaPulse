@@ -23,6 +23,9 @@ What it checks
 7. The finalized-behaviour registry (FINALIZED_CONTRACTS.md) still exists, still
    lists its contracts, and every guard spec it names is present - so a decision
    cannot be reverted by deleting its row or its test.
+8. The contributor instructions (AGENTS.md and the pull request template) still
+   exist and still require the BDD scenario, the registry rows, the local gates
+   and an unweakened CI, so the process does not have to be restated by hand.
 
 Usage
 -----
@@ -262,6 +265,48 @@ def check_finalized_contracts() -> None:
             )
 
 
+# Items the contributor/agent instructions must keep. Removing one of these is how
+# the BDD-first, registry-checked, gate-verified process quietly disappears.
+CONTRIBUTOR_INSTRUCTIONS = {
+    ".github/pull_request_template.md": [
+        "BDD checklist",
+        "*BddSpec.kt",
+        "FINALIZED_CONTRACTS.md",
+        "./gradlew :app:testDebugUnitTest",
+        "scripts/check_integrity.py",
+        ":app:assembleDebug",
+        ":app:verifyPackagedWeights",
+        "weakened",
+    ],
+    "AGENTS.md": [
+        "BDD scenario first",
+        "FINALIZED_CONTRACTS.md",
+        ":app:testDebugUnitTest",
+        "check_integrity.py",
+        "guard spec",
+    ],
+}
+
+
+def check_contributor_instructions() -> None:
+    """The standing process must stay written down, not in someone's memory."""
+    for relative_path, required in CONTRIBUTOR_INSTRUCTIONS.items():
+        path = os.path.join(REPO_ROOT, relative_path)
+        if not os.path.isfile(path):
+            fail(
+                f"{relative_path} is missing - contributors and agents lose the standing "
+                "process; restore it rather than relying on being told again"
+            )
+            continue
+
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+
+        for item in required:
+            if item not in text:
+                fail(f"{relative_path} no longer contains the required item {item!r}")
+
+
 def main() -> int:
     use_staged = "--staged" in sys.argv
     paths = staged_files() if use_staged else walk_source_files()
@@ -272,6 +317,7 @@ def main() -> int:
     check_kotlin_files(paths)
     check_vendored_engine()
     check_finalized_contracts()
+    check_contributor_instructions()
     if not use_staged:
         check_traceability()
 

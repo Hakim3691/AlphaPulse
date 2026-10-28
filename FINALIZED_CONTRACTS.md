@@ -31,7 +31,11 @@ Allowed only as a deliberate decision, in a single commit, that:
 1. updates the guard spec's Given/When/Then scenarios to the new behaviour (red
    first, then green — never delete the scenario to make a build pass);
 2. updates the row below, including any pinned value it records;
-3. explains in the commit body **why** the earlier decision is being replaced.
+3. explains in the commit body **why** the earlier decision is being replaced;
+4. fills in the checklist in [`.github/pull_request_template.md`](.github/pull_request_template.md)
+   and follows [`AGENTS.md`](AGENTS.md), which restate this process for
+   contributors and coding agents. Both files are pinned by the guard spec and by
+   `scripts/check_integrity.py`, so deleting an item from them fails the build.
 
 Deleting a guard spec, weakening an assertion, or reverting a row without its
 scenario is a regression, and CI must fail on it.

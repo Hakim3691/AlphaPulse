@@ -10,6 +10,7 @@ AlphaPulse is a native Android institutional quantitative workstation that strea
 > - **Native Android Master PRD & Architecture**: [`AlphaPulse_Native_Android_PRD.md`](./AlphaPulse_Native_Android_PRD.md)
 > - **Spec Traceability Matrix** (every § of the Android spec mapped to code and tests): [`SPEC_TRACEABILITY.md`](./SPEC_TRACEABILITY.md)
 > - **Finalized Contracts** (decisions that are locked and guarded — read before changing routing, the model pipeline, the build or the ledger): [`FINALIZED_CONTRACTS.md`](./FINALIZED_CONTRACTS.md)
+> - **Contributor & Agent Instructions** (BDD first, local gates, CI/CD, tag releases): [`AGENTS.md`](./AGENTS.md)
 > - **HTML5 Baseline Implementations**: [`AlphaPulse_HTML5_IMPL_V14-3.md`](./AlphaPulse_HTML5_IMPL_V14-3.md), [`AlphaPulse_HTML5_IMPL_V14-2.md`](./AlphaPulse_HTML5_IMPL_V14-2.md), [`AlphaPulse_HTML5_IMPL_V14-0.md`](./AlphaPulse_HTML5_IMPL_V14-0.md)
 
 
