@@ -64,8 +64,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        /** Adds the per-coin, per-horizon 30-day calibration weights (§20). */
-        private val MIGRATION_5_6 = object : Migration(5, 6) {
+        /**
+         * Adds the per-coin, per-horizon 30-day calibration weights (§20).
+         *
+         * `internal` rather than `private` so `EnsembleWeightsMigrationBddSpec` can
+         * open a version-5 file with this exact object; a copy of the SQL in a test
+         * would prove nothing about the migration the app actually runs.
+         */
+        internal val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `ensemble_weights` (" +
