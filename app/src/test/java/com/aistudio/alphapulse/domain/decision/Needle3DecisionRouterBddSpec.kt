@@ -297,6 +297,38 @@ class Needle3DecisionRouterBddSpec {
         assertTrue(Needle3DecisionRouter.ROUTING_TOOLS_JSON.contains("\"required\": []"))
     }
 
+    // ------------------------------------------------------------ attribution
+
+    @Test
+    fun `given needle answered above the floor when routed then the verdict is attributed to needle`() {
+        val (router, _) = routerOn(answer("decide_long"))
+
+        router.router(bullish)
+
+        assertEquals(DecisionSource.NEEDLE3, router.decisionSource)
+    }
+
+    @Test
+    fun `given every refusal path when routed then the verdict is attributed to the deterministic rules`() {
+        // Attribution is what makes the audit ledger readable: a NO_TRADE from the
+        // rules must never be indistinguishable from one the model chose.
+        val refusals = listOf(
+            routerOn(answer("decide_long"), path = null),
+            routerOn(answer("decide_long"), engineLinked = false),
+            routerOn(answer("decide_long", 0.20)),
+            routerOn("not json at all")
+        )
+
+        refusals.forEach { (router, _) ->
+            router.router(bullish)
+            assertEquals(
+                "A refused route is the rules answering: ${router.lastReason}",
+                DecisionSource.DETERMINISTIC,
+                router.decisionSource
+            )
+        }
+    }
+
     // ------------------------------------------------------ shared engine session
 
     @Test

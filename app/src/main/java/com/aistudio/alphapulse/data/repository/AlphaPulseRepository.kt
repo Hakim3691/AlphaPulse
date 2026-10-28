@@ -2,6 +2,7 @@ package com.aistudio.alphapulse.data.repository
 
 import android.util.Log
 import com.aistudio.alphapulse.data.db.AppDatabase
+import com.aistudio.alphapulse.data.db.DecisionRecordEntity
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.db.ScreenedCoinEntity
 import com.aistudio.alphapulse.data.model.*
@@ -56,6 +57,15 @@ private const val DECISION_REFERENCE_HORIZON = "15m"
 
 /** How recent a settlement must be to inform the router's breach and error guards. */
 private const val DECISION_RECENT_WINDOW_MS = 5 * 60 * 1000L
+
+/**
+ * Newest recorded verdicts kept per symbol.
+ *
+ * The ledger is append-only and the engine evaluates every ten seconds around
+ * the clock, so unbounded history would grow without limit on a device meant to
+ * run for days. This retains roughly a day of routing decisions per asset.
+ */
+private const val DECISION_RECORD_RETENTION = 10_000
 
 class AlphaPulseRepository(
     private val client: ResilientBinanceClient,
@@ -955,8 +965,28 @@ class AlphaPulseRepository(
         val decision = DecisionReport(
             state = decisionRouter.router(decisionInputs),
             confidence = decisionRouter.decisionConfidence,
-            reason = decisionRouter.lastReason
+            reason = decisionRouter.lastReason,
+            source = decisionRouter.decisionSource
         )
+
+        // §21/§29: the verdict belongs in the audit ledger, not only on the screen.
+        // One row per evaluated snapshot, stamped with the same `now` the predictions
+        // issued by this cycle carry, so the export can attribute each row to the
+        // decision that produced it. Retention is bounded - see
+        // DECISION_RECORD_RETENTION - so a 24/7 device cannot grow this table forever.
+        database.decisionRecordDao().insert(
+            DecisionRecordEntity(
+                id = DecisionAuditJoin.idOf(symbol, now),
+                symbol = symbol,
+                issuedTimestamp = now,
+                state = decision.state.name,
+                confidence = decision.confidence,
+                source = decision.source.name,
+                referenceHorizon = DECISION_REFERENCE_HORIZON,
+                reason = decision.reason
+            )
+        )
+        database.decisionRecordDao().prune(symbol, DECISION_RECORD_RETENTION)
 
         AssetEvaluationResult(
             spotPrice = currentSpot,
@@ -1040,6 +1070,7 @@ class AlphaPulseRepository(
 
     suspend fun clearLedger() {
         database.predictionDao().clearAll()
+        database.decisionRecordDao().clearAll()
     }
 
     /**
@@ -1073,14 +1104,17 @@ class AlphaPulseRepository(
 
     suspend fun exportAuditLedgerCsv(): String = withContext(Dispatchers.IO) {
         val all = database.predictionDao().getAllPredictions()
+        // §29: each row is attributed to the verdict its evaluation cycle recorded.
+        val decisions = DecisionAuditJoin.indexOf(database.decisionRecordDao().getAllDecisionRecords())
         val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.US)
         val sb = StringBuilder()
-        sb.append("Prediction ID,Symbol,Horizon,Model Core,Issued Time,Target Time,Predicted Price,Realized Price,Error %,Cone Status,Learning Action\n")
+        sb.append("Prediction ID,Symbol,Horizon,Model Core,Model Provider,Issued Time,Target Time,Predicted Price,Realized Price,Error %,Cone Status,Learning Action,Decision,Decision Confidence,Decision Source,Decision Reason\n")
         for (item in all) {
             val realizedStr = if (item.settled && item.realizedPrice != null) Formatters.formatRawPrice5Dec(item.realizedPrice) else ""
             val errorStr = if (item.settled && item.errorPct != null) String.format(Locale.US, "%.2f", item.errorPct) else ""
             val coneStr = if (item.settled) (if (item.inCone == true) "HIT" else "BREACH") else "PENDING"
-            sb.append("\"${item.id}\",\"${item.symbol}\",\"${item.horizonLabel}\",\"${item.modelType}\",\"${item.modelProvider}\",\"${timeFmt.format(Date(item.issuedTimestamp))}\",\"${timeFmt.format(Date(item.targetTimestamp))}\",${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,\"$coneStr\",\"${item.learningAction}\"\n")
+            val decision = DecisionAuditJoin.lookup(decisions, item.symbol, item.issuedTimestamp)
+            sb.append("\"${item.id}\",\"${item.symbol}\",\"${item.horizonLabel}\",\"${item.modelType}\",\"${item.modelProvider}\",\"${timeFmt.format(Date(item.issuedTimestamp))}\",\"${timeFmt.format(Date(item.targetTimestamp))}\",${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,\"$coneStr\",\"${item.learningAction}\",${DecisionAuditJoin.csvCells(decision)}\n")
         }
         sb.toString()
     }
@@ -1089,6 +1123,7 @@ class AlphaPulseRepository(
     suspend fun exportPredictionLedgerJson(): String = withContext(Dispatchers.IO) {
         val all = database.predictionDao().getAllPredictions()
         val jsonArray = JSONArray()
+        val decisions = DecisionAuditJoin.indexOf(database.decisionRecordDao().getAllDecisionRecords())
         val timeFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         for (item in all) {
             val realizedStr = if (item.settled && item.realizedPrice != null) item.realizedPrice?.toString() else "null"
@@ -1107,6 +1142,14 @@ class AlphaPulseRepository(
             obj.put("coneStatus", coneStr)
             obj.put("learningAction", item.learningAction)
             obj.put("modelProvider", item.modelProvider)
+            val decision = DecisionAuditJoin.lookup(decisions, item.symbol, item.issuedTimestamp)
+            obj.put("decisionState", decision?.state ?: JSONObject.NULL)
+            obj.put(
+                "decisionConfidence",
+                if (decision != null && decision.confidence > 0.0) decision.confidence else JSONObject.NULL
+            )
+            obj.put("decisionSource", decision?.source ?: JSONObject.NULL)
+            obj.put("decisionReason", decision?.reason ?: JSONObject.NULL)
             jsonArray.put(obj)
         }
         return@withContext jsonArray.toString()
@@ -1116,15 +1159,19 @@ class AlphaPulseRepository(
     suspend fun exportPredictionLedgerParquet(): String = withContext(Dispatchers.IO) {
         val all = database.predictionDao().getAllPredictions()
         val lines = mutableListOf<String>()
+        val decisions = DecisionAuditJoin.indexOf(database.decisionRecordDao().getAllDecisionRecords())
         val timeFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         // Parquet header
-        lines.add("prediction_id,symbol,horizon,model_type,issued_timestamp,target_timestamp,predicted_price,realized_price,error_pct,cone_status,learning_action")
+        lines.add("prediction_id,symbol,horizon,model_type,issued_timestamp,target_timestamp,predicted_price,realized_price,error_pct,cone_status,learning_action,decision_state,decision_confidence,decision_source,decision_reason")
         for (item in all) {
             val realizedStr = if (item.settled && item.realizedPrice != null) Formatters.formatRawPrice5Dec(item.realizedPrice) else ""
             val errorStr = if (item.settled && item.errorPct != null) String.format(Locale.US, "%.2f", item.errorPct) else ""
             val coneStr = if (item.settled) (if (item.inCone == true) "HIT" else "BREACH") else "PENDING"
+            val decision = DecisionAuditJoin.lookup(decisions, item.symbol, item.issuedTimestamp)
             lines.add(
-                "${item.id},${item.symbol},${item.horizonLabel},${item.modelType},${item.modelProvider},${timeFmt.format(Date(item.issuedTimestamp))},${timeFmt.format(Date(item.targetTimestamp))},${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,$coneStr,${item.learningAction}"
+                "${item.id},${item.symbol},${item.horizonLabel},${item.modelType},${item.modelProvider},${timeFmt.format(Date(item.issuedTimestamp))},${timeFmt.format(Date(item.targetTimestamp))},${Formatters.formatRawPrice5Dec(item.predictedPrice)},$realizedStr,$errorStr,$coneStr,${item.learningAction}," +
+                    "${decision?.state ?: ""},${DecisionAuditJoin.confidenceCell(decision)}," +
+                    "${decision?.source ?: ""},${DecisionAuditJoin.singleLineReason(decision)}"
             )
         }
         return@withContext lines.joinToString("\n")

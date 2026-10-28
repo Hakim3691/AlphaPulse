@@ -58,6 +58,10 @@ class Needle3DecisionRouter(
     override var decisionConfidence: Double = 0.0
         private set
 
+    /** Attribution for the audit ledger: which router actually answered. */
+    override var decisionSource: DecisionSource = DecisionSource.DETERMINISTIC
+        private set
+
     /**
      * Route one snapshot, always returning one of the six states.
      *
@@ -149,6 +153,7 @@ class Needle3DecisionRouter(
         // the grammar-constrained call is still honoured, and saying so beats
         // pretending a calibrated number exists.
         decisionConfidence = (confidence ?: UNSCORED_CONFIDENCE).coerceIn(0.0, 1.0)
+        decisionSource = DecisionSource.NEEDLE3
         lastReason = buildString {
             append("Needle 3: ")
             append(toolName)
@@ -180,6 +185,7 @@ class Needle3DecisionRouter(
     private fun fallbackTo(inputs: DecisionInputs, reason: String): DecisionState {
         val state = fallback.router(inputs)
         decisionConfidence = fallback.decisionConfidence
+        decisionSource = fallback.decisionSource
         lastReason = "$reason Fallback: ${fallback.lastReason}"
         return state
     }

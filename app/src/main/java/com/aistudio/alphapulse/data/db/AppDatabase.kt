@@ -4,8 +4,8 @@ package com.aistudio.alphapulse.data.db
  * The on-device database: one Room database for all saved state.
  *
  * Predictions, screened coins, trade buffers, order-book deltas, liquidation
- * maps, volume profiles, the model registry and sessions all live here, so the
- * app still has history after a restart.
+ * maps, volume profiles, the model registry, recorded decisions and sessions all
+ * live here, so the app still has history after a restart.
  *
  * Spec Ref: §37 Room Database, §54 Session Recovery
  */
@@ -21,8 +21,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [PredictionEntity::class, ScreenedCoinEntity::class,
         TradeBufferEntity::class, OrderBookDeltaEntity::class,
         LiquidationHeatmapEntity::class, VolumeProfileSnapshotEntity::class,
-        ModelRegistryEntity::class, SessionEntity::class],
-    version = 4,
+        ModelRegistryEntity::class, SessionEntity::class, DecisionRecordEntity::class],
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,6 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun volumeProfileSnapshotDao(): VolumeProfileSnapshotDao
     abstract fun modelRegistryDao(): ModelRegistryDao
     abstract fun sessionDao(): SessionDao
+    abstract fun decisionRecordDao(): DecisionRecordDao
 
     companion object {
         @Volatile
@@ -47,13 +48,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the recorded §29 verdicts the audit export joins onto predictions. */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `decision_records` (" +
+                        "`id` TEXT NOT NULL, `symbol` TEXT NOT NULL, " +
+                        "`issuedTimestamp` INTEGER NOT NULL, `state` TEXT NOT NULL, " +
+                        "`confidence` REAL NOT NULL, `source` TEXT NOT NULL, " +
+                        "`referenceHorizon` TEXT NOT NULL, `reason` TEXT NOT NULL, " +
+                        "PRIMARY KEY(`id`))"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "alphapulse_db"
-                ).addMigrations(MIGRATION_3_4).fallbackToDestructiveMigration().build()
+                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5).fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }

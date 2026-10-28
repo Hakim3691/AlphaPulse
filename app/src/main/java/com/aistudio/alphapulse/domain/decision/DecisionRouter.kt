@@ -32,6 +32,21 @@ enum class DecisionState {
     NO_TRADE
 }
 
+/**
+ * Which router actually produced a verdict.
+ *
+ * Recorded with every decision so the §21 audit ledger can attribute a route to
+ * the on-device model or to the rules that back it up. Callers must not branch on
+ * it: §29 keeps the router replaceable, and this is an observation, not a switch.
+ */
+enum class DecisionSource {
+    /** Cactus Needle 3 answered on device. */
+    NEEDLE3,
+
+    /** The deterministic rules answered, by choice or as the fallback. */
+    DETERMINISTIC
+}
+
 /** DecisionInputs - The structured inputs the DecisionRouter evaluates. */
 data class DecisionInputs(
     val triFactorForecast: Double, // Kinematic forecast in % (positive = bullish)
@@ -56,7 +71,9 @@ data class DecisionReport(
     val state: DecisionState,
     /** Calibrated confidence [0,1], or 0.0 when the router has no calibrated number. */
     val confidence: Double,
-    val reason: String
+    val reason: String,
+    /** Which router answered; carried into the audit ledger, never used to gate. */
+    val source: DecisionSource = DecisionSource.DETERMINISTIC
 ) {
     /** True when [confidence] is a calibrated probability rather than an absence of one. */
     val isCalibrated: Boolean get() = confidence > 0.0
@@ -126,6 +143,16 @@ interface DecisionRouter {
 
     /** Get the confidence level associated with the returned state. */
     val decisionConfidence: Double
+
+    /**
+     * Which implementation produced the last verdict.
+     *
+     * Defaulted rather than abstract so a swap stays a one-line change for callers
+     * and existing implementations keep compiling; §29 forbids any caller from
+     * changing behaviour based on it.
+     */
+    val decisionSource: DecisionSource
+        get() = DecisionSource.DETERMINISTIC
 }
 
 /** DeterministicDecisionRouter - Rule-based router without neural dependencies.

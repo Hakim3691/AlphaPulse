@@ -69,6 +69,9 @@ AlphaPulse is engineered to bring desktop-grade quantitative research, order-boo
   - Mounted Chronos-Bolt and TimesFM artifacts now execute on-device through ONNX Runtime; each mounted model contributes its own median forecast and quantile bands to the ensemble instead of a drift term synthesised from market-state heuristics.
   - Sessions open when a model is mounted and close when it is unmounted; a model whose artifact is missing or fails to load is omitted from the ensemble rather than replaced by a synthetic signal.
   - APKs are split per ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`) because the native inference runtime is ~25-40 MB per architecture.
+- **Auditable Decision Ledger**:
+  - Every evaluation now records its §29 verdict — state, calibrated confidence, which router answered (Needle 3 or the deterministic rules) and the router's own reason — in the Room database, pruned to the newest 10,000 verdicts per symbol.
+  - The prediction audit exports (CSV, JSON, line-per-record) attribute each row to the verdict recorded in its cycle; an uncalibrated verdict reads `UNSCORED` instead of a misleading `0.00`, and a cycle with no recorded verdict leaves the decision columns empty rather than borrowing another symbol's route.
 
 ---
 

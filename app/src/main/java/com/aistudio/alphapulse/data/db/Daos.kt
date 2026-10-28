@@ -160,3 +160,28 @@ interface SessionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun updateSession(session: SessionEntity)
 }
+
+@Dao
+interface DecisionRecordDao {
+    @Query("SELECT * FROM decision_records ORDER BY issuedTimestamp DESC")
+    suspend fun getAllDecisionRecords(): List<DecisionRecordEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(record: DecisionRecordEntity)
+
+    /**
+     * Keep only the newest [keep] verdicts for one symbol.
+     *
+     * The engine evaluates every ten seconds around the clock, so an append-only
+     * table would grow without bound on a device expected to run for days.
+     */
+    @Query(
+        "DELETE FROM decision_records WHERE symbol = :symbol AND id NOT IN " +
+            "(SELECT id FROM decision_records WHERE symbol = :symbol " +
+            "ORDER BY issuedTimestamp DESC LIMIT :keep)"
+    )
+    suspend fun prune(symbol: String, keep: Int)
+
+    @Query("DELETE FROM decision_records")
+    suspend fun clearAll()
+}

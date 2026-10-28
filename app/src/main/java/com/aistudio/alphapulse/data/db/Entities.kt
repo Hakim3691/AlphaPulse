@@ -165,4 +165,37 @@ data class EnsembleWeightsEntity(
     val modelVersion: String = ""
 )
 
+/*** One routed decision per evaluated snapshot (§21 audit ledger, §29 router) ***/
+
+/**
+ * The verdict a single evaluation produced, stored so the audit export can
+ * attribute every prediction to it.
+ *
+ * A verdict is produced once per cycle while predictions are issued per horizon,
+ * so this is its own table rather than extra columns on `predictions`: one
+ * snapshot carries exactly one decision, and a cycle that issued no prediction
+ * (all horizons still inside their throttle window) still produced a verdict
+ * that must be auditable.
+ *
+ * State and source are stored as the enum constant names, so a reader can map
+ * them back without depending on ordinal positions.
+ */
+@Entity(tableName = "decision_records")
+data class DecisionRecordEntity(
+    @PrimaryKey val id: String,
+    val symbol: String,
+    /** The same instant the predictions issued in this cycle were stamped with. */
+    val issuedTimestamp: Long,
+    /** `DecisionState` constant name, e.g. `STRONG_LONG`. */
+    val state: String,
+    /** Calibrated confidence, or 0.0 when the router had no calibrated number. */
+    val confidence: Double,
+    /** `DecisionSource` constant name: which router actually answered. */
+    val source: String,
+    /** Horizon whose ensemble legs the router scored. */
+    val referenceHorizon: String,
+    /** The router's own reason, recorded verbatim (§29 forbids an unrecorded override). */
+    val reason: String
+)
+
 /*** Remaining entities ***/
