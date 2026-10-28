@@ -133,6 +133,20 @@ jobs:
               -dname "CN=Alpha Pulse, OU=Engineering, O=Alpha Pulse, L=Mountain View, ST=CA, C=US"
           fi
 
+      - name: Restore the bundled Needle 3 weights
+        # The asset-presence spec hashes the real checkpoint, so this job must
+        # produce it too. Cached under the pinned artifact digest, so the 35 MB
+        # download happens once instead of once per matrix leg.
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/needle3.cact
+          key: needle3-weights-c9d915ec-v1
+
+      - name: Bundle the Needle 3 weights for the asset-presence spec
+        # Same task the build job runs, so the test job verifies the exact bytes
+        # that will be packaged rather than a cached copy of something else.
+        run: ./gradlew :app:bundleNeedle3Weights --console=plain
+
       - name: Execute Unit & Robolectric Tests
         run: |
           echo "Running unit & Robolectric tests (API Level: ${{ matrix.api-level }})..."

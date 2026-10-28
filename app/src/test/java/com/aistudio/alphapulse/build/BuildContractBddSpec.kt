@@ -148,12 +148,15 @@ class BuildContractBddSpec {
 
     @Test
     fun `given the workflow when read then signing uses a stable keystore and not a freshly generated key`() {
+        // Scope the check to the signing step: another cache (the bundled weights)
+        // legitimately appears earlier in the file and must not be mistaken for it.
+        val signingStep = stepBlock("Restore the signing keystores")
         assertTrue(
-            "Signing must be cache-backed so every run restores the same certificate",
-            workflow.contains("actions/cache@v4")
+            "Signing must be cache-backed so every run restores the same certificate: $signingStep",
+            signingStep.contains("actions/cache@v4")
         )
 
-        val cacheKey = workflow.lines()
+        val cacheKey = signingStep.lines()
             .firstOrNull { it.trim().startsWith("key:") }
             ?.trim()
             ?: failWith("The keystore cache has no key")
@@ -238,6 +241,35 @@ class BuildContractBddSpec {
         assertTrue(
             "The bundle step must run before the APK step",
             workflow.indexOf("Pre-bundle the Needle 3 weights") < workflow.indexOf("Build APK Packages")
+        )
+    }
+
+    @Test
+    fun `given the workflow when read then the test job produces the weights before running the suite`() {
+        val marker = "Bundle the Needle 3 weights for the asset-presence spec"
+        val bundleIndex = workflow.indexOf(marker)
+        assertTrue(
+            "The asset-presence spec hashes the real checkpoint, so the test job must " +
+                "bundle it too; no step named '$marker' was found",
+            bundleIndex >= 0
+        )
+
+        val suiteIndex = workflow.indexOf("Execute Unit & Robolectric Tests")
+        assertTrue("The suite step must exist", suiteIndex >= 0)
+        assertTrue(
+            "The weights must exist before the suite runs, or the presence check is " +
+                "skipped on every CI run",
+            bundleIndex < suiteIndex
+        )
+
+        val testJobSlice = workflow.substring(bundleIndex, suiteIndex)
+        assertTrue(
+            "The test job must call the same task the build job does: $testJobSlice",
+            testJobSlice.contains(":app:bundleNeedle3Weights")
+        )
+        assertTrue(
+            "The 35 MB asset must be cached, or each matrix leg downloads it again",
+            workflow.contains("needle3-weights-")
         )
     }
 
