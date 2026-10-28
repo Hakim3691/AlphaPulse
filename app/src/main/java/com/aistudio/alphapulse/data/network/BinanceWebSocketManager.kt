@@ -60,7 +60,11 @@ data class LocalLiquidationTelemetry(
     val lastUpdateTimestamp: Long
 )
 
-class BinanceWebSocketManager(
+/**
+ * Open so the §52 evaluation spec can evaluate without opening a socket.
+ * Only [startStreaming] is open; no behaviour changed.
+ */
+open class BinanceWebSocketManager(
     private val database: com.aistudio.alphapulse.data.db.AppDatabase? = null
 ) {
 
@@ -108,7 +112,7 @@ class BinanceWebSocketManager(
     private var latestSpotPrice = 0.0
     private var isClosed = false
 
-    fun startStreaming(symbol: String) {
+    open fun startStreaming(symbol: String) {
         if (symbol.isBlank() || (symbol == activeSymbol && currentWebSocket != null)) {
             return
         }

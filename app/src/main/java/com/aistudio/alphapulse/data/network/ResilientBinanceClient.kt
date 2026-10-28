@@ -22,7 +22,12 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-class ResilientBinanceClient {
+/**
+ * Open so the §52 evaluation spec can substitute exchange fixtures for the network.
+ *
+ * Only the members the evaluation path reads are open; no behaviour changed.
+ */
+open class ResilientBinanceClient {
 
     companion object {
         private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
@@ -159,12 +164,12 @@ class ResilientBinanceClient {
         throw lastException ?: IOException("All endpoints unreachable for path: $path")
     }
 
-    suspend fun getJsonArray(path: String): JSONArray = withContext(Dispatchers.IO) {
+    open suspend fun getJsonArray(path: String): JSONArray = withContext(Dispatchers.IO) {
         val str = getJsonString(path)
         JSONArray(str)
     }
 
-    suspend fun getJsonObject(path: String): JSONObject = withContext(Dispatchers.IO) {
+    open suspend fun getJsonObject(path: String): JSONObject = withContext(Dispatchers.IO) {
         val str = getJsonString(path)
         JSONObject(str)
     }
@@ -219,7 +224,7 @@ class ResilientBinanceClient {
     @Volatile private var heatmapCooldownUntil = 0L
     private val heatmapCooldownMs = 5 * 60 * 1000L
 
-    suspend fun fetchLiquidityHeatmap(symbol: String, spotPrice: Double): Pair<Double, Double>? = withContext(Dispatchers.IO) {
+    open suspend fun fetchLiquidityHeatmap(symbol: String, spotPrice: Double): Pair<Double, Double>? = withContext(Dispatchers.IO) {
         // Health bit: skip calls for 5 minutes after repeated consecutive failures
         if (heatmapCooldownUntil > System.currentTimeMillis()) {
             return@withContext null
@@ -314,7 +319,7 @@ class ResilientBinanceClient {
         return Pair(muPath, spreadSkew)
     }
 
-    suspend fun fetchDepth(symbol: String, limit: Int = 50): DepthSnapshot = withContext(Dispatchers.IO) {
+    open suspend fun fetchDepth(symbol: String, limit: Int = 50): DepthSnapshot = withContext(Dispatchers.IO) {
         val json = getJsonObject("/fapi/v1/depth?symbol=$symbol&limit=$limit")
         val bidsArr = json.optJSONArray("bids") ?: JSONArray()
         val asksArr = json.optJSONArray("asks") ?: JSONArray()
@@ -334,7 +339,7 @@ class ResilientBinanceClient {
         DepthSnapshot(bids = bids, asks = asks)
     }
 
-    suspend fun fetchAggTrades(symbol: String, limit: Int = 500): List<Double> = withContext(Dispatchers.IO) {
+    open suspend fun fetchAggTrades(symbol: String, limit: Int = 500): List<Double> = withContext(Dispatchers.IO) {
         val arr = getJsonArray("/fapi/v1/aggTrades?symbol=$symbol&limit=$limit")
         val notionals = mutableListOf<Double>()
         for (i in 0 until arr.length()) {
