@@ -72,6 +72,7 @@ AlphaPulse is engineered to bring desktop-grade quantitative research, order-boo
 - **Auditable Decision Ledger**:
   - Every evaluation now records its §29 verdict — state, calibrated confidence, which router answered (Needle 3 or the deterministic rules) and the router's own reason — in the Room database, pruned to the newest 10,000 verdicts per symbol.
   - The prediction audit exports (CSV, JSON, line-per-record) attribute each row to the verdict recorded in its cycle; an uncalibrated verdict reads `UNSCORED` instead of a misleading `0.00`, and a cycle with no recorded verdict leaves the decision columns empty rather than borrowing another symbol's route.
+  - The ledger shows the newest five verdicts for the selected asset — time, state, confidence, answering router and reason — read from the same table the export joins on, so the log on screen and a CSV row always agree.
 
 ---
 

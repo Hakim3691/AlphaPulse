@@ -3,6 +3,7 @@ package com.aistudio.alphapulse.data.db
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -108,6 +109,18 @@ class DecisionRecordDaoBddSpec {
             "The oldest verdicts must be the ones dropped: $kept",
             !kept.contains(timestamps.first())
         )
+    }
+
+    @Test
+    fun `given several verdicts for one symbol when its history is read then it is newest first and respects the limit`() = runBlocking {
+        (0 until 3).forEach { offset -> dao.insert(record(issuedTimestamp = issued + offset * 10_000L)) }
+        dao.insert(record(symbol = "ETHUSDT", issuedTimestamp = issued + 99_000L, state = "SHORT"))
+
+        val history = dao.getDecisionHistoryFlow("BTCUSDT", limit = 2).first()
+
+        assertEquals(2, history.size)
+        assertEquals(issued + 20_000L, history.first().issuedTimestamp)
+        assertTrue("Another asset's log must not leak in: $history", history.all { it.symbol == "BTCUSDT" })
     }
 
     @Test

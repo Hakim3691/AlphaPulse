@@ -67,6 +67,9 @@ private const val DECISION_RECENT_WINDOW_MS = 5 * 60 * 1000L
  */
 private const val DECISION_RECORD_RETENTION = 10_000
 
+/** Verdicts the on-screen decision log holds; the ledger itself keeps far more. */
+private const val DECISION_HISTORY_LIMIT = 50
+
 class AlphaPulseRepository(
     private val client: ResilientBinanceClient,
     private val database: AppDatabase,
@@ -77,6 +80,18 @@ class AlphaPulseRepository(
     val allPredictionsFlow: Flow<List<PredictionEntity>> = database.predictionDao().getAllPredictionsFlow()
     fun getPredictionsBySymbolFlow(symbol: String): Flow<List<PredictionEntity>> =
         database.predictionDao().getPredictionsBySymbolFlow(symbol)
+
+    /**
+     * The newest recorded §29 verdicts for one symbol, newest first.
+     *
+     * The screen's decision log and the audit export read the same table, so the
+     * history a user sees is the history a CSV row is attributed to.
+     */
+    fun getDecisionHistoryFlow(
+        symbol: String,
+        limit: Int = DECISION_HISTORY_LIMIT
+    ): Flow<List<DecisionRecordEntity>> =
+        database.decisionRecordDao().getDecisionHistoryFlow(symbol, limit)
 
     /** Open/close ONNX sessions to match the models currently mounted in the dock. */
     suspend fun syncMountedTsfmModels(modelIds: List<String>) =

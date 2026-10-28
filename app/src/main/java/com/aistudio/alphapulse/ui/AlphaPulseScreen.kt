@@ -130,7 +130,8 @@ fun AlphaPulseScreen(
                     onFilterChange = { viewModel.setHorizonFilter(it) },
                     onClearClick = { viewModel.clearLedger() },
                     onExportClick = { viewModel.exportAndShareAuditCsv() },
-                    onExportUniverseClick = { viewModel.export4TabUniverseCsv() }
+                    onExportUniverseClick = { viewModel.export4TabUniverseCsv() },
+                    decisionHistory = uiState.decisionHistory
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))

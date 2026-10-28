@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aistudio.alphapulse.data.db.DecisionRecordEntity
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.ui.theme.*
 import com.aistudio.alphapulse.core.Formatters
@@ -48,7 +49,9 @@ fun PredictionLedgerSection(
     onFilterChange: (String) -> Unit,
     onClearClick: () -> Unit,
     onExportClick: () -> Unit,
-    onExportUniverseClick: () -> Unit = {}
+    onExportUniverseClick: () -> Unit = {},
+    /** Recorded §29 verdicts for the selected asset, newest first (§21). */
+    decisionHistory: List<DecisionRecordEntity> = emptyList()
 ) {
     val pendingCount = predictions.count { !it.settled }
     val settledCount = predictions.count { it.settled }
@@ -264,6 +267,13 @@ fun PredictionLedgerSection(
                 }
             }
         }
+
+        HorizontalDivider(color = BrandBorder.copy(alpha = 0.6f))
+
+        // What the engine concluded before the current frame. The verdicts are per
+        // snapshot, not per horizon, so they are shown above the horizon filter's
+        // table rather than inside it.
+        DecisionHistorySection(history = decisionHistory)
 
         HorizontalDivider(color = BrandBorder.copy(alpha = 0.6f))
 

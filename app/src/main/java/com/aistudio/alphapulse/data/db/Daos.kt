@@ -166,6 +166,13 @@ interface DecisionRecordDao {
     @Query("SELECT * FROM decision_records ORDER BY issuedTimestamp DESC")
     suspend fun getAllDecisionRecords(): List<DecisionRecordEntity>
 
+    /** The newest verdicts for one symbol, newest first, for the on-screen log. */
+    @Query(
+        "SELECT * FROM decision_records WHERE symbol = :symbol " +
+            "ORDER BY issuedTimestamp DESC LIMIT :limit"
+    )
+    fun getDecisionHistoryFlow(symbol: String, limit: Int): Flow<List<DecisionRecordEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: DecisionRecordEntity)
 

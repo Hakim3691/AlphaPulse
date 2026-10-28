@@ -14,6 +14,7 @@ import android.content.Intent
 import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.aistudio.alphapulse.data.db.DecisionRecordEntity
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.model.ChartPoint
 import com.aistudio.alphapulse.data.model.ForecastTarget
@@ -35,6 +36,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -75,6 +79,14 @@ data class AlphaPulseUiState(
 
     /** §29 verdict for the selected asset: null until the first evaluation completes. */
     val decision: DecisionReport? = null,
+
+    /**
+     * The newest recorded §29 verdicts for the selected asset, newest first.
+     *
+     * Read from the same table the audit export joins on, so the log on screen and
+     * a CSV row attribute their decision to the same record.
+     */
+    val decisionHistory: List<DecisionRecordEntity> = emptyList(),
     val sessionElapsedSeconds: Long = 0L,
     val isLTFReady: Boolean = false,
     val isMTFReady: Boolean = false,
@@ -129,6 +141,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         }
         startSessionTimer()
         observePredictions()
+        observeDecisionHistory()
         observeWebSocketTelemetry()
         bootPipeline()
     }
@@ -272,6 +285,30 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * §21/§29: follow the selected asset's recorded verdicts.
+     *
+     * A new symbol cancels the previous query rather than mixing two histories, and
+     * a new evaluation re-emits on its own because the DAO is a Flow over the table
+     * the repository writes.
+     */
+    private fun observeDecisionHistory() {
+        viewModelScope.launch {
+            uiState
+                .map { it.selectedSymbol }
+                .distinctUntilChanged()
+                .collectLatest { symbol ->
+                    if (symbol.isBlank()) {
+                        _uiState.update { it.copy(decisionHistory = emptyList()) }
+                        return@collectLatest
+                    }
+                    repository.getDecisionHistoryFlow(symbol).collect { records ->
+                        _uiState.update { it.copy(decisionHistory = records) }
+                    }
+                }
         }
     }
 
