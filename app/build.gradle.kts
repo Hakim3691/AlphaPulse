@@ -1,4 +1,6 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
+import java.net.URI
+import java.security.MessageDigest
 
 plugins {
   alias(libs.plugins.android.application)
@@ -10,6 +12,16 @@ plugins {
   id("jacoco")
 }
 
+/**
+ * Baseline the CI run number is added to for `versionCode`.
+ *
+ * The number must only ever rise, because Android refuses to install an APK whose
+ * versionCode is lower than the installed one (`INSTALL_FAILED_VERSION_DOWNGRADE`).
+ * Adding a stable offset keeps every future CI build above the APKs published
+ * before the offset existed, while `GITHUB_RUN_NUMBER` supplies the increment.
+ */
+val versionCodeOffset = 10_000
+
 android {
   namespace = "com.aistudio.alphapulse"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -19,9 +31,14 @@ android {
     minSdk = 24
     targetSdk = 36
 
-    // Release stamping: CI supplies BUILD_NUMBER (GitHub run_number) and GIT_SHA so every
-    // produced APK is uniquely versioned and traceable to its exact commit.
-    versionCode = System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 1
+    // Release stamping: CI supplies BUILD_NUMBER (GitHub run_number, which only grows)
+    // and GIT_SHA, so every produced APK is uniquely versioned and traceable to its
+    // exact commit. versionCode must also rise monotonically for the package
+    // installer to treat a new APK as an update, which the offset guarantees;
+    // VERSION_CODE is an explicit override for a one-off rollback.
+    val buildNumber = System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 0
+    versionCode = System.getenv("VERSION_CODE")?.toIntOrNull()
+      ?: (versionCodeOffset + buildNumber)
     val buildSha = System.getenv("GIT_SHA") ?: "dev"
     versionName = "1.0.$versionCode+$buildSha"
 
@@ -37,9 +54,11 @@ android {
         // c++_static keeps the C++ runtime inside our one shared library, so the
         // APK does not also have to ship libc++_shared.so.
         arguments += listOf("-DANDROID_STL=c++_static")
-        // Exactly the ABIs the APK splits below ship. The engine exists for the
-        // two arm ABIs; x86_64 compiles the documented refusal path.
-        abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        // Exactly the ABI the APK split below ships. arm64-v8a is the only target:
+        // every supported phone is 64-bit arm, Cactus publishes no 32-bit or x86
+        // engine, and dropping the others halves the artifact size and the build
+        // time without losing a supported device.
+        abiFilters += listOf("arm64-v8a")
       }
     }
   }
@@ -86,15 +105,15 @@ android {
       signingConfig = signingConfigs.getByName("debugConfig")
     }
   }
-  // ONNX Runtime bundles ~50 MB of native inference libraries per architecture.
-  // Shipping one fat APK would force every device to download all three, so emit
-  // per-ABI APKs (arm64 phones, legacy 32-bit arm, x86_64 emulators). The universal
-  // APK is intentionally disabled; Play delivery uses the AAB, which splits natively.
+  // ONNX Runtime and the Cactus engine bundle native libraries per architecture.
+  // Only arm64-v8a is shipped, so a single per-ABI APK is emitted and no universal
+  // APK is built: one artifact, no wasted bandwidth, and a name the CI workflow can
+  // upload on its own (`app-arm64-v8a-{debug,release}.apk`).
   splits {
     abi {
       isEnable = true
       reset()
-      include("arm64-v8a", "armeabi-v7a", "x86_64")
+      include("arm64-v8a")
       isUniversalApk = false
     }
   }
@@ -108,6 +127,12 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+  androidResources {
+    // Needle 3 weights (.cact) and the TSFM graphs (.onnx) are already-compressed
+    // model binaries. Deflating them only costs build time and blocks the engine
+    // from mapping the checkpoint, so they are stored uncompressed in the APK.
+    noCompress += listOf("cact", "onnx", "bin")
+  }
   lint {
     checkReleaseBuilds = false
     abortOnError = false
@@ -320,5 +345,101 @@ tasks.register<JacocoCoverageVerification>("jacocoCoverageGate") {
         minimum = (System.getenv("JACOCO_MIN_LINE_COVERAGE") ?: "0.67").toBigDecimal()
       }
     }
+  }
+}
+
+/**
+ * Downloads the pinned Cactus Needle 3 checkpoint into the APK's assets.
+ *
+ * The artifact is static and published, so it is fetched at build time rather than
+ * at runtime: the APK then ships the weights and no device has to download 35 MB
+ * before the model can route anything. Size and SHA-256 are the same values
+ * `ModelArtifacts.NEEDLE3` pins at runtime (`ModelArtifactSourceContractTest`
+ * verifies them against the published file), so a build cannot package bytes the
+ * app would later reject.
+ *
+ * Idempotent: a bundled file that already matches is left alone. Run it as
+ * `./gradlew :app:bundleNeedle3Weights`; setting `BUNDLE_NEEDLE3=true` also hooks
+ * it into `preBuild` for local release builds.
+ */
+tasks.register("bundleNeedle3Weights") {
+  group = "build"
+  description = "Downloads and verifies needle3.cact into src/main/assets for packaging."
+
+  val target = layout.projectDirectory.file("src/main/assets/needle3.cact").asFile
+  val artifactUrl = providers.gradleProperty("needle3Url")
+    .orElse(providers.environmentVariable("NEEDLE3_URL"))
+    .orElse("https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3.cact")
+  val artifactSize = providers.gradleProperty("needle3SizeBytes")
+    .orElse(providers.environmentVariable("NEEDLE3_SIZE_BYTES"))
+    .orElse("35335380")
+  val artifactSha = providers.gradleProperty("needle3Sha256")
+    .orElse(providers.environmentVariable("NEEDLE3_SHA256"))
+    .orElse("c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38")
+
+  outputs.file(target)
+  // The digest check is cheap once the file is present, so always re-verify.
+  outputs.upToDateWhen { false }
+
+  doLast {
+    fun sha256(file: File): String {
+      val digest = MessageDigest.getInstance("SHA-256")
+      file.inputStream().use { input ->
+        val buffer = ByteArray(1 shl 16)
+        while (true) {
+          val read = input.read(buffer)
+          if (read <= 0) break
+          digest.update(buffer, 0, read)
+        }
+      }
+      return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    val expectedSize = artifactSize.get().toLong()
+    val expectedSha = artifactSha.get()
+
+    if (target.isFile && target.length() == expectedSize && sha256(target) == expectedSha) {
+      logger.lifecycle(
+        "Needle 3 weights already bundled: ${target.length()} bytes, sha-256 $expectedSha"
+      )
+      return@doLast
+    }
+
+    target.parentFile.mkdirs()
+    val staging = File(target.parentFile, "needle3.cact.part")
+    logger.lifecycle("Downloading Needle 3 weights from ${artifactUrl.get()}")
+
+    val connection = URI(artifactUrl.get()).toURL().openConnection().apply {
+      connectTimeout = 30_000
+      readTimeout = 180_000
+    }
+    connection.getInputStream().use { input ->
+      staging.outputStream().use { output -> input.copyTo(output) }
+    }
+
+    val actualSize = staging.length()
+    val actualSha = sha256(staging)
+    if (actualSize != expectedSize || actualSha != expectedSha) {
+      staging.delete()
+      throw GradleException(
+        "Needle 3 artifact failed verification: $actualSize bytes, sha-256 $actualSha " +
+          "(expected $expectedSize bytes, sha-256 $expectedSha)."
+      )
+    }
+
+    if (target.exists() && !target.delete()) {
+      staging.delete()
+      throw GradleException("Could not replace the existing needle3.cact asset.")
+    }
+    if (!staging.renameTo(target)) {
+      throw GradleException("Could not move the verified needle3.cact into src/main/assets.")
+    }
+    logger.lifecycle("Bundled Needle 3 weights: ${target.length()} bytes, sha-256 $actualSha")
+  }
+}
+
+if ((System.getenv("BUNDLE_NEEDLE3") ?: "false").equals("true", ignoreCase = true)) {
+  tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn("bundleNeedle3Weights")
   }
 }

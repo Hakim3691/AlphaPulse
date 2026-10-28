@@ -192,3 +192,33 @@ interface DecisionRecordDao {
     @Query("DELETE FROM decision_records")
     suspend fun clearAll()
 }
+
+/**
+ * The 30-day calibration weights, one row per asset and horizon (§20).
+ *
+ * `compositeKey` is `symbol#horizon`, so a recalibration replaces the previous
+ * row for that asset instead of appending a second, contradictory one.
+ */
+@Dao
+interface EnsembleWeightsDao {
+    @Query("SELECT * FROM ensemble_weights WHERE symbol = :symbol ORDER BY horizonId ASC")
+    suspend fun getForSymbol(symbol: String): List<EnsembleWeightsEntity>
+
+    @Query("SELECT * FROM ensemble_weights WHERE symbol = :symbol ORDER BY horizonId ASC")
+    fun getForSymbolFlow(symbol: String): Flow<List<EnsembleWeightsEntity>>
+
+    @Query("SELECT * FROM ensemble_weights WHERE compositeKey = :key")
+    suspend fun get(key: String): EnsembleWeightsEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(weights: EnsembleWeightsEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(weights: List<EnsembleWeightsEntity>)
+
+    @Query("DELETE FROM ensemble_weights WHERE symbol = :symbol")
+    suspend fun clearBySymbol(symbol: String)
+
+    @Query("DELETE FROM ensemble_weights")
+    suspend fun clearAll()
+}

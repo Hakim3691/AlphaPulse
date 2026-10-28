@@ -44,6 +44,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 
+/** Horizon whose calibrated weights feed the live ensemble (the §29 reference horizon). */
+private const val CALIBRATION_REFERENCE_HORIZON = "15m"
+
 data class AlphaPulseUiState(
     val pipelineRunning: Boolean = true,
     val pipelineStepTitle: String = "Step 1: Institutional 4-Filter Screen",
@@ -120,6 +123,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
     private var sessionTimerJob: Job? = null
     private var assetCycleJob: Job? = null
     private var countdownJob: Job? = null
+    private var calibrationJob: Job? = null
     private val sessionStartTimestamp = System.currentTimeMillis()
 
     init {
@@ -199,6 +203,12 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                                 "${EnsembleWeighting.activeModelCount(mounted)} models"
                         )
                     }
+
+                    // Mounting changes the candidate set, so the active asset is
+                    // calibrated again rather than keeping a split that predates
+                    // the new model.
+                    val active = _uiState.value.selectedSymbol
+                    if (active.isNotBlank()) calibrateSelectedCoin(active)
                 }
                 previouslyReady = readyIds.toSet()
             }
@@ -331,6 +341,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 }
                 repository.wsManager.connect(firstCoin.symbol)
                 startAssetCycle()
+                calibrateSelectedCoin(firstCoin.symbol)
             }
 
             _uiState.update {
@@ -398,6 +409,38 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         }
         repository.wsManager.connect(symbol)
         startAssetCycle()
+        calibrateSelectedCoin(symbol)
+    }
+
+    /**
+     * Start the §20 30-day calibration for the selected asset.
+     *
+     * Runs off the evaluation cycle: the loop must not wait for a month of
+     * history to be fetched. When it finishes, the reference-horizon weights are
+     * applied to the live state, so the ensemble immediately trades this coin's
+     * measured split instead of the generic mount split. A selection that changes
+     * mid-run cancels the old calibration rather than letting it overwrite the
+     * new coin's weights.
+     */
+    private fun calibrateSelectedCoin(symbol: String) {
+        calibrationJob?.cancel()
+        val ready = ModelDownloadStore.readyModelIds()
+        if (EnsembleWeighting.mountedExtraIds(ready).isEmpty()) return
+
+        calibrationJob = viewModelScope.launch {
+            val report = runCatching { repository.calibrateCoin(symbol, ready) }.getOrNull()
+                ?: return@launch
+            if (_uiState.value.selectedSymbol != symbol) return@launch
+
+            val calibrated = report.weightsFor(CALIBRATION_REFERENCE_HORIZON) ?: return@launch
+            _uiState.update {
+                it.copy(
+                    modelState = calibrated,
+                    snackbarMessage = "$symbol recalibrated over ${report.windowDays} days — " +
+                        "ensemble weights updated"
+                )
+            }
+        }
     }
 
     fun toggleUnder10Only(enabled: Boolean) {
@@ -548,7 +591,6 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         super.onCleared()
         repository.wsManager.stopStreaming()
     }
-
     /**
      * Stream a mountable TSFM artefact and mount it into the live ensemble.
      * Progress is published through [ModelDownloadStore.states].

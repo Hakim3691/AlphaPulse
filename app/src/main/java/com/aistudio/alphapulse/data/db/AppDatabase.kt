@@ -21,8 +21,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [PredictionEntity::class, ScreenedCoinEntity::class,
         TradeBufferEntity::class, OrderBookDeltaEntity::class,
         LiquidationHeatmapEntity::class, VolumeProfileSnapshotEntity::class,
-        ModelRegistryEntity::class, SessionEntity::class, DecisionRecordEntity::class],
-    version = 5,
+        ModelRegistryEntity::class, SessionEntity::class, DecisionRecordEntity::class,
+        EnsembleWeightsEntity::class],
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -35,6 +36,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun modelRegistryDao(): ModelRegistryDao
     abstract fun sessionDao(): SessionDao
     abstract fun decisionRecordDao(): DecisionRecordDao
+    abstract fun ensembleWeightsDao(): EnsembleWeightsDao
 
     companion object {
         @Volatile
@@ -62,13 +64,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Adds the per-coin, per-horizon 30-day calibration weights (§20). */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `ensemble_weights` (" +
+                        "`compositeKey` TEXT NOT NULL, `symbol` TEXT NOT NULL, " +
+                        "`horizonId` TEXT NOT NULL, `weightK` REAL NOT NULL, " +
+                        "`weightP` REAL NOT NULL, `weightAlpha` REAL NOT NULL, " +
+                        "`weight4` REAL NOT NULL, `weight5` REAL NOT NULL, " +
+                        "`lastUpdated` INTEGER NOT NULL, `modelVersion` TEXT NOT NULL, " +
+                        "PRIMARY KEY(`compositeKey`))"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "alphapulse_db"
-                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5).fallbackToDestructiveMigration().build()
+                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance
             }

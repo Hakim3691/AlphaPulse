@@ -21,6 +21,9 @@ debug.keystore
 *.jks
 /app/build/
 .build-outputs/
+# Needle 3 weights are fetched and verified at build time, never committed.
+/app/src/main/assets/needle3.cact
+/app/src/main/assets/needle3.cact.part
 .aistudio/
 
 # Python bytecode from the integrity checker

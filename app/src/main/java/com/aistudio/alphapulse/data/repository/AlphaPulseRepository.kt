@@ -3,6 +3,7 @@ package com.aistudio.alphapulse.data.repository
 import android.util.Log
 import com.aistudio.alphapulse.data.db.AppDatabase
 import com.aistudio.alphapulse.data.db.DecisionRecordEntity
+import com.aistudio.alphapulse.data.db.EnsembleWeightsEntity
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.db.ScreenedCoinEntity
 import com.aistudio.alphapulse.data.model.*
@@ -14,11 +15,16 @@ import com.aistudio.alphapulse.domain.quant.ConfluenceAlphaResult
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.domain.agent.MarketStateAgent
 import com.aistudio.alphapulse.domain.agent.MarketStateInput
+import com.aistudio.alphapulse.domain.decision.CoinCalibrationOrchestrator
 import com.aistudio.alphapulse.domain.decision.DecisionReport
 import com.aistudio.alphapulse.domain.decision.DecisionRouter
 import com.aistudio.alphapulse.domain.decision.Needle3DecisionRouter
 import com.aistudio.alphapulse.domain.decision.decisionInputsFor
+import com.aistudio.alphapulse.domain.ensemble.CoinCalibrationPipeline
+import com.aistudio.alphapulse.domain.ensemble.CoinCalibrationReport
+import com.aistudio.alphapulse.domain.ensemble.EnsembleCalibration
 import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
+import com.aistudio.alphapulse.domain.ensemble.HorizonForecaster
 import com.aistudio.alphapulse.domain.ml.onnx.OnnxTsfmForecaster
 import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecast
 import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecaster
@@ -70,6 +76,20 @@ private const val DECISION_RECORD_RETENTION = 10_000
 /** Verdicts the on-screen decision log holds; the ledger itself keeps far more. */
 private const val DECISION_HISTORY_LIMIT = 50
 
+/** Klines per calibration request; Binance Futures allows at most 1500. */
+private const val CALIBRATION_PAGE_SIZE = 1000
+
+/**
+ * Pages fetched per horizon when walking back through the 30-day window.
+ *
+ * Eight pages is 8,000 bars: a full 30 days for 5m and slower, and the most
+ * recent ~5.5 days for 1m. The report records the bars actually available, so a
+ * truncated window is visible rather than being passed off as a full month.
+ */
+private const val CALIBRATION_MAX_PAGES = 8
+
+private const val DAY_MS = 24L * 60L * 60L * 1000L
+
 class AlphaPulseRepository(
     private val client: ResilientBinanceClient,
     private val database: AppDatabase,
@@ -85,7 +105,15 @@ class AlphaPulseRepository(
      */
     private val decisionRouterProvider: () -> DecisionRouter = {
         Needle3DecisionRouter.forMountedCheckpoint()
-    }
+    },
+    /**
+     * The §30 dispatcher that scopes a 30-day calibration run.
+     *
+     * Defaults to the mounted-checkpoint orchestrator, so production wiring is
+     * unchanged; the seam lets the calibration spec drive the plan with a
+     * scripted engine instead of a 35 MB checkpoint.
+     */
+    private val calibrationOrchestrator: CoinCalibrationOrchestrator = CoinCalibrationOrchestrator()
 ) {
     val allPredictionsFlow: Flow<List<PredictionEntity>> = database.predictionDao().getAllPredictionsFlow()
     fun getPredictionsBySymbolFlow(symbol: String): Flow<List<PredictionEntity>> =
@@ -106,6 +134,159 @@ class AlphaPulseRepository(
     /** Open/close ONNX sessions to match the models currently mounted in the dock. */
     suspend fun syncMountedTsfmModels(modelIds: List<String>) =
         tsfmForecaster.syncMountedModels(modelIds)
+
+    /**
+     * Calibrate the ensemble for one asset over the last 30 days (§20).
+     *
+     * The dock's mounted models are the candidates: an unmounted TSFM has no
+     * session, so scoring it would compare nothing against the market. Needle 3
+     * scopes the run (which horizons) through [calibrationOrchestrator]; the loop
+     * itself is deterministic and lives in [CoinCalibrationPipeline].
+     *
+     * The resulting weights are persisted per horizon by the repository, so the
+     * next launch starts from this asset's measured weights instead of the generic
+     * mount split.
+     *
+     * @param symbol market symbol; normalised before use and before storage
+     * @param extraModels models mounted in the dock; defaults to the live store
+     * @param windowDays history window, 30 by default
+     * @return the report, or null when nothing is mounted or no history arrived
+     */
+    suspend fun calibrateCoin(
+        symbol: String,
+        extraModels: Collection<String> = ModelDownloadStore.readyModelIds(),
+        windowDays: Int = EnsembleCalibration.WINDOW_DAYS
+    ): CoinCalibrationReport? = withContext(Dispatchers.IO) {
+        val normalised = symbol.trim().uppercase(Locale.US)
+        if (normalised.isBlank()) return@withContext null
+
+        val plan = calibrationOrchestrator.plan(normalised, extraModels, windowDays)
+        if (plan.modelIds.isEmpty() || plan.horizons.isEmpty()) return@withContext null
+
+        val candles = plan.horizons.associate { horizon ->
+            horizon.id to fetchCalibrationCandles(normalised, horizon.interval, windowDays)
+        }
+        if (candles.values.all { it.isEmpty() }) return@withContext null
+
+        val report = CoinCalibrationPipeline(
+            forecaster = HorizonForecaster { modelId, closes, steps ->
+                forecastCloseAhead(modelId, closes, steps)
+            }
+        ).run(plan, candles)
+
+        persistCalibration(report)
+        report
+    }
+
+    /** The saved 30-day weights for one asset, one row per horizon. */
+    suspend fun persistedCalibration(symbol: String): List<EnsembleWeightsEntity> =
+        database.ensembleWeightsDao().getForSymbol(symbol.trim().uppercase(Locale.US))
+
+    /** Live view of the saved calibration, so a recalibration reaches the screen. */
+    fun calibrationFlow(symbol: String): Flow<List<EnsembleWeightsEntity>> =
+        database.ensembleWeightsDao().getForSymbolFlow(symbol.trim().uppercase(Locale.US))
+
+    /**
+     * One next-close prediction from a mounted TSFM, for the calibration loop.
+     *
+     * A model without a live session, or whose answer is not a usable price,
+     * returns null: the pipeline then simply scores it on fewer origins instead of
+     * inventing a prediction.
+     */
+    private suspend fun forecastCloseAhead(
+        modelId: String,
+        closes: DoubleArray,
+        steps: Int
+    ): Double? {
+        if (closes.size < MIN_TSFM_HISTORY) return null
+        val last = closes.last()
+        val previous = closes[closes.size - 2]
+        val input = TsfmInput(
+            timestamp = System.currentTimeMillis(),
+            open = previous,
+            high = max(previous, last),
+            low = min(previous, last),
+            close = last,
+            logReturn = if (previous > 0.0) ln(last / previous) else 0.0,
+            regime = "Calibration",
+            horizon = "Calibration"
+        )
+        return tsfmForecaster.forecast(modelId, input, closes, steps)
+            ?.median?.lastOrNull()
+            ?.takeIf { it.isFinite() && it > 0.0 }
+    }
+
+    /**
+     * Fetch the history a calibration horizon is scored on.
+     *
+     * Pages backwards from the newest bar until the window is covered, the page
+     * budget is spent, or the exchange stops answering.
+     */
+    private suspend fun fetchCalibrationCandles(
+        symbol: String,
+        interval: String,
+        windowDays: Int
+    ): List<KlineData> {
+        val windowStart = System.currentTimeMillis() - windowDays * DAY_MS
+        val collected = sortedMapOf<Long, KlineData>()
+        var endTime: Long? = null
+
+        for (page in 0 until CALIBRATION_MAX_PAGES) {
+            val path = buildString {
+                append("/fapi/v1/klines?symbol=$symbol&interval=$interval")
+                append("&limit=$CALIBRATION_PAGE_SIZE")
+                endTime?.let { append("&endTime=$it") }
+            }
+            val rows = try {
+                client.getJsonArray(path)
+            } catch (_: Exception) {
+                break
+            }
+            if (rows.length() == 0) break
+
+            var oldest = Long.MAX_VALUE
+            for (i in 0 until rows.length()) {
+                val k = rows.getJSONArray(i)
+                val openTime = k.getLong(0)
+                oldest = min(oldest, openTime)
+                collected[openTime] = KlineData(
+                    openTime = openTime,
+                    open = k.getDouble(1),
+                    high = k.getDouble(2),
+                    low = k.getDouble(3),
+                    close = k.getDouble(4),
+                    volume = k.getDouble(5),
+                    quoteVolume = k.getDouble(7),
+                    takerBuyQuoteVolume = k.getDouble(10)
+                )
+            }
+
+            if (oldest <= windowStart || rows.length() < CALIBRATION_PAGE_SIZE) break
+            endTime = oldest - 1
+        }
+
+        return collected.values.filter { it.openTime >= windowStart }
+    }
+
+    /** Replace this asset's saved rows with the run's result, one row per horizon. */
+    private suspend fun persistCalibration(report: CoinCalibrationReport) {
+        if (report.horizons.isEmpty()) return
+        val rows = report.horizons.map { horizon ->
+            EnsembleWeightsEntity(
+                compositeKey = "${report.symbol}#${horizon.horizonId}",
+                symbol = report.symbol,
+                horizonId = horizon.horizonId,
+                weightK = horizon.weights.weightK,
+                weightP = horizon.weights.weightP,
+                weightAlpha = horizon.weights.weightAlpha,
+                weight4 = horizon.weights.weight4,
+                weight5 = horizon.weights.weight5,
+                lastUpdated = report.generatedAt,
+                modelVersion = horizon.scores.joinToString(",") { it.modelId }
+            )
+        }
+        database.ensembleWeightsDao().upsertAll(rows)
+    }
 
     // Per-asset rolling state
     private val kurtosisHistory = mutableListOf<Double>()

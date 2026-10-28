@@ -53,6 +53,18 @@ object ModelDownloadStore {
 
         val persisted = preferences.getStringSet(KEY_READY, emptySet()).orEmpty()
         val installed = persisted.filterTo(mutableSetOf()) { installedFile(it)?.isNonEmpty() == true }
+
+        // A checkpoint shipped inside the APK is mounted from those bytes, once,
+        // with no network. The engine needs a path it can memory-map, so the
+        // stored asset is copied into the same private directory a download would
+        // use; the copy is verified against the pinned size and digest.
+        for (source in sources) {
+            val target = installedFile(source.modelId) ?: continue
+            if (BundledModelInstaller.install(context = ctx, source = source, target = target)) {
+                installed += source.modelId
+            }
+        }
+
         if (installed != persisted) {
             preferences.edit().putStringSet(KEY_READY, installed).apply()
         }

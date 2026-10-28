@@ -3,6 +3,7 @@ package com.aistudio.alphapulse.domain.decision
 import java.io.File
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -107,15 +108,25 @@ class VendoredEngineArtifactBddSpec {
     }
 
     @Test
-    fun `given the gradle module when read then the native bridge is built for exactly the abis the apk splits ship`() {
+    fun `given the gradle module when read then the native bridge is built for exactly the single abi the apk ships`() {
         val gradle = projectFile("build.gradle.kts").readText()
 
         assertTrue("The JNI bridge must be compiled", gradle.contains("externalNativeBuild"))
         assertTrue("The CMake entry point must be declared", gradle.contains("src/main/cpp/CMakeLists.txt"))
         assertTrue("The NDK version must be pinned", gradle.contains("ndkVersion = "))
         assertTrue(
-            "The native ABIs must match the APK splits",
-            gradle.contains("abiFilters += listOf(\"arm64-v8a\", \"armeabi-v7a\", \"x86_64\")")
+            "The native ABIs must match the single APK split",
+            gradle.contains("abiFilters += listOf(\"arm64-v8a\")")
+        )
+        assertTrue(
+            "Only arm64-v8a may be packaged",
+            gradle.contains("include(\"arm64-v8a\")")
+        )
+        // Dropping the other ABIs is the point: packaging one they cannot exist for
+        // would ship dead native libraries and multiply the artifact size.
+        assertFalse(
+            "No removed ABI may linger in the split list",
+            gradle.contains("include(\"arm64-v8a\", \"armeabi-v7a\"")
         )
     }
 

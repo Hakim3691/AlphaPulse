@@ -352,12 +352,56 @@ jobs:
           test -d "$ANDROID_HOME/cmake/3.22.1" || {
             echo "::error::CMake 3.22.1 is missing after installation."; exit 1; }
 
-      - name: Provision Secrets & Keystores
+      - name: Restore the signing keystores
+        # A constant cache key, deliberately not run-scoped: the same files must come
+        # back on every run. A freshly generated key signs with a different
+        # certificate, and Android then refuses an in-place update with
+        # INSTALL_FAILED_UPDATE_INCOMPATIBLE and wipes the user's downloaded models.
+        # The secrets below take precedence when they are configured.
+        uses: actions/cache@v4
+        with:
+          path: |
+            my-upload-key.jks
+            debug.keystore
+          key: alphapulse-signing-keystores-v1
+
+      - name: Provision persistent signing keystores
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           if [ ! -f .env ]; then
             [ -f .env.example ] && cp .env.example .env || touch .env
           fi
           chmod +x gradlew
+
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
+            echo "Release keystore restored from the KEYSTORE_BASE64 secret."
+          fi
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 -d > debug.keystore
+            echo "Debug keystore restored from the DEBUG_KEYSTORE_BASE64 secret."
+          fi
+
+          if [ ! -s my-upload-key.jks ]; then
+            if [ -f my-upload-key.jks.base64 ] && [ -s my-upload-key.jks.base64 ]; then
+              base64 -d my-upload-key.jks.base64 > my-upload-key.jks
+            fi
+          fi
+
+          if [ ! -s my-upload-key.jks ]; then
+            echo "::warning::No persistent release keystore found. Generating one for this run; the signing-keystores cache keeps it, so later runs sign with the same certificate. Add KEYSTORE_BASE64 to keep it across cache evictions."
+            keytool -genkeypair -v \
+              -keystore my-upload-key.jks \
+              -alias upload \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Alpha Pulse, OU=Engineering, O=Alpha Pulse, L=Mountain View, ST=CA, C=US"
+          fi
 
           if [ ! -s debug.keystore ]; then
             if [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
@@ -365,6 +409,7 @@ jobs:
             fi
           fi
           if [ ! -s debug.keystore ]; then
+            echo "::warning::No persistent debug keystore found. Generating one for this run; the signing-keystores cache keeps it for later runs."
             keytool -genkeypair -v \
               -keystore debug.keystore \
               -alias androiddebugkey \
@@ -376,17 +421,44 @@ jobs:
               -dname "CN=Android Debug, O=Android, C=US"
           fi
 
-          if [ ! -s my-upload-key.jks ]; then
-            keytool -genkeypair -v \
-              -keystore my-upload-key.jks \
-              -alias upload \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -storepass android \
-              -keypass android \
-              -dname "CN=Alpha Pulse, OU=Engineering, O=Alpha Pulse, L=Mountain View, ST=CA, C=US"
-          fi
+      - name: Report the signing certificate
+        # The SHA-256 printed here must be identical on every build. If it changes,
+        # installed APKs can no longer be updated in place, and this summary says so
+        # before anyone tries to install over an existing app.
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+        run: |
+          STORE_PASS="${RELEASE_STORE_PASSWORD:-android}"
+          {
+            echo ""
+            echo "### Signing identity"
+            echo ""
+            echo "These certificate fingerprints must not change between builds; a change breaks in-place updates."
+            echo ""
+            echo '```'
+            for keystore in my-upload-key.jks debug.keystore; do
+              echo "== $keystore =="
+              keytool -list -v -keystore "$keystore" -storepass "$STORE_PASS" 2>/dev/null \
+                | grep -E "Alias name|SHA256:" || true
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Pre-bundle the Needle 3 weights
+        # The checkpoint is static and published, so it is fetched and verified at
+        # build time and packaged uncompressed: the app then runs Needle 3 with no
+        # runtime download and no inflate step. The Gradle task checks the pinned
+        # size and SHA-256, so a truncated or tampered file fails the build.
+        run: |
+          ./gradlew :app:bundleNeedle3Weights --console=plain
+
+          test -s app/src/main/assets/needle3.cact || {
+            echo "::error::Needle 3 weights were not bundled into the APK assets."
+            exit 1
+          }
+          echo "Bundled weights:"
+          ls -lh app/src/main/assets/needle3.cact
+          sha256sum app/src/main/assets/needle3.cact
 
       - name: Build APK Packages
         env:
@@ -464,21 +536,40 @@ jobs:
                   f.write("\n")
           EOF
 
-      - name: List Generated APKs
+      - name: List and verify the generated APK
         run: |
-          if [ -d "app/build/outputs/apk" ]; then
-            find app/build/outputs/apk -type f -name "*.apk" -exec ls -lh {} +
-          else
+          if [ ! -d "app/build/outputs/apk" ]; then
             echo "::error::No APK directory found after build step."
             exit 1
           fi
 
-      - name: Upload APK Artifacts
+          find app/build/outputs/apk -type f -name "*.apk" -exec ls -lh {} +
+
+          # Only arm64-v8a is built. A second ABI appearing here means the Gradle
+          # filter regressed, and uploading it would waste bandwidth on an APK the
+          # engine cannot run.
+          while IFS= read -r apk; do
+            case "$apk" in
+              *arm64-v8a*) ;;
+              *) echo "::error::Unexpected ABI-specific APK: $apk"; exit 1 ;;
+            esac
+          done < <(find app/build/outputs/apk -type f -name "*.apk")
+
+      - name: Upload debug APK (arm64-v8a)
         uses: actions/upload-artifact@v4
         with:
-          name: alphapulse-apks-${{ github.sha }}
-          path: app/build/outputs/apk/**/*.apk
-          if-no-files-found: error
+          # One artifact per build type, so only the APK that is needed is downloaded.
+          name: alphapulse-arm64-v8a-debug
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload release APK (arm64-v8a)
+        uses: actions/upload-artifact@v4
+        with:
+          name: alphapulse-arm64-v8a-release
+          path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
+          if-no-files-found: ignore
           retention-days: 30
 
   # =========================================================================
@@ -505,16 +596,19 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download APK Artifacts
+      - name: Download the arm64-v8a APK artifacts
+        # Both per-build-type artifacts, merged flat; whichever build type ran is
+        # what gets attached to the release.
         uses: actions/download-artifact@v4
         with:
-          name: alphapulse-apks-${{ github.sha }}
+          pattern: alphapulse-arm64-v8a-*
+          merge-multiple: true
           path: release-apks
 
       - name: Publish Release with APK Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: release-apks/**/*.apk
+          files: release-apks/*.apk
           generate_release_notes: true
           draft: false
           prerelease: false
