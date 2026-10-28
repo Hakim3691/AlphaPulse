@@ -9,6 +9,7 @@ AlphaPulse is a native Android institutional quantitative workstation that strea
 > - **Android Specification (V14.3)**: [`AlphaPulse_Android_SPEC_V14-3.md`](./AlphaPulse_Android_SPEC_V14-3.md)
 > - **Native Android Master PRD & Architecture**: [`AlphaPulse_Native_Android_PRD.md`](./AlphaPulse_Native_Android_PRD.md)
 > - **Spec Traceability Matrix** (every § of the Android spec mapped to code and tests): [`SPEC_TRACEABILITY.md`](./SPEC_TRACEABILITY.md)
+> - **Finalized Contracts** (decisions that are locked and guarded — read before changing routing, the model pipeline, the build or the ledger): [`FINALIZED_CONTRACTS.md`](./FINALIZED_CONTRACTS.md)
 > - **HTML5 Baseline Implementations**: [`AlphaPulse_HTML5_IMPL_V14-3.md`](./AlphaPulse_HTML5_IMPL_V14-3.md), [`AlphaPulse_HTML5_IMPL_V14-2.md`](./AlphaPulse_HTML5_IMPL_V14-2.md), [`AlphaPulse_HTML5_IMPL_V14-0.md`](./AlphaPulse_HTML5_IMPL_V14-0.md)
 
 
@@ -68,11 +69,14 @@ AlphaPulse is engineered to bring desktop-grade quantitative research, order-boo
 - **On-Device TSFM Inference (ONNX Runtime)**:
   - Mounted Chronos-Bolt and TimesFM artifacts now execute on-device through ONNX Runtime; each mounted model contributes its own median forecast and quantile bands to the ensemble instead of a drift term synthesised from market-state heuristics.
   - Sessions open when a model is mounted and close when it is unmounted; a model whose artifact is missing or fails to load is omitted from the ensemble rather than replaced by a synthetic signal.
-  - APKs are split per ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`) because the native inference runtime is ~25-40 MB per architecture.
+  - The app ships one `arm64-v8a` APK (no `armeabi-v7a`, `x86`, `x86_64` or universal APK) because the native inference and Cactus engine libraries are large per architecture. The debug and release APKs are uploaded as two separate CI artifacts, and this ABI restriction is pinned by a test.
 - **Auditable Decision Ledger**:
   - Every evaluation now records its §29 verdict — state, calibrated confidence, which router answered (Needle 3 or the deterministic rules) and the router's own reason — in the Room database, pruned to the newest 10,000 verdicts per symbol.
   - The prediction audit exports (CSV, JSON, line-per-record) attribute each row to the verdict recorded in its cycle; an uncalibrated verdict reads `UNSCORED` instead of a misleading `0.00`, and a cycle with no recorded verdict leaves the decision columns empty rather than borrowing another symbol's route.
   - The ledger shows the newest five verdicts for the selected asset — time, state, confidence, answering router and reason — read from the same table the export joins on, so the log on screen and a CSV row always agree.
+- **Finalized-Contract Guard**:
+  - [`FINALIZED_CONTRACTS.md`](./FINALIZED_CONTRACTS.md) records sixteen finalized decisions with the guard spec that proves each one; `FinalizedContractGuardBddSpec` fails the build if a contract is deleted, a guard spec disappears, the pinned checkpoint drifts, a removed remote router returns, or the documented CI gates stop running.
+  - `scripts/check_integrity.py` repeats the registry cross-check, so CI and the pre-commit hook catch drift even without Gradle.
 
 ---
 
@@ -116,6 +120,25 @@ While AlphaPulse is a complete quantitative screener and forecast workstation, t
 git config core.hooksPath .githooks
 ```
 
+### Change discipline (BDD + CI/CD)
+
+Every change — feature, bug fix or refactor — is made in this order, and no one has
+to be reminded of it:
+
+1. **BDD first:** add or extend a `*BddSpec.kt` scenario written as
+   *given … when … then …* that fails for the new requirement (or reproduces the bug).
+2. **Implement minimally** until it passes. If a finalized decision changes, update
+   [`FINALIZED_CONTRACTS.md`](./FINALIZED_CONTRACTS.md) and its guard scenario in the
+   same commit — `build/FinalizedContractGuardBddSpec.kt` fails the build when a
+   contract row, a guard spec or a pinned value drifts.
+3. **Verify:** `./gradlew :app:testDebugUnitTest`, `python3 scripts/check_integrity.py`,
+   `./gradlew :app:assembleDebug`, and `./gradlew :app:verifyPackagedWeights` when the
+   weights path is involved.
+4. **Ship:** CI runs integrity → tests (API 33 & 34) → APK assembly with the
+   packaged-weights verification → the published model-artifact contract, then
+   publishes a GitHub Release from the verified artifacts; a `v*` tag publishes a
+   versioned release.
+
 ### Local Commands
 ```bash
 # Run unit & Robolectric tests
@@ -134,7 +157,7 @@ python3 scripts/check_integrity.py
 VERIFY_ARTIFACT_NETWORK=true ./gradlew :app:testDebugUnitTest \
   --tests "com.aistudio.alphapulse.domain.ml.onnx.OnnxModelParityTest"
 
-# Assemble Debug APK (one per ABI under app/build/outputs/apk/debug/)
+# Assemble Debug APK (the arm64-v8a APK under app/build/outputs/apk/debug/)
 ./gradlew :app:assembleDebug
 
 # Assemble Release APK (requires STORE_PASSWORD and KEY_PASSWORD)

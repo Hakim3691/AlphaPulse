@@ -20,6 +20,9 @@ What it checks
 5. The spec traceability matrix still covers every section 1-64.
 6. The vendored Cactus Needle 3 engine binaries are byte-for-byte the published
    ones, so a truncated or edited archive cannot reach a device (§30).
+7. The finalized-behaviour registry (FINALIZED_CONTRACTS.md) still exists, still
+   lists its contracts, and every guard spec it names is present - so a decision
+   cannot be reverted by deleting its row or its test.
 
 Usage
 -----
@@ -222,6 +225,43 @@ def check_traceability() -> None:
         )
 
 
+def check_finalized_contracts() -> None:
+    """The registry of locked decisions must still point at real guard specs."""
+    path = os.path.join(REPO_ROOT, "FINALIZED_CONTRACTS.md")
+    if not os.path.isfile(path):
+        fail(
+            "FINALIZED_CONTRACTS.md is missing - finalized behaviour would be free to "
+            "regress without its registry"
+        )
+        return
+
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+
+    ids = re.findall(r"^\|\s*(C-\d{2})\s*\|", text, re.MULTILINE)
+    if len(ids) < 10:
+        fail(
+            f"FINALIZED_CONTRACTS.md lists only {len(ids)} contracts; a finalized decision "
+            "may be replaced deliberately, never deleted to make a build pass"
+        )
+
+    specs_root = os.path.join(REPO_ROOT, "app", "src", "test", "java")
+    known: set[str] = set()
+    for _root, _dirs, files in os.walk(specs_root):
+        known.update(files)
+
+    for reference in sorted(set(re.findall(r"`([^`]+\.kt)`", text))):
+        # Prose globs such as `*BddSpec.kt` name a convention, not one file.
+        if "*" in reference:
+            continue
+        if os.path.basename(reference) not in known:
+            fail(
+                f"FINALIZED_CONTRACTS.md names the guard spec '{reference}', which does not "
+                "exist under app/src/test/java (deleted or renamed? update the registry and "
+                "the test together)"
+            )
+
+
 def main() -> int:
     use_staged = "--staged" in sys.argv
     paths = staged_files() if use_staged else walk_source_files()
@@ -231,6 +271,7 @@ def main() -> int:
     check_backup_files(paths)
     check_kotlin_files(paths)
     check_vendored_engine()
+    check_finalized_contracts()
     if not use_staged:
         check_traceability()
 

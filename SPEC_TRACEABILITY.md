@@ -73,7 +73,7 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 49 | Critical Model Selection Principle | Done | `data/model/ModelManager.kt`, `profiling/HardwareGatekeeper.kt` | `profiling/HardwareGatekeeperBddSpec.kt` |
 | 50 | Walk-Forward Validation | Done | `domain/validation/WalkForwardValidator.kt` (non-overlapping train/test folds; MAE, RMSE, MAPE, directional accuracy, signed error, cone coverage, calibration error, latency, stability, turnover sensitivity) | `domain/validation/WalkForwardValidatorBddSpec.kt` |
 | 51 | No Data Leakage Requirement | Done | `domain/validation/LeakageGuard.kt` (all eight §51 streams, `requireNoLeakage` fails a run, `upto` trims a series), enforced inside every walk-forward fold | `domain/validation/LeakageGuardBddSpec.kt` |
-| 52 | Testing Requirements | Done | Test suites under `app/src/test` and `app/src/androidTest` | `testing/TestingRequirements.kt`, `jacocoCoverageGate` |
+| 52 | Testing Requirements | Done | Test suites under `app/src/test` and `app/src/androidTest`; [`FINALIZED_CONTRACTS.md`](FINALIZED_CONTRACTS.md) records every finalized decision with the guard spec that proves it and the BDD/CI change process | `testing/TestingRequirements.kt`, `jacocoCoverageGate`, `build/FinalizedContractGuardBddSpec.kt` (registry ↔ guard-spec consistency, pinned checkpoint, removed components, CI gates) |
 | 53 | Android Lifecycle Testing | Done | Lifecycle behaviour in `service/AlphaPulseService.kt` | `model/AndroidLifecycleTest.kt` |
 | 54 | Session Recovery | Done | `data/model/ModelManager.kt`, `data/db/Entities.kt` (`SessionEntity`) | `model/…` session tests |
 | 55 | Model Versioning | Done | `data/model/VersionInfo.kt`, `data/db/Entities.kt` (`versionTag`) | `data/model/…` tests |
