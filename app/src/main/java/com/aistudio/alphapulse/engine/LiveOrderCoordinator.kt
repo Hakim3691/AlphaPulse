@@ -101,14 +101,16 @@ class LiveOrderCoordinator(
         val result = port.cancelOrder(symbol, clientOrderId, apiKey, secret)
         if (result.ok) return CancelOutcome.Cancelled(clientOrderId, result.orderId)
 
-        // The order may have filled (or been cancelled elsewhere) before we asked.
-        val stillOpen = runCatching { port.fetchOpenOrders(symbol, apiKey, secret) }
-            .getOrDefault(emptyList())
-            .any { it.clientOrderId == clientOrderId }
-        return if (stillOpen) {
-            CancelOutcome.Failed(clientOrderId, result.message ?: "cancel refused")
-        } else {
+        // The order may have filled (or been cancelled elsewhere) before we asked, but
+        // only a book we actually read can say so. A failed read is an unknown state:
+        // booking it as a fill would mark a slice filled on a position that may not
+        // exist, and the ladder would stop managing it.
+        val openOrders = runCatching { port.fetchOpenOrders(symbol, apiKey, secret) }
+        val absentFromVenue = openOrders.getOrNull()?.none { it.clientOrderId == clientOrderId } == true
+        return if (absentFromVenue) {
             CancelOutcome.AlreadyFilled(clientOrderId)
+        } else {
+            CancelOutcome.Failed(clientOrderId, result.message ?: "cancel refused")
         }
     }
 
