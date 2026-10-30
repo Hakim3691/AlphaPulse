@@ -33,6 +33,14 @@ android {
     minSdk = 24
     targetSdk = 36
 
+    // Optional CoinGlass key, read at build time so no secret lives in source.
+    // Empty means anonymous access (lower REST limits).
+    buildConfigField(
+      "String",
+      "COINGLASS_API_KEY",
+      "\"${System.getenv("COINGLASS_API_KEY") ?: ""}\""
+    )
+
     // Release stamping: CI supplies BUILD_NUMBER (GitHub run_number, which only grows)
     // and GIT_SHA, so every produced APK is uniquely versioned and traceable to its
     // exact commit. versionCode must also rise monotonically for the package

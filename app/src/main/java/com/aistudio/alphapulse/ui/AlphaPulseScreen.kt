@@ -25,9 +25,12 @@ import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 
 @Composable
 fun AlphaPulseScreen(
-    viewModel: AlphaPulseViewModel
+    viewModel: AlphaPulseViewModel,
+    /** Campaign engine + live order routing; absent only in previews/tests. */
+    campaignViewModel: MainViewModel? = null
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val campaignState = campaignViewModel?.uiState?.collectAsStateWithLifecycle()?.value
     val scrollState = rememberScrollState()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -133,6 +136,25 @@ fun AlphaPulseScreen(
                     onExportUniverseClick = { viewModel.export4TabUniverseCsv() },
                     decisionHistory = uiState.decisionHistory
                 )
+
+                // Campaign boards plus their live entry / take-profit orders. This is
+                // the only place an operator can see or cancel a staged Binance order.
+                if (campaignViewModel != null && campaignState != null) {
+                    CampaignWorkspaceSection(
+                        campaigns = campaignState.campaigns,
+                        selectedCampaignId = campaignState.selectedCampaign?.id,
+                        executionMode = campaignState.executionMode,
+                        liveOrderRecords = campaignState.liveOrderRecords,
+                        openClientOrderIds = campaignState.liveOpenClientIds,
+                        lastReconcile = campaignState.lastReconcile,
+                        onSelectCampaign = { campaignViewModel.selectCampaign(it) },
+                        onOpenOverride = { campaignViewModel.openManualOverrideDialog(it) },
+                        onSoftCancel = { campaignViewModel.triggerSoftCancel(it) },
+                        onHardFlatten = { campaignViewModel.triggerHardFlatten(it) },
+                        onCancelLiveOrder = { campaignViewModel.cancelLiveOrder(it) }
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 

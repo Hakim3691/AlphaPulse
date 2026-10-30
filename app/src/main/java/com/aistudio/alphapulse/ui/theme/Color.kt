@@ -30,3 +30,21 @@ val GreenGlow = Color(0x3310B981)
 val RedGlow = Color(0x33EF4444)
 val BlueGlow = Color(0x333B82F6)
 val PurpleGlow = Color(0x338B5CF6)
+
+// ---------------------------------------------------------------------------
+// Campaign / autotrader surface aliases (Crypto Trader Pro names, AlphaPulse palette)
+//
+// The merged screens were written against these names. Rather than duplicating a
+// second palette, each alias points at the existing brand colour so both the
+// predictor and autotrader surfaces share one theme.
+// ---------------------------------------------------------------------------
+val CardBackground = BrandCard
+val CardBorder = BrandBorder
+val CyanAccent = BrandAccent
+val EmeraldBull = BrandBullish
+val CrimsonBear = BrandBearish
+val AmberWarning = BrandAmber
+val VioletAccent = BrandNeural
+val SlateTextPrimary = TextPrimary
+val SlateTextSecondary = TextSecondary
+val SlateTextMuted = TextTertiary

@@ -23,12 +23,16 @@ import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import com.aistudio.alphapulse.service.AlphaPulseService
 import com.aistudio.alphapulse.ui.AlphaPulseScreen
+import com.aistudio.alphapulse.ui.MainViewModel
 import com.aistudio.alphapulse.ui.theme.MyApplicationTheme
 import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: AlphaPulseViewModel by viewModels()
+
+    /** Campaign boards and the live order path (staging, cancel, reconcile). */
+    private val campaignViewModel: MainViewModel by viewModels()
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -54,7 +58,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
-                AlphaPulseScreen(viewModel = viewModel)
+                AlphaPulseScreen(
+                    viewModel = viewModel,
+                    campaignViewModel = campaignViewModel
+                )
             }
         }
     }
