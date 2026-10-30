@@ -354,4 +354,16 @@ class BuildContractBddSpec {
     }
 
     private fun failWith(message: String): Nothing = throw AssertionError(message)
+    @Test
+    fun `given a push when the workflow builds then both APKs are assembled`() {
+        // The build job uploads the debug and the release APK as two artifacts, so a
+        // push that assembles only the debug variant fails its own release upload and
+        // every push to main turns red after all gates had already passed.
+        val buildStep = stepBlock("Build APK Packages")
+        assertTrue(
+            "A push must assemble both variants. Found: $buildStep",
+            buildStep.contains("-both}")
+        )
+    }
+
 }

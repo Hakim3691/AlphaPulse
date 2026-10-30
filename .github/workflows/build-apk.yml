@@ -490,7 +490,10 @@ jobs:
             # the upload step's old "ignore" setting hid it.
             BUILD_TYPE="both"
           else
-            BUILD_TYPE="${RAW_TYPE:-debug}"
+            # A push assembles BOTH variants: this same job uploads the release APK as
+            # its own artifact, so a debug-only push fails its own release upload and
+            # turns every green gate into a red build.
+            BUILD_TYPE="${RAW_TYPE:-both}"
           fi
 
           echo "Target Build Type: $BUILD_TYPE"
@@ -589,6 +592,8 @@ jobs:
           retention-days: 30
 
       - name: Upload release APK (arm64-v8a)
+        # A manual debug-only run has no release APK; pushes and tags always do.
+        if: ${{ hashFiles('app/build/outputs/apk/release/app-arm64-v8a-release.apk') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: alphapulse-arm64-v8a-release
