@@ -64,6 +64,10 @@ import com.aistudio.alphapulse.engine.TakerTrade
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -157,6 +161,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val liveOrders = LiveOrderCoordinator(BinanceSignedOrderPort)
     private val consecutiveRejectsBySymbol = mutableMapOf<String, Int>()
     private var userDataJob: Job? = null
+    /** §25: the listen key the live stream holds, so teardown can release it. */
+    private var activeListenKey: String? = null
     private var lastPositionCheckMs = 0L
     private val routedClientIds = mutableSetOf<String>()
 
@@ -1406,92 +1412,122 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!sessionManager.hasValidActiveSession()) return
         if (userDataJob != null) return
         userDataJob = viewModelScope.launch {
-            var backoffMs = USER_STREAM_MIN_BACKOFF_MS
-            while (isActive) {
-                val liveMode = _uiState.value.executionMode
-                if (liveMode != ExecutionMode.CAPPED_LIVE && liveMode != ExecutionMode.SCALED_LIVE) {
-                    return@launch
-                }
-                if (!sessionManager.hasValidActiveSession()) return@launch
-                val creds = sessionManager.copyCredentials() ?: return@launch
-                val session = ListenKeySession()
-                try {
-                    val listenKey = liveOrders.ensureListenKey(creds.first)
-                    if (listenKey == null) {
-                        session.onRecreateFailed()
-                        logLiveNote(
-                            "PORTFOLIO",
-                            "USER_STREAM_FAILED",
-                            "Listen key request failed; fills reconcile from the open-order snapshot"
-                        )
-                        // §25: without a stream, REST is the only source of truth.
-                        reconcileAllLiveSymbols()
-                        delay(backoffMs)
-                        backoffMs = nextUserStreamBackoff(backoffMs)
-                        continue
-                    }
-                    session.onStarted(listenKey, System.currentTimeMillis())
-                    backoffMs = USER_STREAM_MIN_BACKOFF_MS
+            try {
+                collectUserDataStream()
+            } finally {
+                // §25: a mode change, a sign-out or a teardown stops the stream, so the
+                // venue-side key is released here instead of being left to expire.
+                withContext(NonCancellable) { releaseActiveListenKey() }
+            }
+        }
+    }
+
+    /**
+     * §25: the stream loop proper. It runs until the mode changes, the session ends or
+     * the scope is cancelled; the caller releases the listen key once it stops.
+     */
+    private suspend fun collectUserDataStream() {
+        var backoffMs = USER_STREAM_MIN_BACKOFF_MS
+        while (currentCoroutineContext().isActive) {
+            val liveMode = _uiState.value.executionMode
+            if (liveMode != ExecutionMode.CAPPED_LIVE && liveMode != ExecutionMode.SCALED_LIVE) {
+                return
+            }
+            if (!sessionManager.hasValidActiveSession()) return
+            val creds = sessionManager.copyCredentials() ?: return
+            val session = ListenKeySession()
+            try {
+                val listenKey = liveOrders.ensureListenKey(creds.first)
+                if (listenKey == null) {
+                    session.onRecreateFailed()
                     logLiveNote(
                         "PORTFOLIO",
-                        "USER_STREAM_OPEN",
-                        "User-data stream connected for fill reconciliation"
+                        "USER_STREAM_FAILED",
+                        "Listen key request failed; fills reconcile from the open-order snapshot"
                     )
-                    val keepAliveJob = launch {
-                        while (isActive) {
-                            delay(ListenKeySession.DEFAULT_REFRESH_MS)
-                            val ok = liveOrders.keepAlive(creds.first)
-                            session.onKeepAliveResult(ok, System.currentTimeMillis())
-                            if (!ok) {
-                                logLiveNote(
-                                    "PORTFOLIO",
-                                    "USER_STREAM_KEEPALIVE_FAILED",
-                                    "Listen key refresh refused; re-creating the stream"
-                                )
-                                return@launch
-                            }
-                        }
-                    }
-                    try {
-                        BinanceUserDataClient.streamUserEvents(listenKey).collect { frame ->
-                            if (UserDataOrderUpdate.isListenKeyExpired(frame)) {
-                                // -1125: this socket cannot recover, so ask for a new key.
-                                throw ListenKeyExpiredException()
-                            }
-                            val update = UserDataOrderUpdate.parse(frame) ?: return@collect
-                            if (!update.asksForReconcile) return@collect
-                            // §25: one reconcile path — exactly what the Resync action runs,
-                            // so partial fills keep the isFullyExecuted semantics.
-                            reconcileStagedOrders(update.symbol)
-                        }
-                    } catch (expired: ListenKeyExpiredException) {
-                        session.onKeyExpired()
-                        logLiveNote(
-                            "PORTFOLIO",
-                            "USER_STREAM_EXPIRED",
-                            "Listen key expired (-1125); re-creating"
-                        )
-                    } catch (t: Throwable) {
-                        if (t is CancellationException) throw t
-                        session.onStreamDropped()
-                        logLiveNote(
-                            "PORTFOLIO",
-                            "USER_STREAM_GAP",
-                            "User-data stream dropped: ${t.message ?: t.javaClass.simpleName}"
-                        )
-                    } finally {
-                        keepAliveJob.cancel()
-                    }
-                } finally {
-                    Arrays.fill(creds.first, '\u0000')
-                    Arrays.fill(creds.second, '\u0000')
+                    // §25: without a stream, REST is the only source of truth.
+                    reconcileAllLiveSymbols()
+                    delay(backoffMs)
+                    backoffMs = nextUserStreamBackoff(backoffMs)
+                    continue
                 }
-                // §25: a gap may have missed events, so recover from REST before reopening
-                // instead of silently trusting the stream again.
-                reconcileAllLiveSymbols()
-                delay(backoffMs)
-                backoffMs = nextUserStreamBackoff(backoffMs)
+                session.onStarted(listenKey, System.currentTimeMillis())
+                activeListenKey = listenKey
+                backoffMs = USER_STREAM_MIN_BACKOFF_MS
+                logLiveNote(
+                    "PORTFOLIO",
+                    "USER_STREAM_OPEN",
+                    "User-data stream connected for fill reconciliation"
+                )
+                val keepAliveJob = CoroutineScope(currentCoroutineContext()).launch {
+                    while (isActive) {
+                        delay(ListenKeySession.DEFAULT_REFRESH_MS)
+                        val ok = liveOrders.keepAlive(creds.first)
+                        session.onKeepAliveResult(ok, System.currentTimeMillis())
+                        if (!ok) {
+                            logLiveNote(
+                                "PORTFOLIO",
+                                "USER_STREAM_KEEPALIVE_FAILED",
+                                "Listen key refresh refused; re-creating the stream"
+                            )
+                            return@launch
+                        }
+                    }
+                }
+                try {
+                    BinanceUserDataClient.streamUserEvents(listenKey).collect { frame ->
+                        if (UserDataOrderUpdate.isListenKeyExpired(frame)) {
+                            // -1125: this socket cannot recover, so ask for a new key.
+                            throw ListenKeyExpiredException()
+                        }
+                        val update = UserDataOrderUpdate.parse(frame) ?: return@collect
+                        if (!update.asksForReconcile) return@collect
+                        // §25: one reconcile path — exactly what the Resync action runs,
+                        // so partial fills keep the isFullyExecuted semantics.
+                        reconcileStagedOrders(update.symbol)
+                    }
+                } catch (expired: ListenKeyExpiredException) {
+                    session.onKeyExpired()
+                    logLiveNote(
+                        "PORTFOLIO",
+                        "USER_STREAM_EXPIRED",
+                        "Listen key expired (-1125); re-creating"
+                    )
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    session.onStreamDropped()
+                    logLiveNote(
+                        "PORTFOLIO",
+                        "USER_STREAM_GAP",
+                        "User-data stream dropped: ${t.message ?: t.javaClass.simpleName}"
+                    )
+                } finally {
+                    keepAliveJob.cancel()
+                }
+            } finally {
+                Arrays.fill(creds.first, '\u0000')
+                Arrays.fill(creds.second, '\u0000')
             }
+            // §25: a gap may have missed events, so recover from REST before reopening
+            // instead of silently trusting the stream again.
+            reconcileAllLiveSymbols()
+            delay(backoffMs)
+            backoffMs = nextUserStreamBackoff(backoffMs)
+        }
+    }
+
+    /** §25: releases the venue-side key so a stream nobody reads is not left open. */
+    private suspend fun releaseActiveListenKey() {
+        if (activeListenKey == null) return
+        activeListenKey = null
+        val creds = sessionManager.copyCredentials() ?: return
+        try {
+            if (liveOrders.closeListenKey(creds.first)) {
+                logLiveNote("PORTFOLIO", "USER_STREAM_CLOSED", "Listen key released at the venue")
+            }
+        } finally {
+            Arrays.fill(creds.first, '\u0000')
+            Arrays.fill(creds.second, '\u0000')
         }
     }
 

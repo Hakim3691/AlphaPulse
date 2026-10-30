@@ -306,6 +306,9 @@ interface SignedOrderPort {
     suspend fun createListenKey(apiKey: CharArray): String?
 
     suspend fun keepAliveListenKey(apiKey: CharArray): Boolean
+
+    /** Releases the venue-side key; a port that cannot release one reports false. */
+    suspend fun closeListenKey(apiKey: CharArray): Boolean = false
 }
 
 /** Production adapter: the real signed REST client, unchanged. */
@@ -350,4 +353,6 @@ object BinanceSignedOrderPort : SignedOrderPort {
     override suspend fun createListenKey(apiKey: CharArray) = BinanceSignedClient.createListenKey(apiKey)
 
     override suspend fun keepAliveListenKey(apiKey: CharArray) = BinanceSignedClient.keepAliveListenKey(apiKey)
+
+    override suspend fun closeListenKey(apiKey: CharArray) = BinanceSignedClient.closeListenKey(apiKey)
 }

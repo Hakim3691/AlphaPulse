@@ -217,6 +217,10 @@ class LiveOrderCoordinator(
     suspend fun keepAlive(apiKey: CharArray): Boolean =
         runCatching { port.keepAliveListenKey(apiKey) }.getOrDefault(false)
 
+    /** Releases the user-data listen key when the stream stops for good (§25). */
+    suspend fun closeListenKey(apiKey: CharArray): Boolean =
+        runCatching { port.closeListenKey(apiKey) }.getOrDefault(false)
+
     /** Exponential backoff with a hard ceiling, so a throttled venue is not hammered. */
     fun backoffDelay(attempt: Int): Long =
         min(baseDelayMs shl (attempt - 1).coerceAtLeast(0), MAX_BACKOFF_MS)
