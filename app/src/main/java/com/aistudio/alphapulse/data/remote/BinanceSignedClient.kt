@@ -23,10 +23,54 @@ import javax.crypto.spec.SecretKeySpec
  * Every call returns a failure result instead of throwing, so the §33 guardrails can
  * count rejects and pause the venue deterministically.
  */
+/**
+ * The HTTP seam every signed and header request travels through.
+ *
+ * Production uses [SocketWire]; a spec substitutes a recording implementation so the
+ * method, query and signature that would reach the venue can be asserted without a
+ * network or real keys.
+ */
+internal fun interface Wire {
+    fun send(method: String, url: String, apiKey: CharArray): Pair<Int, String?>
+}
+
+internal object SocketWire : Wire {
+    override fun send(method: String, url: String, apiKey: CharArray): Pair<Int, String?> {
+        var connection: HttpURLConnection? = null
+        return try {
+            connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 5_000
+                readTimeout = 7_000
+                requestMethod = method
+                setRequestProperty("X-MBX-APIKEY", String(apiKey))
+                setRequestProperty("Accept", "application/json")
+                useCaches = false
+            }
+            val code = connection.responseCode
+            val body = if (code in 200..299) {
+                connection.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                connection.errorStream?.bufferedReader()?.use { it.readText() }
+            }
+            Pair(code, body)
+        } catch (_: Exception) {
+            Pair(0, null)
+        } finally {
+            connection?.disconnect()
+        }
+    }
+}
+
 object BinanceSignedClient {
 
     const val BASE_FUTURES = BinanceFuturesClient.BASE_FUTURES
     private const val RECV_WINDOW_MS = 5_000L
+
+    /** Replaced by specs; production talks to the venue through [SocketWire]. */
+    internal var wire: Wire = SocketWire
+
+    /** Replaced by specs so a signed query's timestamp is deterministic. */
+    internal var clock: () -> Long = { System.currentTimeMillis() }
 
     // ---------------------------------------------------------------- DTOs
 
@@ -97,55 +141,19 @@ object BinanceSignedClient {
         secret: CharArray
     ): Pair<Int, String?> {
         if (apiKey.isEmpty() || secret.isEmpty()) return Pair(0, null)
-        val query = encode(params) + "&timestamp=${System.currentTimeMillis()}&recvWindow=$RECV_WINDOW_MS"
-        val signature = sign(query, secret)
-        val url = "$BASE_FUTURES$path?$query&signature=$signature"
-        var connection: HttpURLConnection? = null
-        return try {
-            connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5_000
-                readTimeout = 7_000
-                requestMethod = method
-                setRequestProperty("X-MBX-APIKEY", String(apiKey))
-                setRequestProperty("Accept", "application/json")
-                useCaches = false
-            }
-            val code = connection.responseCode
-            val body = if (code in 200..299) {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                connection.errorStream?.bufferedReader()?.use { it.readText() }
-            }
-            Pair(code, body)
-        } catch (_: Exception) {
-            Pair(0, null)
-        } finally {
-            connection?.disconnect()
-        }
+        // A signed query never opens with '&': with no business parameters the payload
+        // is the timestamp window alone, not an empty parameter followed by it.
+        val base = encode(params)
+        val window = "timestamp=${clock()}&recvWindow=$RECV_WINDOW_MS"
+        val payload = if (base.isEmpty()) window else "$base&$window"
+        val signature = sign(payload, secret)
+        return wire.send(method, "$BASE_FUTURES$path?$payload&signature=$signature", apiKey)
     }
 
     /** Unsigned endpoint that only needs the API-key header (listen-key lifecycle). */
     private fun headerRequest(method: String, path: String, apiKey: CharArray): Pair<Int, String?> {
         if (apiKey.isEmpty()) return Pair(0, null)
-        var connection: HttpURLConnection? = null
-        return try {
-            connection = (URL("$BASE_FUTURES$path").openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5_000
-                readTimeout = 7_000
-                requestMethod = method
-                setRequestProperty("X-MBX-APIKEY", String(apiKey))
-                useCaches = false
-            }
-            val code = connection.responseCode
-            val body = if (code in 200..299) {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } else null
-            Pair(code, body)
-        } catch (_: Exception) {
-            Pair(0, null)
-        } finally {
-            connection?.disconnect()
-        }
+        return wire.send(method, "$BASE_FUTURES$path", apiKey)
     }
 
     private fun urlEncode(value: String): String =
@@ -179,8 +187,11 @@ object BinanceSignedClient {
             "newClientOrderId" to clientOrderId.take(36)
         )
         if (reduceOnly) params.add("reduceOnly" to "true")
-        if (orderType == "LIMIT") {
-            params.add("price" to formatPrice(price ?: return@withContext OrderResult.failure("LIMIT requires price")))
+        // LIMIT and STOP are both price-and-persist orders: a STOP is a stop-limit on
+        // the venue, so omitting the limit price and time-in-force gets the entry
+        // rejected outright and a breakout/breakdown campaign never rests.
+        if (orderType == "LIMIT" || orderType == "STOP") {
+            params.add("price" to formatPrice(price ?: return@withContext OrderResult.failure("$orderType requires price")))
             params.add("timeInForce" to "GTC")
         }
         if (stopPrice != null) params.add("stopPrice" to formatPrice(stopPrice))
