@@ -59,7 +59,14 @@ object BinanceSignedClient {
         val status: String,
         val type: String,
         val side: String
-    )
+    ) {
+        /**
+         * True only when the venue reports the whole quantity executed. A partially
+         * filled order is still open, so it is not a filled slice.
+         */
+        val isFullyExecuted: Boolean
+            get() = origQty > 0.0 && executedQty >= origQty - 1e-9
+    }
 
     // ---------------------------------------------------------------- signing
 

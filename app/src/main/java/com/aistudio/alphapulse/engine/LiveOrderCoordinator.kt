@@ -158,7 +158,10 @@ class LiveOrderCoordinator(
                 val tpId = ClientOrderIds.forTakeProfit(campaign.id, slice.sliceIndex)
                 val entryOpen = byClientId[entryId]
                 val tpOpen = byClientId[tpId]
-                val entryFilled = slice.isFilled || (entryOpen?.executedQty ?: 0.0) > 0.0
+                // Any positive executedQty means exposure, not a fill: booking a
+                // partially executed entry as filled would close a position that was
+                // never fully acquired and strand the unfilled remainder.
+                val entryFilled = slice.isFilled || entryOpen?.isFullyExecuted == true
 
                 when {
                     // Exit still resting at the venue: the position stays open.

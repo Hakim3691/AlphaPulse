@@ -310,9 +310,10 @@ class LiveOrderStagingBddSpec {
         }
 
     @Test
-    fun `given a listen-key gap with a filled order, when reconciled from REST, then the campaign stops assuming it rests`() =
+    fun `given a listen-key gap with a partially filled order, when reconciled from REST, then the open slice keeps resting without counting as filled`() =
         runBlocking {
-            // Given: three slices were resting; the venue now reports one open and two gone.
+            // Given: three slices were resting; the venue now reports slice 2 open with only
+            // 40% of its quantity executed, and slices 1 and 3 gone.
             val campaign = campaign(slices = 3, budget = 1000.0)
             val port = FakeOrderPort(
                 openOrders = listOf(
@@ -337,7 +338,12 @@ class LiveOrderStagingBddSpec {
             val reconciled = result.campaigns.single()
             assertEquals(setOf("BTCUSDT_LONG_2"), result.openClientOrderIds)
             assertEquals(setOf("BTCUSDT_LONG_1", "BTCUSDT_LONG_3"), result.vanishedClientOrderIds)
-            assertTrue(reconciled.entryLadder.first { it.sliceIndex == 2 }.isFilled)
+            val partial = reconciled.entryLadder.first { it.sliceIndex == 2 }
+            // Only 40% of the order executed, so the slice is not a fill: the position is
+            // not fully acquired, the slice is still open, and the campaign stays STAGED.
+            assertFalse(partial.isFilled)
+            assertTrue(partial.isResting)
+            assertEquals(CampaignState.STAGED, reconciled.status)
             assertFalse(reconciled.entryLadder.first { it.sliceIndex == 1 }.isResting)
             assertFalse(reconciled.entryLadder.first { it.sliceIndex == 3 }.isResting)
         }
@@ -374,6 +380,34 @@ class LiveOrderStagingBddSpec {
             assertTrue(reconciled.entryLadder.single().isFilled)
             assertFalse(reconciled.entryLadder.single().isResting)
             assertTrue(reconciled.entryLadder.single().isClosedAtTarget)
+        }
+
+    @Test
+    fun `given a fully executed entry the ladder has not recorded, when reconciled from REST, then the slice is booked as filled`() =
+        runBlocking {
+            // Given: slice 1 is reported by the venue with its whole quantity executed.
+            val campaign = campaign(slices = 1, budget = 1000.0)
+            val port = FakeOrderPort(
+                openOrders = listOf(
+                    BinanceSignedClient.OpenOrder(
+                        orderId = 12L,
+                        symbol = "BTCUSDT",
+                        clientOrderId = "BTCUSDT_LONG_1",
+                        price = 150.0,
+                        origQty = 10.0,
+                        executedQty = 10.0,
+                        status = "FILLED",
+                        type = "LIMIT",
+                        side = "BUY"
+                    )
+                )
+            )
+
+            // When:
+            val result = LiveOrderCoordinator(port).reconcile("BTCUSDT", listOf(campaign), apiKey, secret)
+
+            // Then: full execution is a fill, taken from the venue's executed quantity.
+            assertTrue(result.campaigns.single().entryLadder.single().isFilled)
         }
 
     @Test
