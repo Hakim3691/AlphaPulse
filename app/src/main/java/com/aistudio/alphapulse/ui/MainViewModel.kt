@@ -40,6 +40,7 @@ import com.aistudio.alphapulse.engine.FeatureEngine
 import com.aistudio.alphapulse.engine.HardwareDiagnosticsProvider
 import com.aistudio.alphapulse.engine.InvalidationAction
 import com.aistudio.alphapulse.engine.InvalidationEngine
+import com.aistudio.alphapulse.engine.ListenKeySession
 import com.aistudio.alphapulse.engine.LiveMarketDataProvider
 import com.aistudio.alphapulse.engine.MarketDataRepository
 import com.aistudio.alphapulse.engine.OrphanInterceptDecision
@@ -56,16 +57,22 @@ import com.aistudio.alphapulse.engine.SessionSecurityManager
 import com.aistudio.alphapulse.engine.SimulationHarness
 import com.aistudio.alphapulse.engine.SimulationScenario
 import com.aistudio.alphapulse.engine.UniverseScreener
+import com.aistudio.alphapulse.engine.UserDataOrderUpdate
 import com.aistudio.alphapulse.engine.UniverseSnapshot
 import com.aistudio.alphapulse.engine.StructureEngine
 import com.aistudio.alphapulse.engine.TakerTrade
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Arrays
+
+/** Raised for a -1125 frame so the stream loop re-creates the listen key. */
+private class ListenKeyExpiredException : IllegalStateException("listen key expired")
 
 data class MainUiState(
     val assets: List<CryptoAsset> = emptyList(),
@@ -1343,11 +1350,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resyncLiveOrders() {
         val mode = _uiState.value.executionMode
         if (mode != ExecutionMode.CAPPED_LIVE && mode != ExecutionMode.SCALED_LIVE) return
-        viewModelScope.launch {
-            _uiState.value.campaigns.map { it.asset }.distinct().forEach { symbol ->
-                reconcileStagedOrders(symbol)
-            }
-        }
+        viewModelScope.launch { reconcileAllLiveSymbols() }
     }
 
     /** §25: recovers order state from REST after a listen-key gap or ambiguous cancel. */
@@ -1396,74 +1399,111 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** §25: opens the user-data stream so exchange fills reconcile onto ladder slices. */
+    /** §25: opens the user-data stream so exchange fills reach the resync reconcile path. */
     private fun startUserDataStreamIfNeeded() {
         val mode = _uiState.value.executionMode
         if (mode != ExecutionMode.CAPPED_LIVE && mode != ExecutionMode.SCALED_LIVE) return
         if (!sessionManager.hasValidActiveSession()) return
         if (userDataJob != null) return
         userDataJob = viewModelScope.launch {
-            val creds = sessionManager.copyCredentials()
-            if (creds == null) return@launch
-            val listenKey = BinanceSignedClient.createListenKey(creds.first)
-            Arrays.fill(creds.first, '\u0000')
-            Arrays.fill(creds.second, '\u0000')
-            if (listenKey == null) {
-                logLiveNote(
-                    "PORTFOLIO",
-                    "USER_STREAM_FAILED",
-                    "Listen key request failed; fills reconcile on next open-order snapshot"
-                )
-                return@launch
-            }
-            logLiveNote("PORTFOLIO", "USER_STREAM_OPEN", "User-data stream connected for fill reconciliation")
-            try {
-                BinanceUserDataClient.streamUserEvents(listenKey).collect { event ->
-                    handleFillEvent(event)
+            var backoffMs = USER_STREAM_MIN_BACKOFF_MS
+            while (isActive) {
+                val liveMode = _uiState.value.executionMode
+                if (liveMode != ExecutionMode.CAPPED_LIVE && liveMode != ExecutionMode.SCALED_LIVE) {
+                    return@launch
                 }
-            } catch (t: Throwable) {
-                logLiveNote(
-                    "PORTFOLIO",
-                    "USER_STREAM_GAP",
-                    "User-data stream dropped: ${t.message ?: t.javaClass.simpleName}"
-                )
-            } finally {
-                // §25: a dropped stream may have missed fills. Recover order state from
-                // REST before the stream is reopened, so no slice stays assumed pending.
-                _uiState.value.selectedAsset?.symbol?.let { symbol -> reconcileStagedOrders(symbol) }
-                userDataJob = null
+                if (!sessionManager.hasValidActiveSession()) return@launch
+                val creds = sessionManager.copyCredentials() ?: return@launch
+                val session = ListenKeySession()
+                try {
+                    val listenKey = liveOrders.ensureListenKey(creds.first)
+                    if (listenKey == null) {
+                        session.onRecreateFailed()
+                        logLiveNote(
+                            "PORTFOLIO",
+                            "USER_STREAM_FAILED",
+                            "Listen key request failed; fills reconcile from the open-order snapshot"
+                        )
+                        // §25: without a stream, REST is the only source of truth.
+                        reconcileAllLiveSymbols()
+                        delay(backoffMs)
+                        backoffMs = nextUserStreamBackoff(backoffMs)
+                        continue
+                    }
+                    session.onStarted(listenKey, System.currentTimeMillis())
+                    backoffMs = USER_STREAM_MIN_BACKOFF_MS
+                    logLiveNote(
+                        "PORTFOLIO",
+                        "USER_STREAM_OPEN",
+                        "User-data stream connected for fill reconciliation"
+                    )
+                    val keepAliveJob = launch {
+                        while (isActive) {
+                            delay(ListenKeySession.DEFAULT_REFRESH_MS)
+                            val ok = liveOrders.keepAlive(creds.first)
+                            session.onKeepAliveResult(ok, System.currentTimeMillis())
+                            if (!ok) {
+                                logLiveNote(
+                                    "PORTFOLIO",
+                                    "USER_STREAM_KEEPALIVE_FAILED",
+                                    "Listen key refresh refused; re-creating the stream"
+                                )
+                                return@launch
+                            }
+                        }
+                    }
+                    try {
+                        BinanceUserDataClient.streamUserEvents(listenKey).collect { frame ->
+                            if (UserDataOrderUpdate.isListenKeyExpired(frame)) {
+                                // -1125: this socket cannot recover, so ask for a new key.
+                                throw ListenKeyExpiredException()
+                            }
+                            val update = UserDataOrderUpdate.parse(frame) ?: return@collect
+                            if (!update.asksForReconcile) return@collect
+                            // §25: one reconcile path — exactly what the Resync action runs,
+                            // so partial fills keep the isFullyExecuted semantics.
+                            reconcileStagedOrders(update.symbol)
+                        }
+                    } catch (expired: ListenKeyExpiredException) {
+                        session.onKeyExpired()
+                        logLiveNote(
+                            "PORTFOLIO",
+                            "USER_STREAM_EXPIRED",
+                            "Listen key expired (-1125); re-creating"
+                        )
+                    } catch (t: Throwable) {
+                        if (t is CancellationException) throw t
+                        session.onStreamDropped()
+                        logLiveNote(
+                            "PORTFOLIO",
+                            "USER_STREAM_GAP",
+                            "User-data stream dropped: ${t.message ?: t.javaClass.simpleName}"
+                        )
+                    } finally {
+                        keepAliveJob.cancel()
+                    }
+                } finally {
+                    Arrays.fill(creds.first, '\u0000')
+                    Arrays.fill(creds.second, '\u0000')
+                }
+                // §25: a gap may have missed events, so recover from REST before reopening
+                // instead of silently trusting the stream again.
+                reconcileAllLiveSymbols()
+                delay(backoffMs)
+                backoffMs = nextUserStreamBackoff(backoffMs)
             }
         }
     }
 
-    /** §22/§25: applies one exchange order event onto the matching campaign ladder. */
-    private suspend fun handleFillEvent(event: BinanceUserDataClient.FillEvent) {
-        val current = _uiState.value.campaigns
-        val target = current.find { event.clientOrderId.startsWith(it.id) } ?: return
-        val updated = when {
-            event.isFill -> executionEngine.reconcileFill(target, event.clientOrderId)
-            event.isTerminalCancel -> executionEngine.reconcileCancel(target, event.clientOrderId)
-            else -> return
-        }
-        if (updated == target) return
-        _uiState.value = _uiState.value.copy(
-            campaigns = current.map { if (it.id == target.id) updated else it },
-            selectedCampaign = if (_uiState.value.selectedCampaign?.id == target.id) {
-                updated
-            } else {
-                _uiState.value.selectedCampaign
-            }
-        )
-        if (event.isFill) {
-            repository.logAction(
-                asset = target.asset,
-                campaignId = target.id,
-                action = AuditLogAction.SLICE_FILLED,
-                reasonCode = "EXCHANGE_FILL",
-                message = "${target.family.displayName}: exchange fill ${event.lastFilledQty} @ ${event.lastFilledPrice} (${event.orderStatus})"
-            )
+    /** §25: REST reconcile over every symbol the boards touch; stream gaps and resync share it. */
+    private suspend fun reconcileAllLiveSymbols() {
+        _uiState.value.campaigns.map { it.asset }.distinct().forEach { symbol ->
+            reconcileStagedOrders(symbol)
         }
     }
+
+    private fun nextUserStreamBackoff(currentMs: Long): Long =
+        (currentMs * 2).coerceAtMost(USER_STREAM_MAX_BACKOFF_MS)
 
     /** §22/§33: venue cancels for newly-dead boards + throttled position reconciliation. */
     private suspend fun handleLiveExecution(previous: List<Campaign>, asset: CryptoAsset) {
@@ -1720,6 +1760,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_PAPER_RISK_PCT = "paper_risk_pct"
         const val KEY_PAPER_MAX_GROSS = "paper_max_gross_usd"
         const val KEY_PAPER_DAILY_LOSS_R = "paper_daily_loss_r"
+        /** §25 stream loop: reopen quickly, then back off so a dead venue is not hammered. */
+        const val USER_STREAM_MIN_BACKOFF_MS = 1_000L
+        const val USER_STREAM_MAX_BACKOFF_MS = 30_000L
         /** Minimum persisted 1h candles a scenario replay needs to count as history-driven. */
         const val MIN_SCENARIO_CANDLES = 30
         /** §2/§33 diagnostics cadence: re-sample hardware + feed latency every minute. */

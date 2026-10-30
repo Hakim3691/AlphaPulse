@@ -135,38 +135,4 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
     fun clientOrderId(campaignId: String, sliceIndex: Int): String =
         "${campaignId}_$sliceIndex".take(36)
 
-    /** §22/§25 user-data reconciliation: apply an exchange fill event onto the matching
-     * ladder slice by the encoded client order id.
-     */
-    fun reconcileFill(campaign: Campaign, clientOrderId: String): Campaign {
-        val idx = sliceIndexFrom(clientOrderId, campaign.id) ?: return campaign
-        var changed = false
-        val ladder = campaign.entryLadder.map { slice ->
-            if (slice.sliceIndex == idx && !slice.isFilled) {
-                changed = true
-                slice.copy(isFilled = true, isResting = false)
-            } else slice
-        }
-        if (!changed) return campaign
-        return campaign.copy(entryLadder = ladder, status = statusAfterFills(ladder))
-    }
-
-    /** Exchange-side terminal cancel (rejected/expired/canceled) stops the slice resting. */
-    fun reconcileCancel(campaign: Campaign, clientOrderId: String): Campaign {
-        val idx = sliceIndexFrom(clientOrderId, campaign.id) ?: return campaign
-        var changed = false
-        val ladder = campaign.entryLadder.map { slice ->
-            if (slice.sliceIndex == idx && slice.isResting && !slice.isFilled) {
-                changed = true
-                slice.copy(isResting = false)
-            } else slice
-        }
-        if (!changed) return campaign
-        return campaign.copy(entryLadder = ladder)
-    }
-
-    private fun sliceIndexFrom(clientOrderId: String, campaignId: String): Int? {
-        if (!clientOrderId.startsWith(campaignId)) return null
-        return clientOrderId.removePrefix(campaignId).removePrefix("_").toIntOrNull()
-    }
 }
