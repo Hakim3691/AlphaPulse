@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aistudio.alphapulse.data.model.ExecutionMode
 import com.aistudio.alphapulse.domain.decision.Needle3Engine
 import com.aistudio.alphapulse.ui.components.*
 import com.aistudio.alphapulse.ui.theme.BrandDark
@@ -151,7 +152,10 @@ fun AlphaPulseScreen(
                         onOpenOverride = { campaignViewModel.openManualOverrideDialog(it) },
                         onSoftCancel = { campaignViewModel.triggerSoftCancel(it) },
                         onHardFlatten = { campaignViewModel.triggerHardFlatten(it) },
-                        onCancelLiveOrder = { campaignViewModel.cancelLiveOrder(it) }
+                        onCancelLiveOrder = { campaignViewModel.cancelLiveOrder(it) },
+                        canResync = campaignState.executionMode == ExecutionMode.CAPPED_LIVE ||
+                            campaignState.executionMode == ExecutionMode.SCALED_LIVE,
+                        onResync = { campaignViewModel.resyncLiveOrders() }
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                 }

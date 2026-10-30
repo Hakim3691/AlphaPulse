@@ -9,7 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -57,6 +61,9 @@ fun CampaignWorkspaceSection(
     onSoftCancel: (String) -> Unit,
     onHardFlatten: (String) -> Unit,
     onCancelLiveOrder: (String) -> Unit,
+    /** True when a live session can re-read order state from the venue. */
+    canResync: Boolean = false,
+    onResync: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val views: Map<String, CampaignLiveView> = remember(
@@ -95,15 +102,30 @@ fun CampaignWorkspaceSection(
                     style = MaterialTheme.typography.labelSmall.copy(color = SlateTextMuted, fontSize = 9.sp)
                 )
             }
-            if (lastReconcile != null) {
-                Text(
-                    text = "RECONCILED ${lastReconcile.summary}",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        color = AmberWarning,
-                        fontSize = 9.sp
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (lastReconcile != null) {
+                    Text(
+                        text = "RECONCILED ${lastReconcile.summary}",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = AmberWarning,
+                            fontSize = 9.sp
+                        )
                     )
-                )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                if (canResync) {
+                    OutlinedButton(
+                        onClick = onResync,
+                        modifier = Modifier
+                            .height(26.dp)
+                            .testTag("resync_orders"),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = CyanAccent)
+                    ) {
+                        Text("Resync", fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
         }
 

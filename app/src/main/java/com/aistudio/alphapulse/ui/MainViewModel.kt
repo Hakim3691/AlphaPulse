@@ -507,7 +507,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // switch also closes open paper positions at the last traded price.
                 val flattenPrice = _uiState.value.selectedAsset?.lastPrice ?: 0.0
                 _uiState.value.campaigns.map { c ->
-                    var flattened = c.copy(status = CampaignState.CANCELLED)
+                    // §22/§27: engagement halts staging, so no slice may keep reading as
+                    // resting — the venue sweep below cancels every order that exists.
+                    var flattened = c.copy(
+                        status = CampaignState.CANCELLED,
+                        entryLadder = c.entryLadder.map { it.copy(isResting = false) }
+                    )
                     if (_uiState.value.executionMode == ExecutionMode.PAPER &&
                         c.entryLadder.any { slice -> slice.isFilled }
                     ) {
@@ -523,20 +528,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else _uiState.value.campaigns
         )
         if (updated) {
-            // §22/§27: engagement is not just local — pull every venue order too.
+            // §22/§27: engagement is not just local — pull every venue order too, and
+            // record what each cancel did, so no board keeps claiming an order rests.
             viewModelScope.launch {
                 val creds = sessionManager.copyCredentials()
                 if (creds != null) {
-                    val symbol = _uiState.value.selectedAsset?.symbol
-                    if (!symbol.isNullOrEmpty()) {
-                        BinanceSignedClient.cancelAllOpenOrders(symbol, creds.first, creds.second)
+                    try {
+                        for (asset in _uiState.value.campaigns.map { it.asset }.distinct()) {
+                            val ids = routedClientIds.filter { it.startsWith(asset) }
+                            if (ids.isNotEmpty()) {
+                                liveOrderRecords.putAll(
+                                    LiveOrderViewState.cancelAll(
+                                        coordinator = liveOrders,
+                                        symbol = asset,
+                                        clientOrderIds = ids,
+                                        apiKey = creds.first,
+                                        secret = creds.second
+                                    )
+                                )
+                            }
+                            // Anything we did not stage ourselves still leaves the book.
+                            liveOrders.cancelSymbol(asset, creds.first, creds.second)
+                        }
+                    } finally {
+                        Arrays.fill(creds.first, '\u0000')
+                        Arrays.fill(creds.second, '\u0000')
                     }
-                    Arrays.fill(creds.first, '\u0000')
-                    Arrays.fill(creds.second, '\u0000')
                 }
                 userDataJob?.cancel()
                 userDataJob = null
                 routedClientIds.clear()
+                publishLiveOrderRecords()
             }
         }
 
@@ -1314,6 +1336,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
+    /**
+     * §25: operator-triggered reconcile, so venue state is recoverable on demand and
+     * not only after the user-data stream drops.
+     */
+    fun resyncLiveOrders() {
+        val mode = _uiState.value.executionMode
+        if (mode != ExecutionMode.CAPPED_LIVE && mode != ExecutionMode.SCALED_LIVE) return
+        viewModelScope.launch {
+            _uiState.value.campaigns.map { it.asset }.distinct().forEach { symbol ->
+                reconcileStagedOrders(symbol)
+            }
+        }
+    }
+
     /** §25: recovers order state from REST after a listen-key gap or ambiguous cancel. */
     private suspend fun reconcileStagedOrders(symbol: String) {
         if (!sessionManager.hasValidActiveSession()) return
@@ -1328,17 +1364,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             routedClientIds.clear()
             routedClientIds.addAll(result.openClientOrderIds)
-            result.closedClientOrderIds.forEach { closedId ->
-                liveOrderRecords[closedId] = LiveOrderRecord(
-                    closedId,
-                    LiveLeg.TAKE_PROFIT,
-                    LiveOrderStatus.CLOSED_AT_TARGET,
-                    "Take-profit filled at target"
-                )
-            }
-            liveOrderRecords.entries.removeAll { (id, _) ->
-                id !in routedClientIds && liveOrderRecords[id]?.status == LiveOrderStatus.RESTING
-            }
+            liveOrderRecords.putAll(LiveOrderViewState.reconcileRecords(result))
             _uiState.value = _uiState.value.copy(
                 lastReconcile = ReconcileOutcome(
                     symbol = symbol,

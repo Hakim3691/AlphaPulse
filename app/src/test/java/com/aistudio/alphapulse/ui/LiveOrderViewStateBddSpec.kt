@@ -39,7 +39,9 @@ class LiveOrderViewStateBddSpec {
     private class FakePort(
         var cancelResult: BinanceSignedClient.OrderResult =
             BinanceSignedClient.OrderResult(true, 5L, null, "CANCELED", null),
-        var openOrders: List<BinanceSignedClient.OpenOrder> = emptyList()
+        var openOrders: List<BinanceSignedClient.OpenOrder> = emptyList(),
+        /** Ids the venue already executed: the cancel is refused and they are gone. */
+        val filledIds: Set<String> = emptySet()
     ) : SignedOrderPort {
         val cancelled = mutableListOf<String>()
 
@@ -63,7 +65,11 @@ class LiveOrderViewStateBddSpec {
             secret: CharArray
         ): BinanceSignedClient.OrderResult {
             cancelled += clientOrderId
-            return cancelResult
+            return if (clientOrderId in filledIds) {
+                BinanceSignedClient.OrderResult(false, null, null, null, "Unknown order sent.")
+            } else {
+                cancelResult
+            }
         }
 
         override suspend fun cancelAllOpenOrders(symbol: String, apiKey: CharArray, secret: CharArray) = true
@@ -246,6 +252,75 @@ class LiveOrderViewStateBddSpec {
             assertFalse(record.status == LiveOrderStatus.CANCELLED)
             assertTrue(record.reason!!.contains("Order would trigger immediately."))
         }
+
+    @Test
+    fun `given routed orders, when the kill switch cancels them, then each id is recorded and none stays cancellable`() =
+        runBlocking {
+            // Given: a two-slice campaign whose entry, exit and a second exit are all
+            // at the venue; the second exit already executed.
+            val campaign = campaign(slices = 2, status = CampaignState.STAGED)
+            val entryId = ClientOrderIds.forSlice("BTCUSDT_LONG", 1)
+            val tpId = ClientOrderIds.forTakeProfit("BTCUSDT_LONG", 1)
+            val filledTpId = ClientOrderIds.forTakeProfit("BTCUSDT_LONG", 2)
+            val secondEntryId = ClientOrderIds.forSlice("BTCUSDT_LONG", 2)
+            val port = FakePort(filledIds = setOf(filledTpId))
+            val routed = listOf(entryId, tpId, secondEntryId, filledTpId)
+
+            // When: the kill switch cancels everything this session routed.
+            val records = LiveOrderViewState.cancelAll(
+                coordinator = LiveOrderCoordinator(port),
+                symbol = "BTCUSDT",
+                clientOrderIds = routed,
+                apiKey = apiKey,
+                secret = secret
+            )
+
+            // Then: every id has a record — cancelled, or a fill when it beat the cancel.
+            assertEquals(routed.toSet(), port.cancelled.toSet())
+            assertEquals(LiveOrderStatus.CANCELLED, records.getValue(entryId).status)
+            assertEquals(LiveOrderStatus.CANCELLED, records.getValue(tpId).status)
+            assertEquals(LiveOrderStatus.CANCELLED, records.getValue(secondEntryId).status)
+            assertEquals(LiveOrderStatus.FILLED, records.getValue(filledTpId).status)
+            assertEquals(LiveOrderViewState.FILLED_BEFORE_CANCEL, records.getValue(filledTpId).reason)
+            // And nothing is still offered for cancellation on the board.
+            val view = LiveOrderViewState.project(listOf(campaign), records, emptySet())
+                .getValue("BTCUSDT_LONG")
+            assertTrue(view.cancellable.isEmpty())
+        }
+
+    @Test
+    fun `given a reconcile result, when records are derived from it, then resting vanished and closed ids read correctly`() {
+        // Given: one entry still resting, one entry gone from the book, and one exit
+        // that reconcile resolved as a close at target.
+        val campaign = campaign(slices = 2, status = CampaignState.PARTIALLY_FILLED)
+        val entryId = ClientOrderIds.forSlice("BTCUSDT_LONG", 1)
+        val tpId = ClientOrderIds.forTakeProfit("BTCUSDT_LONG", 1)
+        val vanishedId = ClientOrderIds.forSlice("BTCUSDT_LONG", 2)
+        val result = LiveOrderCoordinator.ReconcileResult(
+            campaigns = emptyList(),
+            openClientOrderIds = setOf(entryId),
+            vanishedClientOrderIds = setOf(vanishedId),
+            closedClientOrderIds = setOf(tpId)
+        )
+
+        // When:
+        val records = LiveOrderViewState.reconcileRecords(result)
+
+        // Then: each id carries what the venue actually said, and a vanished order is
+        // not silently left looking cancellable.
+        assertEquals(LiveOrderStatus.RESTING, records.getValue(entryId).status)
+        assertEquals(LiveLeg.ENTRY, records.getValue(entryId).leg)
+        assertEquals(LiveOrderStatus.CLOSED_AT_TARGET, records.getValue(tpId).status)
+        assertEquals(LiveLeg.TAKE_PROFIT, records.getValue(tpId).leg)
+        assertEquals(LiveOrderStatus.VANISHED, records.getValue(vanishedId).status)
+        assertEquals("No longer resting at venue", records.getValue(vanishedId).reason)
+
+        val view = LiveOrderViewState.project(listOf(campaign), records, result.openClientOrderIds)
+            .getValue("BTCUSDT_LONG")
+        assertEquals(setOf(entryId), view.cancellable)
+        assertEquals(LiveOrderStatus.VANISHED, view.slices[1].entry.status)
+        assertFalse(view.slices[1].entry.isCancellable)
+    }
 
     private fun campaign(
         slices: Int,

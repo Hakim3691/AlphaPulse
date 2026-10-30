@@ -28,7 +28,8 @@ enum class LiveOrderStatus(val label: String) {
     CLOSED_AT_TARGET("Closed at TP"),
     CANCELLED("Cancelled"),
     CANCEL_FAILED("Cancel failed"),
-    REJECTED("Rejected")
+    REJECTED("Rejected"),
+    VANISHED("Vanished")
 }
 
 data class LiveOrderRecord(
@@ -161,7 +162,53 @@ object LiveOrderViewState {
             )
     }
 
+    /**
+     * Cancels a set of routed ids — the kill-switch sweep — with the same per-id
+     * mapping as a single cancel, so an order that filled first stays a fill.
+     */
+    suspend fun cancelAll(
+        coordinator: LiveOrderCoordinator,
+        symbol: String,
+        clientOrderIds: Collection<String>,
+        apiKey: CharArray,
+        secret: CharArray
+    ): Map<String, LiveOrderRecord> = clientOrderIds.associate { clientOrderId ->
+        clientOrderId to cancel(coordinator, symbol, clientOrderId, legOf(clientOrderId), apiKey, secret)
+    }
+
+    /**
+     * The records a REST reconcile implies: what the venue still holds, what is gone,
+     * and which exits closed at target. Anything the reconcile did not cover keeps the
+     * record it already had, so a per-symbol reconcile never erases another symbol.
+     */
+    fun reconcileRecords(
+        result: LiveOrderCoordinator.ReconcileResult,
+        previous: Map<String, LiveOrderRecord> = emptyMap()
+    ): Map<String, LiveOrderRecord> {
+        val derived = buildMap {
+            result.openClientOrderIds.forEach { id ->
+                put(id, LiveOrderRecord(id, legOf(id), LiveOrderStatus.RESTING))
+            }
+            result.closedClientOrderIds.forEach { id ->
+                put(
+                    id,
+                    LiveOrderRecord(
+                        id,
+                        LiveLeg.TAKE_PROFIT,
+                        LiveOrderStatus.CLOSED_AT_TARGET,
+                        "Take-profit filled at target"
+                    )
+                )
+            }
+            result.vanishedClientOrderIds.forEach { id ->
+                put(id, LiveOrderRecord(id, legOf(id), LiveOrderStatus.VANISHED, VANISHED_NOT_RESTING))
+            }
+        }
+        return previous + derived
+    }
+
     const val FILLED_BEFORE_CANCEL = "Filled before cancellation"
+    const val VANISHED_NOT_RESTING = "No longer resting at venue"
 
     /** Which leg a client order id belongs to, by the id scheme itself. */
     fun legOf(clientOrderId: String): LiveLeg =
@@ -180,6 +227,7 @@ object LiveOrderViewState {
             // A successful cancel outranks a stale resting flag on the ladder.
             record?.status == LiveOrderStatus.CANCELLED -> LiveOrderStatus.CANCELLED
             record?.status == LiveOrderStatus.REJECTED -> LiveOrderStatus.REJECTED
+            record?.status == LiveOrderStatus.VANISHED -> LiveOrderStatus.VANISHED
             id in open || isResting -> LiveOrderStatus.RESTING
             record?.status == LiveOrderStatus.STAGED || record?.status == LiveOrderStatus.RESTING ->
                 LiveOrderStatus.STAGED
@@ -199,6 +247,7 @@ object LiveOrderViewState {
             isClosedAtTarget || record?.status == LiveOrderStatus.FILLED -> LiveOrderStatus.CLOSED_AT_TARGET
             record?.status == LiveOrderStatus.CANCELLED -> LiveOrderStatus.CANCELLED
             record?.status == LiveOrderStatus.REJECTED -> LiveOrderStatus.REJECTED
+            record?.status == LiveOrderStatus.VANISHED -> LiveOrderStatus.VANISHED
             id in open -> LiveOrderStatus.RESTING
             record?.status == LiveOrderStatus.STAGED || record?.status == LiveOrderStatus.RESTING ->
                 LiveOrderStatus.STAGED

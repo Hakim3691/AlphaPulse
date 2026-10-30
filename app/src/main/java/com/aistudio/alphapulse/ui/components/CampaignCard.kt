@@ -408,6 +408,6 @@ private fun liveStatusColor(status: LiveOrderStatus): Color = when (status) {
     LiveOrderStatus.NOT_STAGED -> SlateTextMuted
     LiveOrderStatus.STAGED, LiveOrderStatus.RESTING -> AmberWarning
     LiveOrderStatus.FILLED, LiveOrderStatus.CLOSED_AT_TARGET -> EmeraldBull
-    LiveOrderStatus.CANCELLED -> SlateTextSecondary
+    LiveOrderStatus.CANCELLED, LiveOrderStatus.VANISHED -> SlateTextSecondary
     LiveOrderStatus.CANCEL_FAILED, LiveOrderStatus.REJECTED -> CrimsonBear
 }
