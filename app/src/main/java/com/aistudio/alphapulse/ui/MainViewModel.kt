@@ -33,6 +33,7 @@ import com.aistudio.alphapulse.engine.CampaignEngine
 import com.aistudio.alphapulse.engine.BinanceSignedOrderPort
 import com.aistudio.alphapulse.engine.ClientOrderIds
 import com.aistudio.alphapulse.engine.LiveOrderCoordinator
+import com.aistudio.alphapulse.engine.LiveOrderDesk
 import com.aistudio.alphapulse.engine.OrderStager
 import com.aistudio.alphapulse.engine.ExecutionEngine
 import com.aistudio.alphapulse.engine.ExecutionGuardrails
@@ -160,10 +161,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val consecutiveRejectsBySymbol = mutableMapOf<String, Int>()
     private var userDataJob: Job? = null
     private var lastPositionCheckMs = 0L
-    private val routedClientIds = mutableSetOf<String>()
+
+    /**
+     * §22/§27 live wiring: staging, cancels and the records they produce. The desk owns
+     * the per-session order bookkeeping, so the venue path is drivable without one.
+     */
+    private val liveDesk = LiveOrderDesk(
+        coordinator = liveOrders,
+        stager = orderStager,
+        hasActiveSession = { sessionManager.hasValidActiveSession() },
+        credentials = { sessionManager.copyCredentials() },
+        campaignsOf = { _uiState.value.campaigns },
+        applyCampaign = { updated ->
+            _uiState.value = _uiState.value.copy(
+                campaigns = _uiState.value.campaigns.map { if (it.id == updated.id) updated else it },
+                selectedCampaign = if (_uiState.value.selectedCampaign?.id == updated.id) {
+                    updated
+                } else {
+                    _uiState.value.selectedCampaign
+                }
+            )
+        },
+        note = { campaignId, code, message -> logLiveNote(campaignId, code, message) },
+        onRejectStreak = { symbol, rejects ->
+            consecutiveRejectsBySymbol[symbol] =
+                if (rejects > 0) (consecutiveRejectsBySymbol[symbol] ?: 0) + rejects else 0
+        },
+        publish = { publishLiveOrderRecords() }
+    )
+
+    /** Client order ids the venue holds, as last reconciled. */
+    private val routedClientIds: MutableSet<String> get() = liveDesk.routedClientIds
 
     /** Display records for staged orders, keyed by client order id (§22). */
-    private val liveOrderRecords = mutableMapOf<String, LiveOrderRecord>()
+    private val liveOrderRecords: MutableMap<String, LiveOrderRecord> get() = liveDesk.liveOrderRecords
 
     /** Phase 1 (Spec §2): real OS diagnostics; no-arg constructor stays test-friendly. */
     private val diagnosticsProvider: HardwareDiagnosticsProvider? =
@@ -1136,205 +1167,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-    /** §22/§36: stages and routes resting slices for live modes with a valid session. */
+    /**
+     * §22/§36: stages and routes resting slices for live modes with a valid session.
+     *
+     * The decisions and their bookkeeping live in [LiveOrderDesk], where a spec drives
+     * them against a signed-order port fake instead of only compiling them.
+     */
     private suspend fun routeLiveBoards(campaigns: List<Campaign>) {
-        val mode = _uiState.value.executionMode
-        if (mode != ExecutionMode.CAPPED_LIVE && mode != ExecutionMode.SCALED_LIVE) return
-        if (!sessionManager.hasValidActiveSession()) return
-        val toRoute = campaigns.filter { it.status == CampaignState.STAGED }
-        if (toRoute.isEmpty()) return
-
-        val plan = orderStager.plan(
-            campaigns = toRoute,
-            mode = mode,
-            envelope = _uiState.value.riskEnvelope,
-            venueHealth = _uiState.value.venueHealth,
-            hasActiveSession = true,
-            alreadyStaged = routedClientIds
+        val state = _uiState.value
+        liveDesk.route(
+            boards = campaigns,
+            mode = state.executionMode,
+            envelope = state.riskEnvelope,
+            venueHealth = state.venueHealth
         )
-        // §33: a guardrail refusal is a recorded decision, never a silent drop.
-        plan.rejections.forEach { rejection ->
-            liveOrderRecords[rejection.clientOrderId] = LiveOrderRecord(
-                clientOrderId = rejection.clientOrderId,
-                leg = LiveOrderViewState.legOf(rejection.clientOrderId),
-                status = LiveOrderStatus.REJECTED,
-                reason = rejection.reason
-            )
-            logLiveNote(
-                rejection.campaignId,
-                "GUARDRAIL_BLOCKED",
-                "slice ${rejection.sliceIndex} not staged: ${rejection.reason}"
-            )
-        }
-        if (plan.isEmpty) return
-
-        val creds = sessionManager.copyCredentials() ?: return
-        var rejects = 0
-        try {
-            val submissions = liveOrders.submit(plan, creds.first, creds.second)
-            for (submission in submissions) {
-                val intent = submission.intent
-                liveOrderRecords[intent.clientOrderId] =
-                    LiveOrderViewState.recordFor(intent, submission.ok, submission.message)
-                if (submission.ok) {
-                    routedClientIds += intent.clientOrderId
-                    logLiveNote(
-                        intent.campaignId,
-                        "ORDER_PLACED",
-                        "${intent.side} slice ${intent.sliceIndex} routed at ${intent.price} " +
-                            "(client ${intent.clientOrderId}, TP ${intent.takeProfitPrice})"
-                    )
-                } else {
-                    rejects++
-                    logLiveNote(
-                        intent.campaignId,
-                        "ORDER_REJECTED",
-                        "slice ${intent.sliceIndex} rejected: ${submission.message ?: "unknown"}"
-                    )
-                }
-            }
-        } finally {
-            Arrays.fill(creds.first, '\u0000')
-            Arrays.fill(creds.second, '\u0000')
-        }
-        publishLiveOrderRecords()
-        val symbol = toRoute.first().asset
-        consecutiveRejectsBySymbol[symbol] =
-            if (rejects > 0) (consecutiveRejectsBySymbol[symbol] ?: 0) + rejects else 0
     }
 
     /** §27: cancels this campaign's staged orders, resolving the fill-beats-cancel race. */
-    private suspend fun cancelStagedOrders(campaign: Campaign) {
-        if (!sessionManager.hasValidActiveSession()) return
-        val creds = sessionManager.copyCredentials() ?: return
-        try {
-            for (slice in campaign.entryLadder.filter { !it.isFilled }) {
-                val entryId = ClientOrderIds.forSlice(campaign.id, slice.sliceIndex)
-                val tpId = ClientOrderIds.forTakeProfit(campaign.id, slice.sliceIndex)
-                val legs = buildList {
-                    if (slice.isResting) add(entryId to LiveLeg.ENTRY)
-                    // Only an exit we actually staged is worth cancelling.
-                    if (tpId in routedClientIds) add(tpId to LiveLeg.TAKE_PROFIT)
-                }
-                for ((clientId, leg) in legs) {
-                    when (val outcome = liveOrders.cancelOne(campaign.asset, clientId, creds.first, creds.second)) {
-                        is LiveOrderCoordinator.CancelOutcome.Cancelled -> {
-                            routedClientIds -= clientId
-                            liveOrderRecords[clientId] =
-                                LiveOrderRecord(clientId, leg, LiveOrderStatus.CANCELLED, "Cancelled at venue")
-                            logLiveNote(campaign.id, "ORDER_CANCELLED", "$clientId cancelled at venue")
-                        }
-                        is LiveOrderCoordinator.CancelOutcome.AlreadyFilled -> {
-                            routedClientIds -= clientId
-                            liveOrderRecords[clientId] = LiveOrderRecord(
-                                clientId,
-                                leg,
-                                LiveOrderStatus.FILLED,
-                                LiveOrderViewState.FILLED_BEFORE_CANCEL
-                            )
-                            logLiveNote(campaign.id, "FILL_BEATS_CANCEL", "$clientId filled before cancellation")
-                        }
-                        is LiveOrderCoordinator.CancelOutcome.Failed -> {
-                            liveOrderRecords[clientId] = LiveOrderRecord(
-                                clientId,
-                                leg,
-                                LiveOrderStatus.CANCEL_FAILED,
-                                "Cancel refused: ${outcome.reason}"
-                            )
-                            logLiveNote(campaign.id, "ORDER_CANCEL_FAILED", "$clientId: ${outcome.reason}")
-                        }
-                    }
-                }
-            }
-        } finally {
-            Arrays.fill(creds.first, '\u0000')
-            Arrays.fill(creds.second, '\u0000')
-            publishLiveOrderRecords()
-        }
-    }
+    private suspend fun cancelStagedOrders(campaign: Campaign) = liveDesk.cancelStaged(campaign)
 
     /**
      * §27: operator cancel for one staged order from the campaign card.
      *
-     * Routed through the same [LiveOrderCoordinator.cancelOne]; a cancel that loses
-     * the race to a fill is booked as a fill, not as a cancellation or an error.
+     * A cancel that loses the race to a fill is booked as a fill, not as a cancellation
+     * or an error.
      */
     fun cancelLiveOrder(clientOrderId: String) {
-        val record = liveOrderRecords[clientOrderId]
-            ?: LiveOrderRecord(clientOrderId, LiveOrderViewState.legOf(clientOrderId), LiveOrderStatus.STAGED)
-        val campaign = _uiState.value.campaigns.firstOrNull { clientOrderId.startsWith(it.id) }
-            ?: return
-        viewModelScope.launch {
-            if (!sessionManager.hasValidActiveSession()) {
-                logLiveNote(campaign.id, "CANCEL_NO_SESSION", "Cannot cancel $clientOrderId: no API session")
-                return@launch
-            }
-            val creds = sessionManager.copyCredentials() ?: return@launch
-            try {
-                val outcome = LiveOrderViewState.cancel(
-                    coordinator = liveOrders,
-                    symbol = campaign.asset,
-                    clientOrderId = clientOrderId,
-                    leg = record.leg,
-                    apiKey = creds.first,
-                    secret = creds.second
-                )
-                liveOrderRecords[clientOrderId] = outcome
-                when (outcome.status) {
-                    LiveOrderStatus.CANCELLED -> {
-                        routedClientIds -= clientOrderId
-                        logLiveNote(campaign.id, "ORDER_CANCELLED", "$clientOrderId cancelled at venue")
-                    }
-                    LiveOrderStatus.FILLED -> {
-                        routedClientIds -= clientOrderId
-                        markSliceFilled(campaign, clientOrderId, record.leg)
-                        logLiveNote(campaign.id, "FILL_BEATS_CANCEL", "$clientOrderId filled before cancellation")
-                    }
-                    LiveOrderStatus.CANCEL_FAILED ->
-                        logLiveNote(campaign.id, "ORDER_CANCEL_FAILED", "$clientOrderId: ${outcome.reason}")
-                    else -> Unit
-                }
-            } finally {
-                Arrays.fill(creds.first, '\u0000')
-                Arrays.fill(creds.second, '\u0000')
-                publishLiveOrderRecords()
-            }
-        }
-    }
-
-    /** Books a fill the venue reported while we asked to cancel (§27). */
-    private fun markSliceFilled(campaign: Campaign, clientOrderId: String, leg: LiveLeg) {
-        val sliceIndex = campaign.entryLadder.firstOrNull { slice ->
-            val id = if (leg == LiveLeg.TAKE_PROFIT) {
-                ClientOrderIds.forTakeProfit(campaign.id, slice.sliceIndex)
-            } else {
-                ClientOrderIds.forSlice(campaign.id, slice.sliceIndex)
-            }
-            id == clientOrderId
-        }?.sliceIndex ?: return
-        val ladder = campaign.entryLadder.map { slice ->
-            when {
-                slice.sliceIndex != sliceIndex -> slice
-                leg == LiveLeg.TAKE_PROFIT ->
-                    slice.copy(isFilled = true, isResting = false, isClosedAtTarget = true)
-                else -> slice.copy(isFilled = true, isResting = false)
-            }
-        }
-        val filled = ladder.filter { it.isFilled }
-        val status = when {
-            filled.isEmpty() -> campaign.status
-            filled.all { it.isClosedAtTarget } -> CampaignState.COMPLETED
-            else -> CampaignState.PARTIALLY_FILLED
-        }
-        val updated = campaign.copy(entryLadder = ladder, status = status)
-        _uiState.value = _uiState.value.copy(
-            campaigns = _uiState.value.campaigns.map { if (it.id == campaign.id) updated else it },
-            selectedCampaign = if (_uiState.value.selectedCampaign?.id == campaign.id) {
-                updated
-            } else {
-                _uiState.value.selectedCampaign
-            }
-        )
+        viewModelScope.launch { liveDesk.cancelLiveOrder(clientOrderId) }
     }
 
     /** Publishes the coordinator records the campaign card renders (idempotent). */
