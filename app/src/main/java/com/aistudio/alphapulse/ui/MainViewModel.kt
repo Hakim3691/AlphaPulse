@@ -75,7 +75,6 @@ import kotlinx.coroutines.launch
 import java.util.Arrays
 
 /** Raised for a -1125 frame so the stream loop re-creates the listen key. */
-private class ListenKeyExpiredException : IllegalStateException("listen key expired")
 
 data class MainUiState(
     val assets: List<CryptoAsset> = emptyList(),
