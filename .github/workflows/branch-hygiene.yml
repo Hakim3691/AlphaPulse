@@ -1,0 +1,69 @@
+name: Branch Hygiene
+
+# Weekly, and on demand: report the branches whose work `main` already holds, so
+# a pile of merged branches shows up as a summary line instead of being noticed
+# months later. Report-only - nothing is deleted here, and a stale branch is a
+# warning, not a failure, because the repository is meant to stay green.
+
+on:
+  schedule:
+    # Mondays at 06:00 UTC.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: branch-hygiene
+  cancel-in-progress: true
+
+jobs:
+  report:
+    name: Branch Hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository with full history
+        uses: actions/checkout@v4
+        with:
+          # The report compares patches, so shallow history would misjudge
+          # which commits `main` already contains.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refresh remote-tracking branches
+        run: git fetch --prune --no-tags origin
+
+      - name: Report branches whose work main already holds
+        run: |
+          set -o pipefail
+
+          # 0 = every branch holds unique work, 1 = something is safe to prune,
+          # 2 = the report itself failed (bad ref, git error).
+          status=0
+          python3 scripts/branch_hygiene.py --remote --base origin/main > report.txt 2>&1 || status=$?
+
+          cat report.txt
+          {
+            echo '## Branch hygiene'
+            echo
+            echo 'Branches whose work `origin/main` already holds. Deleting them is a'
+            echo 'human decision; this job only reports.'
+            echo
+            echo '```text'
+            cat report.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$status" -eq 2 ]; then
+            echo "::error::scripts/branch_hygiene.py could not run; see the log above."
+            exit 1
+          fi
+
+          if [ "$status" -eq 1 ]; then
+            echo "::warning::At least one branch is safe to prune - see the job summary."
+          fi
+
+          exit 0

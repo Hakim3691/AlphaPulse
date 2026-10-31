@@ -20,7 +20,9 @@ branch, in one of two ways:
   cherry-pick, a rebase or a re-applied change looks like from the outside.
 
 Anything else still holds a commit that exists nowhere else, so it is reported as
-KEEP together with the commits that are not on the base.
+KEEP together with the commits that are not on the base. The branch the base ref
+itself names is never reported, so `--base origin/main` does not suggest deleting
+`main`.
 
 What this cannot tell you
 -------------------------
@@ -77,6 +79,22 @@ def refs(prefix: str) -> list[str]:
 
 def is_ancestor(ancestor: str, descendant: str) -> bool:
     return git("merge-base", "--is-ancestor", ancestor, descendant).returncode == 0
+
+
+def protected_names(base: str) -> set[str]:
+    """Branch names the base ref refers to - those are never "safe to prune".
+
+    `--base origin/main` must not report the local `main` as prunable, and
+    `--base main` must not report `origin/main` either.
+    """
+    full = git_out("rev-parse", "--symbolic-full-name", base) or ""
+    if full.startswith("refs/heads/"):
+        return {full[len("refs/heads/"):]}
+    if full.startswith("refs/remotes/"):
+        remainder = full[len("refs/remotes/"):]
+        return {remainder.split("/", 1)[-1]} if "/" in remainder else {remainder}
+    # A tag or raw sha: only the literal text can be protected.
+    return {base}
 
 
 def classify(base: str, branch: str) -> tuple[str, list[str]]:
@@ -151,10 +169,11 @@ def main() -> int:
         return 2
 
     current = git_out("rev-parse", "--abbrev-ref", "HEAD") or ""
+    protected = protected_names(base)
 
     candidates: list[tuple[str, str, str]] = []  # (kind, name, delete command)
     for name in refs("refs/heads"):
-        if name == base:
+        if name in protected:
             continue
         command = f"git branch -d {name}"
         if name == current:
@@ -166,7 +185,7 @@ def main() -> int:
         prefix = f"refs/remotes/{remote}"
         for tracking in refs(prefix):
             name = tracking[len(remote) + 1:] if tracking.startswith(f"{remote}/") else tracking
-            if name == "HEAD" or tracking == base or name == base:
+            if name == "HEAD" or tracking == base or name in protected:
                 continue
             candidates.append(("remote", name, f"git push {remote} --delete {name}"))
 
