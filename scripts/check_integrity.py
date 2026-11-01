@@ -17,7 +17,8 @@ What it checks
 2. No editor/backup leftovers (*.orig, *.rej, *.bak, *~).
 3. No Kotlin file declaring the same top-level type twice in the same package.
 4. No Kotlin file that is empty or lost its `package` line.
-5. The spec traceability matrix still covers every section 1-64.
+5. The spec traceability matrix still covers every section 1-72 (C-15: the 64
+   baseline sections plus the 8 unified bridge sections).
 6. The vendored Cactus Needle 3 engine binaries are byte-for-byte the published
    ones, so a truncated or edited archive cannot reach a device (§30).
 7. The finalized-behaviour registry (FINALIZED_CONTRACTS.md) still exists, still
@@ -220,7 +221,7 @@ def check_traceability() -> None:
         text = handle.read()
 
     covered = {int(n) for n in re.findall(r"^\|\s*(\d{1,2})\s*\|", text, re.MULTILINE)}
-    missing = [n for n in range(1, 65) if n not in covered]
+    missing = [n for n in range(1, 73) if n not in covered]
     if missing:
         fail(
             "SPEC_TRACEABILITY.md does not cover spec section(s): "

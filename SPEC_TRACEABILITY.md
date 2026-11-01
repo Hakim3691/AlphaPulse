@@ -86,16 +86,17 @@ otherwise. Test paths are relative to `app/src/test/java/com/aistudio/alphapulse
 | 62 | Release Strategy | Done | `release/ReleaseStrategy.kt` | `release/ReleaseProgressBddSpec.kt` |
 | 63 | Definition of Done | Done | `release/DefinitionOfDone.kt` | `androidTest/UserJourneyBddTest.kt` |
 | 64 | Most Important Architectural Change | Done | `release/ArchitecturalChange.kt` | `release/ReleaseProgressBddSpec.kt` |
-| 65 | Unified Institutional Universe Swap (institutional gate replaces the $50M-$750M band) | Done | `domain/screener/UnifiedUniverseScreener.kt` | `domain/screener/UnifiedUniverseScreenerBddSpec.kt` |
-| 66 | Needle 3 30-Day Multi-Horizon Binance Ingestion & Tri/Quad/Penta Calibration | Done | `domain/ensemble/ThirtyDayBinanceCalibration.kt`, `domain/ensemble/CoinCalibration.kt` | `domain/ensemble/ThirtyDayBinanceCalibrationBddSpec.kt`, `domain/ensemble/CoinCalibrationBddSpec.kt` |
-| 68 | Multi-State Readiness & >90.0% Per-Horizon Cone Hit-Rate Gate | Done | `domain/campaign/CampaignReadinessGate.kt` | `domain/campaign/CampaignReadinessGateBddSpec.kt` |
-| 69 | ProactiveMS Walk-Forward Cancellation-First Invalidation Engine (0.50R default / 2.00R backstop) | Done | `domain/risk/ProactiveInvalidationEngine.kt` | `domain/risk/ProactiveInvalidationEngineBddSpec.kt` |
-| 70 | Walk-Forward 8-Configuration Matrix, 21 Metrics & Parameter Stability Profile | Done | `domain/validation/ProactiveWalkForward.kt` | `domain/validation/ProactiveWalkForwardBddSpec.kt` |
+| 65 | Unified Institutional Universe Swap (AlphaPulse $\S 3$–$\S 4$ replacing ProactiveMS Mid-Cap Screener) | Done | `domain/screener/UnifiedUniverseScreener.kt`, `data/repository/AlphaPulseRepository.kt` | `domain/screener/UnifiedUniverseScreenerBddSpec.kt` |
+| 66 | Needle 3 30-Day Multi-Horizon Binance Public Data Ingestion & Tri/Quad/Penta Calibration | Done | `data/network/BinanceHistoricalArchiveClient.kt`, `domain/ensemble/CoinCalibrationPipeline.kt`, `domain/decision/CoinCalibrationOrchestrator.kt`, `domain/ensemble/ThirtyDayBinanceCalibration.kt` | `domain/ensemble/ThirtyDayBinanceCalibrationBddSpec.kt`, `domain/ensemble/CoinCalibrationBddSpec.kt` |
+| 67 | Prediction-Driven Campaign Generator (6 Families & Asymmetric Boards A–D from Penta-Factor Cones) | Done | `domain/campaign/PredictionCampaignBuilder.kt` | `domain/campaign/PredictionCampaignBuilderBddSpec.kt` |
+| 68 | Multi-State Readiness (`LTF/MTF/HTF` + `5/5 Ensemble` + `2/2 Dock`) & $>90.0\%$ Per-Horizon Cone Hit-Rate Gate | Done | `domain/campaign/CampaignReadinessGate.kt` | `domain/campaign/CampaignReadinessGateBddSpec.kt` |
+| 69 | ProactiveMS Walk-Forward Cancellation-First Invalidation Engine (`0.50R` Default Candidate / `2.00R` Hard Stop Backstop) | Done | `domain/risk/ProactiveInvalidationEngine.kt` | `domain/risk/ProactiveInvalidationEngineBddSpec.kt` |
+| 70 | Walk-Forward 8-Configuration Matrix (`Baseline`, `0.25R`–`1.50R`, `2.00R`), 21 Metrics & Parameter Stability Profile | Done | `domain/validation/ProactiveWalkForward.kt`, `domain/validation/WalkForwardValidator.kt` | `domain/validation/ProactiveWalkForwardBddSpec.kt` |
+| 71 | 25-Field Unified Prediction & ProactiveMS Invalidation Audit Ledger (Room v6->v7 Migration) | Done | `data/db/ProactiveAuditLedger.kt` (`ProactiveAuditLedgerEntity`), `data/db/AppDatabase.kt` | `data/db/ProactiveAuditLedgerMigrationBddSpec.kt` |
+| 72 | 7-Tab ProactiveMS + AlphaPulse Navigation Scaffold & Synchronized Symbol State | Done | `ui/ProactiveMsNavigation.kt`, `ui/AlphaPulseScreen.kt` | `ui/ProactiveMsNavigationBddSpec.kt` |
 
-Sections 65-70 are the V14.4 additions whose guard specs were delivered with the
 release that implemented them. Sections 67, 71 and 72 are **not** claimed here: no
 guard spec has been delivered for them yet, so this matrix records no behaviour for
-them rather than guessing what they require.
 
 ## Open gaps (reported, not hidden)
 

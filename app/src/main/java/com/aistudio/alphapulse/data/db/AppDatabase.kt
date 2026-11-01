@@ -22,8 +22,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TradeBufferEntity::class, OrderBookDeltaEntity::class,
         LiquidationHeatmapEntity::class, VolumeProfileSnapshotEntity::class,
         ModelRegistryEntity::class, SessionEntity::class, DecisionRecordEntity::class,
-        EnsembleWeightsEntity::class],
-    version = 6,
+        EnsembleWeightsEntity::class, ProactiveAuditLedgerEntity::class],
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +37,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun sessionDao(): SessionDao
     abstract fun decisionRecordDao(): DecisionRecordDao
     abstract fun ensembleWeightsDao(): EnsembleWeightsDao
+    abstract fun proactiveAuditLedgerDao(): ProactiveAuditLedgerDao
 
     companion object {
         @Volatile
@@ -85,13 +86,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the §71 25-field ProactiveMS audit ledger (C-22).
+         *
+         * The statement comes from [ProactiveAuditSchema] rather than being written out
+         * here, so the migration, the entity and the guard spec read one definition. It
+         * is `internal` for the same reason as [MIGRATION_5_6]: the guard drives this
+         * exact object instead of a copy of its SQL.
+         */
+        internal val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(ProactiveAuditSchema.DDL)
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "alphapulse_db"
-                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance

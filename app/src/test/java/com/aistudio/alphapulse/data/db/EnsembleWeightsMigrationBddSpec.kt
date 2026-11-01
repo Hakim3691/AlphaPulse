@@ -72,7 +72,7 @@ class EnsembleWeightsMigrationBddSpec {
 
         assertEquals(
             "Room must record the upgraded version",
-            6,
+            7,
             queryInt(raw, "PRAGMA user_version")
         )
         assertEquals(
@@ -175,7 +175,7 @@ class EnsembleWeightsMigrationBddSpec {
     private fun openVersion6(addMigration: Boolean): AppDatabase {
         val builder = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
             .allowMainThreadQueries()
-        if (addMigration) builder.addMigrations(AppDatabase.MIGRATION_5_6)
+        if (addMigration) builder.addMigrations(AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7)
         return builder.build()
     }
 
