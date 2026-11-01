@@ -11,6 +11,10 @@ on:
       - '**.md'
       - 'docs/**'
       - '.gitignore'
+      # Tooling-only files. A branch-hygiene change cannot alter the APK, so it
+      # should not pay for the NDK build, the two-leg test matrix and APK assembly.
+      - '.github/workflows/branch-hygiene.yml'
+      - 'scripts/branch_hygiene.py'
   workflow_dispatch:
     inputs:
       build_type:

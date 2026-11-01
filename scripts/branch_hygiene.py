@@ -11,10 +11,14 @@ list grows until the safe ones stop being obvious and the unsafe ones get delete
 by hand.
 
 A branch is provably safe to delete when its work already exists on the base
-branch, in one of two ways:
+branch, in one of three ways:
 
 * **merged** - the base already contains the branch tip, so its commits are
   literally there;
+* **identical** - the two tips have the same tree, so every file the branch holds
+  is already on the base even though the history between them differs. This is the
+  shape a branch lands in after it merges the base forward once, and treating it
+  as KEEP meant such a branch was reported forever;
 * **superseded** - `git cherry` finds every one of the branch's non-merge commits
   already on the base as an equivalent patch (same patch-id), which is what a
   cherry-pick, a rebase or a re-applied change looks like from the outside.
@@ -56,6 +60,7 @@ DEFAULT_REMOTE = "origin"
 MAX_LISTED_COMMITS = 6
 
 MERGED = "merged"
+IDENTICAL = "identical"
 SUPERSEDED = "superseded"
 KEEP = "keep"
 
@@ -104,6 +109,12 @@ def classify(base: str, branch: str) -> tuple[str, list[str]]:
     """
     if is_ancestor(branch, base):
         return MERGED, []
+
+    # Same tree means same content: every file on the branch is already on the
+    # base, whatever the commits between them look like. `git diff --quiet` exits
+    # 0 exactly when the two tips hold identical trees.
+    if git("diff", "--quiet", base, branch).returncode == 0:
+        return IDENTICAL, []
 
     # `git cherry` marks each commit '+' when it is not on the base and '-' when
     # an equivalent patch already is. It ignores merge commits by design.
@@ -201,6 +212,11 @@ def main() -> int:
 
         if verdict == MERGED:
             safe.append(f"  {label}: merged - {base} already contains this tip\n      {delete_with}")
+        elif verdict == IDENTICAL:
+            safe.append(
+                f"  {label}: identical tree - every file matches {base}, so no content is lost\n"
+                f"      {delete_with}"
+            )
         elif verdict == SUPERSEDED:
             count = git_out("rev-list", "--count", "--no-merges", f"{base}..{ref}") or "0"
             safe.append(
