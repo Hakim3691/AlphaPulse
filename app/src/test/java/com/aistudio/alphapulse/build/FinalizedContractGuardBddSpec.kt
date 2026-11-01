@@ -156,6 +156,21 @@ class FinalizedContractGuardBddSpec {
                 workflow.contains(gate)
             )
         }
+
+        // A pipeline reports its last command's status, so `gradle ... | tee log` succeeds
+        // even when the tests fail. The test gate either avoids the pipe or turns pipefail
+        // on; either way a red suite has to be able to make the job red.
+        val testStepStart = workflow.indexOf("Execute Unit & Robolectric Tests")
+        assertTrue("The workflow must still have the unit-test step", testStepStart >= 0)
+        val testStep = workflow.substring(
+            testStepStart,
+            minOf(workflow.length, testStepStart + 1500)
+        )
+        assertTrue(
+            "The unit-test gate pipes gradle into tee without `set -o pipefail`, so a failing " +
+                "suite would still report a green job: $testStep",
+            !testStep.contains("| tee") || testStep.contains("set -o pipefail")
+        )
         assertTrue(
             "The release job must still refuse to publish unverified artifacts",
             workflow.contains("Refuse to publish unverified artifacts")

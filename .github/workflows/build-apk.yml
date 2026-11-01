@@ -153,6 +153,9 @@ jobs:
 
       - name: Execute Unit & Robolectric Tests
         run: |
+          # Without pipefail this step reports tee's exit status, so a failing test still
+          # shows a green job - which is how a red suite once shipped as a passing gate.
+          set -o pipefail
           echo "Running unit & Robolectric tests (API Level: ${{ matrix.api-level }})..."
           # Log output simultaneously to console and local test log file
           ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=${{ matrix.api-level }} --stacktrace 2>&1 | tee test-output.log
