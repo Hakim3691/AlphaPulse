@@ -108,6 +108,15 @@ class ParameterStabilityProfiler {
             "No walk-forward fold reports were supplied for any swept candidate"
         }
 
+        // A candidate whose return comes from a single dominant fold is disqualified: it is
+        // a window artefact, and it also has no standing as evidence about its neighbours.
+        val foldOutliers = candidates.filter { config ->
+            val folds = windowReportsByCandidate[config].orEmpty()
+            if (folds.isEmpty()) return@filter false
+            val total = folds.sumOf { it.netPnlR }
+            total > 0.0 && folds.maxOf { it.netPnlR } / total > DOMINANCE_LIMIT
+        }.toSet()
+
         val rawScores = candidates.associateWith { config ->
             val folds = windowReportsByCandidate[config].orEmpty()
             if (folds.isEmpty()) return@associateWith Double.NEGATIVE_INFINITY
@@ -116,25 +125,23 @@ class ParameterStabilityProfiler {
             val meanSharpe = folds.map { it.sharpeRatio }.average()
             val meanSaved2R = folds.map { it.pctProactiveExitsSubsequentlyReachedMinus2R }.average()
 
-            // Share of the candidate's total return contributed by its best fold.
-            val bestFold = folds.maxOf { it.netPnlR }
-            val total = folds.sumOf { it.netPnlR }
-            val dominance = if (total > 0.0) bestFold / total else 1.0
-            val dominancePenalty = if (dominance > DOMINANCE_LIMIT) DOMINANCE_PENALTY else 0.0
+            val dominancePenalty = if (config in foldOutliers) DOMINANCE_PENALTY else 0.0
 
             (meanExpectancy * 2.0) + meanSharpe + (meanSaved2R * 0.02) - dominancePenalty
         }
 
         val plateauScores = candidates.mapIndexed { index, config ->
-            val left = candidates.getOrNull(index - 1)?.let { rawScores.getValue(it) }
-                ?: rawScores.getValue(config)
-            val right = candidates.getOrNull(index + 1)?.let { rawScores.getValue(it) }
-                ?: rawScores.getValue(config)
             val centre = rawScores.getValue(config)
-            // Negative infinity from a missing candidate must not poison a real neighbour.
-            val leftWeighted = if (left.isFinite()) left else centre
-            val rightWeighted = if (right.isFinite()) right else centre
-            config to (0.25 * leftWeighted + 0.50 * centre + 0.25 * rightWeighted)
+            // A neighbour can only inform the plateau when it is a real, non-outlier score.
+            // Averaging a disqualified spike into the candidate beside it would spread one
+            // lucky window across the whole grid, which is the over-fit this sweep exists
+            // to avoid, and negative infinity from a missing candidate must not poison one.
+            fun neighbour(at: Int): Double {
+                val candidate = candidates.getOrNull(at) ?: return centre
+                val score = rawScores.getValue(candidate)
+                return if (score.isFinite() && candidate !in foldOutliers) score else centre
+            }
+            config to (0.25 * neighbour(index - 1) + 0.50 * centre + 0.25 * neighbour(index + 1))
         }.toMap()
 
         return plateauScores.maxByOrNull { it.value }!!.key
