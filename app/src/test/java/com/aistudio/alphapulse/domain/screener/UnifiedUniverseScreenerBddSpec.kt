@@ -6,113 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * BDD Guard Spec for §65 and Finalized Contract C-17:
- * Unified Institutional Universe Swap (AlphaPulse §3-§4 replacing ProactiveMS Mid-Cap Screener).
+ * §65 / Contract C-17 — the unified institutional universe gate.
+ *
+ * The gate, its inputs and its verdict live in production
+ * (`domain/screener/UnifiedUniverseScreener.kt`); this spec drives them, so removing a
+ * filter — or re-introducing the legacy mid-cap ceiling — breaks the build.
+ *
+ * Spec Ref: §65, C-17
  */
 class UnifiedUniverseScreenerBddSpec {
-
-    data class DailyFilterSnapshot(
-        val quoteVolume24hUsdt: Double,
-        val takerBuyRatio: Double,
-        val openInterestUsdt: Double,
-        val openPrice: Double,
-        val closePrice: Double,
-        val highPrice: Double,
-        val lowPrice: Double
-    ) {
-        val volumeToOiVelocity: Double
-            get() = if (openInterestUsdt > 0.0) quoteVolume24hUsdt / openInterestUsdt else 0.0
-
-        val convictionDisplacement: Double
-            get() {
-                val range = highPrice - lowPrice
-                return if (range > 0.0) kotlin.math.abs(closePrice - openPrice) / range else 0.0
-            }
-
-        fun passesFourFilterGate(): Boolean {
-            return quoteVolume24hUsdt >= 5_000_000.0 &&
-                takerBuyRatio >= 0.50 &&
-                volumeToOiVelocity > 1.0 &&
-                convictionDisplacement >= 0.40
-        }
-    }
-
-    data class CandidateAssetInput(
-        val symbol: String,
-        val todaySnapshot: DailyFilterSnapshot,
-        val last10DaysSnapshots: List<DailyFilterSnapshot>,
-        val annualizedReturn1Y: Double,
-        val maxDrawdown1Y: Double,
-        val annualizedVolatility1Y: Double,
-        val orderBookSpreadPct: Double,
-        val hasBinanceSpotAndFutures: Boolean,
-        val hasCoinGlassFuturesFeed: Boolean,
-        val hasActiveFundingHistory: Boolean
-    ) {
-        val calmarRatio1Y: Double
-            get() = if (maxDrawdown1Y > 0.0) annualizedReturn1Y / maxDrawdown1Y else -1.0
-
-        fun sharpeRatio1Y(riskFreeRate: Double = 0.04): Double {
-            return if (annualizedVolatility1Y > 0.0) {
-                (annualizedReturn1Y - riskFreeRate) / annualizedVolatility1Y
-            } else {
-                -1.0
-            }
-        }
-    }
-
-    data class ScreenedAssetVerdict(
-        val symbol: String,
-        val verifiedInstitutionalFlow: Boolean,
-        val passesRiskAdjustedHurdle: Boolean,
-        val passiveStagingEligible: Boolean,
-        val calmar: Double,
-        val sharpe: Double
-    )
-
-    class UnifiedUniverseScreener(
-        private val riskFreeRate: Double = 0.04,
-        private val requireStrict8Of10PersistenceWhenTodayFails: Boolean = true
-    ) {
-        fun screenUniverse(
-            candidates: List<CandidateAssetInput>,
-            btcOnlyOverride: Boolean = false
-        ): List<ScreenedAssetVerdict> {
-            val filtered = candidates.mapNotNull { candidate ->
-                if (!candidate.hasBinanceSpotAndFutures || !candidate.hasCoinGlassFuturesFeed) {
-                    return@mapNotNull null
-                }
-                val passesToday = candidate.todaySnapshot.passesFourFilterGate()
-                val historicalPassDays = candidate.last10DaysSnapshots.count { it.passesFourFilterGate() }
-                val minHistoricalDays = if (requireStrict8Of10PersistenceWhenTodayFails) 8 else 1
-                val verifiedFlow = passesToday || (historicalPassDays >= minHistoricalDays)
-
-                val calmar = candidate.calmarRatio1Y
-                val sharpe = candidate.sharpeRatio1Y(riskFreeRate)
-                val passesRiskAdjusted = calmar > 0.0 && sharpe > 0.0
-
-                if (!verifiedFlow || !passesRiskAdjusted) {
-                    return@mapNotNull null
-                }
-
-                val stagingEligible = candidate.orderBookSpreadPct < 0.10 && candidate.hasActiveFundingHistory
-                ScreenedAssetVerdict(
-                    symbol = candidate.symbol,
-                    verifiedInstitutionalFlow = true,
-                    passesRiskAdjustedHurdle = true,
-                    passiveStagingEligible = stagingEligible,
-                    calmar = calmar,
-                    sharpe = sharpe
-                )
-            }.sortedByDescending { it.sharpe }
-
-            return if (btcOnlyOverride) {
-                filtered.filter { it.symbol == "BTCUSDT" }
-            } else {
-                filtered
-            }
-        }
-    }
 
     private fun passingSnapshot(volume: Double = 120_000_000.0) = DailyFilterSnapshot(
         quoteVolume24hUsdt = volume,

@@ -6,87 +6,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * BDD Guard Spec for §68 and Finalized Contract C-19:
- * Multi-State Readiness & >90.0% Per-Horizon Cone Hit-Rate Gate.
+ * §68 / Contract C-19 — the multi-state readiness gate and its per-horizon cone
+ * hit-rate floor.
+ *
+ * The gate, its telemetry and its verdict live in production
+ * (`domain/campaign/CampaignReadinessGate.kt`); this spec drives them, so deleting the
+ * floor or letting a partially-ready campaign through breaks the build instead of
+ * passing against a copy declared inside the test.
+ *
+ * Spec Ref: §68, C-19
  */
 class CampaignReadinessGateBddSpec {
-
-    enum class CampaignLifecycleState {
-        PLANNED,
-        STAGED,
-        SUPPRESSED
-    }
-
-    data class AlphaPulseReadinessTelemetry(
-        val settled1mCount: Int,
-        val settled5mCount: Int,
-        val settled15mCount: Int,
-        val settled30mCount: Int,
-        val settled1hCount: Int,
-        val readyEnsembleModels: Int,
-        val totalEnsembleModels: Int,
-        val readyTsfmDockModels: Int,
-        val requiredTsfmDockModels: Int = 2,
-        val horizonConeHitRatePct: Map<String, Double>
-    ) {
-        val isLtfReady: Boolean
-            get() = settled1mCount >= 2 && settled5mCount >= 1
-
-        val isMtfReady: Boolean
-            get() = settled15mCount >= 2 && settled30mCount >= 1
-
-        val isHtfReady: Boolean
-            get() = settled30mCount >= 2 && settled1hCount >= 1
-
-        val isEnsembleReady: Boolean
-            get() = readyEnsembleModels == totalEnsembleModels && totalEnsembleModels >= 3
-
-        val isTsfmDockReady: Boolean
-            get() = readyTsfmDockModels == requiredTsfmDockModels
-    }
-
-    data class GateEvaluationResult(
-        val nextState: CampaignLifecycleState,
-        val canArmOrders: Boolean,
-        val rejectionReasons: List<String>
-    )
-
-    class CampaignReadinessGate(
-        private val minConeHitRateExclusivePct: Double = 90.0
-    ) {
-        fun evaluate(
-            telemetry: AlphaPulseReadinessTelemetry,
-            governingHorizons: List<String>
-        ): GateEvaluationResult {
-            val reasons = mutableListOf<String>()
-            if (!telemetry.isLtfReady) reasons.add("LTF_NOT_READY")
-            if (!telemetry.isMtfReady) reasons.add("MTF_NOT_READY")
-            if (!telemetry.isHtfReady) reasons.add("HTF_NOT_READY")
-            if (!telemetry.isEnsembleReady) reasons.add("ENSEMBLE_NOT_5_OF_5_READY")
-            if (!telemetry.isTsfmDockReady) reasons.add("TSFM_DOCK_NOT_2_OF_2_READY")
-
-            governingHorizons.forEach { horizon ->
-                val hitRate = telemetry.horizonConeHitRatePct[horizon] ?: 0.0
-                if (hitRate <= minConeHitRateExclusivePct) {
-                    reasons.add("HORIZON_${horizon}_CONE_HIT_RATE_BELOW_OR_EQUAL_90_PCT($hitRate%)")
-                }
-            }
-
-            return if (reasons.isEmpty()) {
-                GateEvaluationResult(
-                    nextState = CampaignLifecycleState.STAGED,
-                    canArmOrders = true,
-                    rejectionReasons = emptyList()
-                )
-            } else {
-                GateEvaluationResult(
-                    nextState = CampaignLifecycleState.PLANNED,
-                    canArmOrders = false,
-                    rejectionReasons = reasons
-                )
-            }
-        }
-    }
 
     private fun fullyReadyTelemetry(hitRates: Map<String, Double>) = AlphaPulseReadinessTelemetry(
         settled1mCount = 4,
