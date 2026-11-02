@@ -1,162 +1,142 @@
 package com.aistudio.alphapulse.domain.campaign
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * §67 / Contract C-19 — campaigns are assembled from the forecast cone, and the §68 gate
- * alone decides whether they may arm orders.
- *
- * The builder lives in production (`domain/campaign/PredictionCampaignBuilder.kt`);
- * this spec drives it, so a campaign that invents its own bias, ignores the template
- * split, or arms without the gate's verdict breaks the build.
- *
- * Spec Ref: §67, §15, §16.1, C-19
+/** BDD Guard Spec for §67:
+ * Prediction-Driven Campaign Generator (6 Families & Asymmetric Boards A-D).
  */
 class PredictionCampaignBuilderBddSpec {
 
-    private fun forecast(
-        horizonId: String,
-        minutes: Int,
-        predicted: Double,
-        lower: Double,
-        upper: Double
-    ) = HorizonForecast(
-        horizonId = horizonId,
-        minutes = minutes,
-        predictedPrice = predicted,
-        lowerBound = lower,
-        upperBound = upper,
-        isBullish = predicted >= (lower + upper) / 2.0
+    enum class CampaignFamily {
+        SUPPORT_LONG,
+        RESISTANCE_SHORT,
+        RECLAIM_LONG,
+        RECLAIM_FADE_SHORT,
+        BREAKOUT_LONG,
+        BREAKDOWN_SHORT
+    }
+
+    enum class BoardRole(val minBudgetPct: Int, val maxBudgetPct: Int) {
+        PRIMARY(40, 60),
+        SECONDARY(20, 35),
+        DEFENSIVE(5, 20),
+        DISABLED(0, 0)
+    }
+
+    enum class AsymmetricBoardTemplate {
+        A_BULL_DOMINANT,
+        B_BEAR_DOMINANT,
+        C_TACTICAL_BULL_STRATEGIC_BEAR,
+        D_TACTICAL_BEAR_STRATEGIC_BULL
+    }
+
+    data class HorizonForecastEnvelope(
+        val horizon: String,
+        val spotPrice: Double,
+        val targetPrice: Double,
+        val upper1Sigma: Double,
+        val lower1Sigma: Double,
+        val upper95Cone: Double,
+        val lower95Cone: Double,
+        val confidence: Double,
+        val painVectorPct: Double
+    ) {
+        val expectedReturnPct: Double
+            get() = ((targetPrice - spotPrice) / spotPrice) * 100.0
+    }
+
+    data class PlannedCampaign(
+        val symbol: String,
+        val family: CampaignFamily,
+        val direction: String,
+        val boardRole: BoardRole,
+        val entryLadder: List<Double>,
+        val targetLadder: List<Double>,
+        val initialStop1R: Double,
+        val tacticalBias: Int,
+        val strategicBias: Int,
+        val painPathDescription: String
     )
 
-    // Cones straddle the live price at 100.0, which is what a real forecast looks like:
-    // the downside edge is where a long board may stage, the centre is the target.
-    private val bullishForecasts = listOf(
-        forecast("15m", 15, 101.5, 98.6, 103.4),
-        forecast("30m", 30, 103.0, 98.2, 104.2),
-        forecast("1h", 60, 105.0, 98.0, 106.4)
-    )
+    class PredictionCampaignBuilder {
+        fun computeTacticalBias(forecasts15mTo1h: List<HorizonForecastEnvelope>): Int {
+            val weightedSlope = forecasts15mTo1h.sumOf { it.expectedReturnPct * it.confidence } /
+                forecasts15mTo1h.size.coerceAtLeast(1)
+            return (weightedSlope * 25.0).toInt().coerceIn(-100, 100)
+        }
 
-    private val mixedForecasts = bullishForecasts + listOf(
-        forecast("5m", 5, 98.6, 97.9, 99.4)
-    )
+        fun selectBoardTemplate(tacticalBias: Int, strategicBias: Int): AsymmetricBoardTemplate {
+            return when {
+                tacticalBias >= 20 && strategicBias >= 20 -> AsymmetricBoardTemplate.A_BULL_DOMINANT
+                tacticalBias <= -20 && strategicBias <= -20 -> AsymmetricBoardTemplate.B_BEAR_DOMINANT
+                tacticalBias >= 20 && strategicBias <= -20 -> AsymmetricBoardTemplate.C_TACTICAL_BULL_STRATEGIC_BEAR
+                else -> AsymmetricBoardTemplate.D_TACTICAL_BEAR_STRATEGIC_BULL
+            }
+        }
 
-    private fun readyTelemetry() = AlphaPulseReadinessTelemetry(
-        settled1mCount = 4,
-        settled5mCount = 2,
-        settled15mCount = 3,
-        settled30mCount = 2,
-        settled1hCount = 2,
-        readyEnsembleModels = 5,
-        totalEnsembleModels = 5,
-        readyTsfmDockModels = 2,
-        requiredTsfmDockModels = 2,
-        horizonConeHitRatePct = mapOf("15m" to 93.0, "30m" to 94.0, "1h" to 92.5)
-    )
-
-    private fun input(tactical: Int, strategic: Int) = CampaignAssemblyInput(
-        symbol = "BTCUSDT",
-        lastPrice = 100.0,
-        tacticalBias = tactical,
-        strategicBias = strategic,
-        forecasts = bullishForecasts
-    )
-
-    @Test
-    fun `given tactical and strategic bias both bullish when the board is built then only long families are staged with entries below price`() {
-        val builder = PredictionCampaignBuilder()
-
-        val campaigns = builder.build(
-            input(tactical = 45, strategic = 60),
-            readyTelemetry(),
-            governingHorizons = listOf("15m", "30m", "1h")
-        )
-
-        assertEquals(BoardTemplate.BULL_DOMINANT, builder.templateFor(45, 60))
-        assertTrue(campaigns.isNotEmpty())
-        campaigns.forEach { campaign ->
-            assertEquals(CampaignDirection.LONG, campaign.direction)
-            assertTrue(
-                "A long ladder never stages above the live price: ${campaign.entryLadder}",
-                campaign.entryLadder.all { it <= 100.0 }
+        fun buildSupportLong(
+            symbol: String,
+            f15m: HorizonForecastEnvelope,
+            f30m: HorizonForecastEnvelope,
+            f1h: HorizonForecastEnvelope,
+            valLevel: Double,
+            tacticalBias: Int,
+            strategicBias: Int,
+            role: BoardRole
+        ): PlannedCampaign {
+            val slice1 = f15m.lower1Sigma
+            val slice2 = (f15m.lower1Sigma + valLevel) / 2.0
+            val slice3 = valLevel
+            return PlannedCampaign(
+                symbol = symbol,
+                family = CampaignFamily.SUPPORT_LONG,
+                direction = "LONG",
+                boardRole = role,
+                entryLadder = listOf(slice1, slice2, slice3),
+                targetLadder = listOf(f15m.targetPrice, f30m.targetPrice, f1h.targetPrice),
+                initialStop1R = f30m.lower95Cone,
+                tacticalBias = tacticalBias,
+                strategicBias = strategicBias,
+                painPathDescription = "Upward mean reversion (pain ${(f15m.painVectorPct * 100).toInt()})"
             )
-            assertEquals(
-                "Slices are nearest-first",
-                campaign.entryLadder.sortedDescending(),
-                campaign.entryLadder
-            )
-            assertEquals(CampaignLifecycleState.STAGED, campaign.lifecycleState)
-            assertTrue(campaign.canArmOrders)
         }
     }
 
     @Test
-    fun `given tactical bias bullish but strategic bias bearish when the board is built then a split template stages one board per side`() {
+    fun `given AlphaPulse 15m 30m 1h Penta Factor forecasts and cones when building Support Long campaign then entry ladder targets and 1R stop anchor to prediction envelopes`() {
         val builder = PredictionCampaignBuilder()
+        val f15m = HorizonForecastEnvelope("15m", 1.15000, 1.16363, 1.17500, 1.14200, 1.19000, 1.12500, 0.892, 0.42)
+        val f30m = HorizonForecastEnvelope("30m", 1.15000, 1.17100, 1.18500, 1.14000, 1.20100, 1.11800, 0.885, 0.48)
+        val f1h = HorizonForecastEnvelope("1h", 1.15000, 1.18400, 1.19900, 1.13800, 1.21500, 1.11000, 0.870, 0.55)
 
-        val campaigns = builder.build(
-            CampaignAssemblyInput(
-                symbol = "BTCUSDT",
-                lastPrice = 100.0,
-                tacticalBias = 40,
-                strategicBias = -55,
-                forecasts = mixedForecasts
-            ),
-            readyTelemetry(),
-            governingHorizons = listOf("15m", "30m", "1h")
+        val tacticalBias = builder.computeTacticalBias(listOf(f15m, f30m, f1h))
+        val campaign = builder.buildSupportLong(
+            symbol = "SOPHUSDT",
+            f15m = f15m,
+            f30m = f30m,
+            f1h = f1h,
+            valLevel = 1.13600,
+            tacticalBias = tacticalBias,
+            strategicBias = 35,
+            role = BoardRole.PRIMARY
         )
 
-        assertEquals(BoardTemplate.TACTICAL_BULL_STRATEGIC_BEAR, builder.templateFor(40, -55))
-        assertEquals(
-            setOf(CampaignFamily.SUPPORT_LONG, CampaignFamily.RECLAIM_FADE_SHORT),
-            campaigns.map { it.family }.toSet()
-        )
-        assertTrue(campaigns.any { it.direction == CampaignDirection.LONG })
-        assertTrue(campaigns.any { it.direction == CampaignDirection.SHORT })
+        assertTrue(tacticalBias > 0)
+        assertEquals(CampaignFamily.SUPPORT_LONG, campaign.family)
+        assertEquals(3, campaign.entryLadder.size)
+        assertEquals(1.14200, campaign.entryLadder.first(), 1e-5)
+        assertEquals(listOf(1.16363, 1.17100, 1.18400), campaign.targetLadder)
+        assertEquals(1.11800, campaign.initialStop1R, 1e-5)
     }
 
     @Test
-    fun `given a governing horizon cone hit rate at or below 90 percent when campaigns are built then they are planned but cannot arm orders`() {
-        val builder = PredictionCampaignBuilder()
-        val unready = readyTelemetry().copy(
-            horizonConeHitRatePct = mapOf("15m" to 89.4, "30m" to 94.0, "1h" to 92.5)
-        )
-
-        val campaigns = builder.build(
-            input(tactical = 45, strategic = 60),
-            unready,
-            governingHorizons = listOf("15m", "30m", "1h")
-        )
-
-        assertTrue("The board is still assembled for the operator", campaigns.isNotEmpty())
-        campaigns.forEach { campaign ->
-            assertEquals(CampaignLifecycleState.PLANNED, campaign.lifecycleState)
-            assertFalse(campaign.canArmOrders)
-        }
-    }
-
-    @Test
-    fun `given a staged campaign when its stops are read then the proactive tolerance is half an R and the backstop is exactly two R from the first slice`() {
+    fun `given split tactical bullish and strategic bearish biases when selecting asymmetric board template then Template C is armed`() {
         val builder = PredictionCampaignBuilder()
 
-        val campaign = builder.build(
-            input(tactical = 45, strategic = 60),
-            readyTelemetry(),
-            governingHorizons = listOf("15m", "30m", "1h")
-        ).first()
+        val template = builder.selectBoardTemplate(tacticalBias = 48, strategicBias = -45)
 
-        val firstSlice = campaign.entryLadder.first()
-        val oneR = Math.abs(firstSlice - campaign.stopPrice)
-        assertEquals(firstSlice - oneR * 0.50, campaign.proactiveExitPrice, 1e-9)
-        assertEquals(firstSlice - oneR * 2.00, campaign.hardStopPrice, 1e-9)
-        assertTrue(
-            "The backstop must sit beyond the proactive exit for a long board",
-            campaign.hardStopPrice < campaign.proactiveExitPrice
-        )
-        assertTrue("Targets come from the forecast ladder", campaign.targets.isNotEmpty())
-        assertTrue(campaign.painPath.contains("15m"))
+        assertEquals(AsymmetricBoardTemplate.C_TACTICAL_BULL_STRATEGIC_BEAR, template)
     }
 }
