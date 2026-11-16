@@ -28,6 +28,7 @@ import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.data.model.ScreenedCoin
+import com.aistudio.alphapulse.ui.model.AppMode
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
 import com.aistudio.alphapulse.di.ServiceLocator
 import kotlinx.coroutines.CancellationException
@@ -97,6 +98,7 @@ data class AlphaPulseUiState(
     val horizonFilter: String = "ALL",
     val predictions: List<PredictionEntity> = emptyList(),
     val showRefreshDialog: Boolean = false,
+    val appMode: AppMode = AppMode.ALPHA_PULSE,
     val snackbarMessage: String? = null,
     val modelDownloads: Map<String, ModelDownloadState> = emptyMap(),
     val mountedModelIds: List<String> = emptyList(),
