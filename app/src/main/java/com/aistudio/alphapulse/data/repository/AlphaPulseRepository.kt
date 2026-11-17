@@ -45,6 +45,11 @@ import com.aistudio.alphapulse.domain.pattern.PatternHorizon
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEngine
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
 import com.aistudio.alphapulse.domain.pattern.PatternSgdModel
+import com.aistudio.alphapulse.domain.strategy.QuantStrategyEngine
+import com.aistudio.alphapulse.domain.strategy.ScreenerSignal
+import com.aistudio.alphapulse.domain.strategy.StrategyCandle
+import com.aistudio.alphapulse.domain.strategy.StrategySignal
+import com.aistudio.alphapulse.domain.strategy.TechnicalScreeners
 import com.aistudio.alphapulse.domain.pattern.PatternTaxonomy
 import com.aistudio.alphapulse.service.AlphaPulseService
 import com.aistudio.alphapulse.core.Formatters
@@ -1216,6 +1221,12 @@ class AlphaPulseRepository(
         )
         database.decisionRecordDao().prune(symbol, DECISION_RECORD_RETENTION)
 
+        // §74: the auxiliary library runs on the bars this snapshot already fetched - no
+        // extra request, and no chance of the board seeing different history than the ledgers.
+        val strategyCandles = klines.map {
+            StrategyCandle(it.openTime, it.open, it.high, it.low, it.close, it.volume)
+        }
+
         AssetEvaluationResult(
             spotPrice = currentSpot,
             spotChange = spotChange,
@@ -1231,7 +1242,9 @@ class AlphaPulseRepository(
             chartPoints = chartPoints,
             alphaMetrics = alphaMetrics,
             executiveBrief = executiveBrief,
-            decision = decision
+            decision = decision,
+            screenerSignals = TechnicalScreeners.evaluateAll(strategyCandles),
+            strategySignals = QuantStrategyEngine.evaluateAll(strategyCandles)
         )
     }
 
@@ -1605,7 +1618,11 @@ data class AssetEvaluationResult(
     val alphaMetrics: ConfluenceAlphaResult,
     val executiveBrief: String,
     /** §29 verdict for this evaluation: state, calibrated confidence and the reason. */
-    val decision: DecisionReport
+    val decision: DecisionReport,
+    /** §74 technical confluence screeners evaluated on this snapshot's bars. */
+    val screenerSignals: List<ScreenerSignal> = emptyList(),
+    /** §74 quantitative strategy verdicts with their own entry / exit / invalidation levels. */
+    val strategySignals: List<StrategySignal> = emptyList()
 )
 
 /** Percent move of each ensemble leg at one horizon, as the §29 router reads them. */
