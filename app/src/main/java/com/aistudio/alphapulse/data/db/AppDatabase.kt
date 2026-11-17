@@ -22,8 +22,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TradeBufferEntity::class, OrderBookDeltaEntity::class,
         LiquidationHeatmapEntity::class, VolumeProfileSnapshotEntity::class,
         ModelRegistryEntity::class, SessionEntity::class, DecisionRecordEntity::class,
-        EnsembleWeightsEntity::class, ProactiveAuditLedgerEntity::class],
-    version = 7,
+        EnsembleWeightsEntity::class, ProactiveAuditLedgerEntity::class,
+        PatternLedgerEntity::class, PatternSgdWeightsEntity::class],
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -38,6 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun decisionRecordDao(): DecisionRecordDao
     abstract fun ensembleWeightsDao(): EnsembleWeightsDao
     abstract fun proactiveAuditLedgerDao(): ProactiveAuditLedgerDao
+    abstract fun patternLedgerDao(): PatternLedgerDao
 
     companion object {
         @Volatile
@@ -100,13 +102,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the §73 pattern ledger and its SGD heads (C-23).
+         *
+         * Its own tables, never new columns on `predictions`: the price ledger is the
+         * unmodified baseline the pattern ledger is mounted beside.
+         */
+        internal val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(PatternLedgerSchema.DDL)
+                db.execSQL(PatternLedgerSchema.WEIGHTS_DDL)
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "alphapulse_db"
-                ).addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                ).addMigrations(
+                    MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
+                )
                     .fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance

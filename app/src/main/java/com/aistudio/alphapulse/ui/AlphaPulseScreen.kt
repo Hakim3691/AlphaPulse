@@ -138,6 +138,16 @@ fun AlphaPulseScreen(
                     decisionHistory = uiState.decisionHistory
                 )
 
+                // §73 Secondary Pattern Prediction & Learning Ledger. Mounted directly
+                // below the price ledger, sharing its asset scope and horizon filter so
+                // both tables count down to the same phase-locked boundaries.
+                PatternLedgerSection(
+                    entries = uiState.patternLedger,
+                    horizonFilter = uiState.horizonFilter,
+                    onFilterChange = { viewModel.setHorizonFilter(it) },
+                    onClearClick = { viewModel.clearPatternLedger() }
+                )
+
                 // Campaign boards plus their live entry / take-profit orders. This is
                 // the only place an operator can see or cancel a staged Binance order.
                 if (campaignViewModel != null && campaignState != null) {
