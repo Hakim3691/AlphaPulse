@@ -139,7 +139,7 @@ object PatternLedgerEngine {
         val found = PatternClassifier.classify(series, horizon).firstOrNull() ?: return null
         // The formation stays the classifier's; the models may only move the prior.
         val aligned = alignment(found, series, forecast)
-        val match = applyForecast(found, aligned, forecast)
+        val match = applyForecast(found, aligned)
         val target = targetTimestamp(nowMs, horizon)
 
         return PatternLedgerEntry(
@@ -194,12 +194,8 @@ object PatternLedgerEngine {
      * one loses [PatternForecastEvidence.CONTRADICTION_PENALTY]. The result stays inside the
      * classifier's own confidence contract, and an undecided ensemble changes nothing.
      */
-    fun applyForecast(
-        match: PatternMatch,
-        aligned: Boolean?,
-        forecast: PatternForecastEvidence
-    ): PatternMatch {
-        if (!forecast.available || aligned == null) return match
+    fun applyForecast(match: PatternMatch, aligned: Boolean?): PatternMatch {
+        if (aligned == null) return match
         val delta = if (aligned) {
             PatternForecastEvidence.AGREEMENT_BONUS
         } else {

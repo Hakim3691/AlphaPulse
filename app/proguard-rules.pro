@@ -1,21 +1,26 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
+# C-27 — release shrinking rules.
 #
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# R8 renames and removes everything it can prove is unreferenced. That is the
+# point: the shipped APK must not carry dead code, unused resources or debug
+# symbols. These rules are deliberately limited to the two places where a name is
+# looked up outside the Java call graph.
+#
+# Every application class is reached statically (Compose, Room's generated DAOs,
+# OkHttp, Moshi's built-in Map adapter), so none of them is kept by name. Adding a
+# blanket keep of the application package here would silently disable the shrinking
+# this file exists to protect, and BuildContractBddSpec fails if it returns.
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# ONNX Runtime's Java API is reached from its native library by name.
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# The Cactus Needle 3 engine is invoked through JNI: the native side resolves the
+# declaring class and each external method by name, so both must survive renaming.
+-keep class com.aistudio.alphapulse.domain.decision.Needle3Jni { *; }
+-keepclasseswithmembernames,includedescriptorclasses class * { native <methods>; }
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Keep annotations (Room/Moshi read them at runtime where generated code asks).
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+
+# The native model files are assets, not resources; nothing may strip or rename them.
+-keepdirectories assets

@@ -1444,7 +1444,7 @@ class AlphaPulseRepository(
      * ensemble (all shares still at zero) averages the models that did answer. No model,
      * no evidence: the row records that instead of a synthetic drift.
      */
-    internal fun patternForecastFor(
+    private fun patternForecastFor(
         forecasts: Map<String, TsfmForecast>,
         modelState: ModelState,
         spot: Double,
