@@ -31,6 +31,8 @@ import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
 import com.aistudio.alphapulse.di.ServiceLocator
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
+import com.aistudio.alphapulse.domain.strategy.ScreenerSignal
+import com.aistudio.alphapulse.domain.strategy.StrategySignal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -105,6 +107,13 @@ data class AlphaPulseUiState(
      * baseline, so the secondary table must never be merged into it.
      */
     val patternLedger: List<PatternLedgerEntry> = emptyList(),
+
+    /**
+     * §74 auxiliary confluence screeners and quantitative strategy verdicts for the
+     * snapshot on screen. Computed once per evaluation on the same bars as the ledgers.
+     */
+    val screenerSignals: List<ScreenerSignal> = emptyList(),
+    val strategySignals: List<StrategySignal> = emptyList(),
     val showRefreshDialog: Boolean = false,
     val snackbarMessage: String? = null,
     val modelDownloads: Map<String, ModelDownloadState> = emptyMap(),
@@ -528,6 +537,8 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                                 chartPoints = result.chartPoints,
                                 executiveBrief = result.executiveBrief,
                                 decision = result.decision,
+                                screenerSignals = result.screenerSignals,
+                                strategySignals = result.strategySignals,
                                 modelState = currentModel.copy()
                             )
                         }

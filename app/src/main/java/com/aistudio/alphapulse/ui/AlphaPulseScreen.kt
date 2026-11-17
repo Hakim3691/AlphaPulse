@@ -148,6 +148,13 @@ fun AlphaPulseScreen(
                     onClearClick = { viewModel.clearPatternLedger() }
                 )
 
+                // §74 Auxiliary Confluence Screeners & Quant Models. Evaluated on the same
+                // bars as the ledgers above, so the board never disagrees about history.
+                QuantStrategyBoardSection(
+                    screenerSignals = uiState.screenerSignals,
+                    strategySignals = uiState.strategySignals
+                )
+
                 // Campaign boards plus their live entry / take-profit orders. This is
                 // the only place an operator can see or cancel a staged Binance order.
                 if (campaignViewModel != null && campaignState != null) {
