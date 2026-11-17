@@ -247,6 +247,8 @@ jobs:
         with:
           # Deliberately not a v* tag: this is a rebuild marker, not a new product version.
           tag_name: rollback-${{ github.event.inputs.target_tag }}-r${{ github.run_number }}
+          # The tag must point at the source that was rebuilt, not at main's HEAD.
+          target_commitish: ${{ github.event.inputs.target_tag }}
           name: Rollback to ${{ github.event.inputs.target_tag }} (versionCode ${{ github.event.inputs.version_code }})
           make_latest: true
           draft: false
