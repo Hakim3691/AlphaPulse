@@ -6,7 +6,11 @@ package com.aistudio.alphapulse.ui
  * It lays the header on top, then the workspace cards, then the expandable
  * explanation panels, and wires them all to one shared view model.
  *
- * Spec Ref: §39 User Interface, §40 Primary Dashboard
+ * Scope: this screen renders AlphaPulse only. The ProactiveMS campaign and live-order
+ * workspace is a different product surface and is deliberately not mounted here (C-22);
+ * a tab must never show another workstation's boards inside the AlphaPulse ledger flow.
+ *
+ * Spec Ref: §39 User Interface, §40 Primary Dashboard, C-22
  */
 
 import androidx.compose.foundation.background
@@ -18,7 +22,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.aistudio.alphapulse.data.model.ExecutionMode
 import com.aistudio.alphapulse.domain.decision.Needle3Engine
 import com.aistudio.alphapulse.ui.components.*
 import com.aistudio.alphapulse.ui.theme.BrandDark
@@ -26,12 +29,9 @@ import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 
 @Composable
 fun AlphaPulseScreen(
-    viewModel: AlphaPulseViewModel,
-    /** Campaign engine + live order routing; absent only in previews/tests. */
-    campaignViewModel: MainViewModel? = null
+    viewModel: AlphaPulseViewModel
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val campaignState = campaignViewModel?.uiState?.collectAsStateWithLifecycle()?.value
     val scrollState = rememberScrollState()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -154,28 +154,6 @@ fun AlphaPulseScreen(
                     screenerSignals = uiState.screenerSignals,
                     strategySignals = uiState.strategySignals
                 )
-
-                // Campaign boards plus their live entry / take-profit orders. This is
-                // the only place an operator can see or cancel a staged Binance order.
-                if (campaignViewModel != null && campaignState != null) {
-                    CampaignWorkspaceSection(
-                        campaigns = campaignState.campaigns,
-                        selectedCampaignId = campaignState.selectedCampaign?.id,
-                        executionMode = campaignState.executionMode,
-                        liveOrderRecords = campaignState.liveOrderRecords,
-                        openClientOrderIds = campaignState.liveOpenClientIds,
-                        lastReconcile = campaignState.lastReconcile,
-                        onSelectCampaign = { campaignViewModel.selectCampaign(it) },
-                        onOpenOverride = { campaignViewModel.openManualOverrideDialog(it) },
-                        onSoftCancel = { campaignViewModel.triggerSoftCancel(it) },
-                        onHardFlatten = { campaignViewModel.triggerHardFlatten(it) },
-                        onCancelLiveOrder = { campaignViewModel.cancelLiveOrder(it) },
-                        canResync = campaignState.executionMode == ExecutionMode.CAPPED_LIVE ||
-                            campaignState.executionMode == ExecutionMode.SCALED_LIVE,
-                        onResync = { campaignViewModel.resyncLiveOrders() }
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 

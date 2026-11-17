@@ -43,7 +43,26 @@ AlphaPulse is engineered to bring desktop-grade quantitative research, order-boo
 
 ## 📜 Changelog of Implemented Features
 
-### 🟢 Version 14.3 (Current Release)
+The authoritative, release-by-release record is [`CHANGELOG.md`](./CHANGELOG.md); every
+`v*` release publishes its newest section as the GitHub Release body. The summary below is
+the current release at a glance.
+
+### 🟢 Version 14.4 (Current Release)
+- **TSFM ensemble in the Pattern Prediction & Learning Ledger**:
+  - Every pattern horizon records the mounted **Chronos-Bolt** and/or **TimesFM** forecast (`tsfmProvider`, `tsfmDriftPct`, `tsfmAligned`) from the same inference pass that feeds the price ledger.
+  - The formation remains the deterministic classifier's; the ensemble moves only the prior, within the bounded agreement bonus / contradiction penalty. No model, no claim.
+  - Room schema v9 through the additive production 8 -> 9 migration.
+- **§3 board on real history**:
+  - The screeners and nine quant models now read a dedicated 500-bar 1m series from Binance's `/fapi/v1/klines` (the same source as the price ledger), so MACD, Triple Screen and the 60-bar breakout compute instead of reporting "Needs N bars".
+  - Opening Range Breakout anchors on the current UTC session; a failed fetch reuses the cached series, never synthetic candles.
+- **AlphaPulse tab is AlphaPulse only**:
+  - The ProactiveMS campaign / live-order workspace is no longer mounted inside `AlphaPulseScreen`; the tab shows the AlphaPulse header, workspace cards, ledgers, §3 board and model dock only (C-22).
+- **Rollback strategy**:
+  - [`.github/workflows/rollback.yml`](./.github/workflows/rollback.yml) rebuilds a verified tag at a higher versionCode, verifies both APKs and the pinned checkpoint, and publishes it as the latest release (C-26).
+- **Changelog automation**:
+  - Release bodies are composed from [`CHANGELOG.md`](./CHANGELOG.md); they no longer publish a bare compare link.
+
+### 🟢 Version 14.3
 - **Strict 5-Decimal Price Precision Standard**:
   - Implemented centralized `Formatters.formatPrice5Dec()` and `Formatters.formatRawPrice5Dec()`.
   - Applied formatting across all Composables, Canvas charts, audit ledgers, drawer notifications, and CSV generators.
@@ -76,7 +95,7 @@ AlphaPulse is engineered to bring desktop-grade quantitative research, order-boo
   - The prediction audit exports (CSV, JSON, line-per-record) attribute each row to the verdict recorded in its cycle; an uncalibrated verdict reads `UNSCORED` instead of a misleading `0.00`, and a cycle with no recorded verdict leaves the decision columns empty rather than borrowing another symbol's route.
   - The ledger shows the newest five verdicts for the selected asset — time, state, confidence, answering router and reason — read from the same table the export joins on, so the log on screen and a CSV row always agree.
 - **Finalized-Contract Guard**:
-  - [`FINALIZED_CONTRACTS.md`](./FINALIZED_CONTRACTS.md) records sixteen finalized decisions with the guard spec that proves each one; `FinalizedContractGuardBddSpec` fails the build if a contract is deleted, a guard spec disappears, the pinned checkpoint drifts, a removed remote router returns, or the documented CI gates stop running.
+  - [`FINALIZED_CONTRACTS.md`](./FINALIZED_CONTRACTS.md) records twenty-six finalized decisions with the guard spec that proves each one; `FinalizedContractGuardBddSpec` fails the build if a contract is deleted, a guard spec disappears, the pinned checkpoint drifts, a removed remote router returns, or the documented CI gates stop running.
   - `scripts/check_integrity.py` repeats the registry cross-check, so CI and the pre-commit hook catch drift even without Gradle.
 
 ---
@@ -139,6 +158,22 @@ to be reminded of it:
    packaged-weights verification → the published model-artifact contract, then
    publishes a GitHub Release from the verified artifacts; a `v*` tag publishes a
    versioned release.
+
+### Rolling back a release
+
+A rollback is a release, never a branch reset or a downgrade. Android refuses to install a
+lower `versionCode`, so reverting the merge would not reach an installed device:
+
+1. Open **Actions → Rollback Release → Run workflow**.
+2. Supply `target_tag` (an existing, verified `v*` tag), `version_code` (must be greater than
+the newest published release's versionCode — the job reads it from the published APK and
+refuses anything lower) and `reason`.
+3. The job rebuilds both arm64-v8a APKs from that tag, bundles and verifies the pinned
+Needle 3 checkpoint, proves the requested versionCode and ABI in both APKs, then publishes
+`rollback-<tag>-r<run>` and marks it **latest**.
+
+The workflow is guarded by `RollbackWorkflowBddSpec` (C-26); it never force-pushes, moves a
+tag or deletes history.
 
 ### Local Commands
 ```bash

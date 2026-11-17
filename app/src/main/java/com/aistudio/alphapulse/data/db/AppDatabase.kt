@@ -24,7 +24,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ModelRegistryEntity::class, SessionEntity::class, DecisionRecordEntity::class,
         EnsembleWeightsEntity::class, ProactiveAuditLedgerEntity::class,
         PatternLedgerEntity::class, PatternSgdWeightsEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -115,6 +115,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Adds the TSFM evidence columns the pattern ledger now records (C-25).
+         *
+         * The price ledger already stores the mounted models' drift terms; the pattern
+         * ledger needs the same provenance so a row says which model spoke and whether it
+         * agreed. Additive ALTERs only - no row is rewritten, no price column is touched.
+         */
+        internal val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                PatternLedgerSchema.MIGRATION_8_9_SQL.forEach { db.execSQL(it) }
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -122,7 +135,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "alphapulse_db"
                 ).addMigrations(
-                    MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8
+                    MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
+                    MIGRATION_8_9
                 )
                     .fallbackToDestructiveMigration().build()
                 INSTANCE = instance

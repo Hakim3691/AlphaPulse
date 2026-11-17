@@ -71,8 +71,8 @@ class EnsembleWeightsMigrationBddSpec {
         val raw = upgraded.openHelper.writableDatabase
 
         assertEquals(
-            "Room must record the upgraded version (schema 8 adds the §73 pattern ledger)",
-            8,
+            "Room must record the upgraded version (schema 9 adds the pattern ledger's TSFM evidence)",
+            9,
             queryInt(raw, "PRAGMA user_version")
         )
         assertEquals(
@@ -184,7 +184,8 @@ class EnsembleWeightsMigrationBddSpec {
             builder.addMigrations(
                 AppDatabase.MIGRATION_5_6,
                 AppDatabase.MIGRATION_6_7,
-                AppDatabase.MIGRATION_7_8
+                AppDatabase.MIGRATION_7_8,
+                AppDatabase.MIGRATION_8_9
             )
         }
         return builder.build()

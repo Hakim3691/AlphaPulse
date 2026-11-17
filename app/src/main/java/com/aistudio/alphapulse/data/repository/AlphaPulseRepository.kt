@@ -41,6 +41,7 @@ import com.aistudio.alphapulse.domain.quant.QuantMath
 import com.aistudio.alphapulse.domain.ml.TsfmInput
 import com.aistudio.alphapulse.domain.quant.QuantNarrativeAgent
 import com.aistudio.alphapulse.domain.pattern.PatternCandle
+import com.aistudio.alphapulse.domain.pattern.PatternForecastEvidence
 import com.aistudio.alphapulse.domain.pattern.PatternHorizon
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEngine
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
@@ -96,6 +97,16 @@ private const val PATTERN_LEDGER_RETENTION = 500
 /** Bars requested per horizon for pattern classification (enough for hourly structure). */
 private const val PATTERN_KLINE_LIMIT = 60
 
+/**
+ * 1m bars requested for the §74 screener / strategy board.
+ *
+ * Sixty is MACD's minimum and Triple Screen needs fifty-two; the board was previously fed
+ * the 40-bar forecast snapshot, so those models could only ever answer "Needs N bars".
+ * Five hundred bars covers every rule's own lookback (the longest is 60) and still fits in
+ * one Binance klines response.
+ */
+private const val STRATEGY_KLINE_LIMIT = 500
+
 /** Klines per calibration request; Binance Futures allows at most 1500. */
 private const val CALIBRATION_PAGE_SIZE = 1000
 
@@ -139,6 +150,16 @@ class AlphaPulseRepository(
     private data class CachedPatternSeries(val fetchedAt: Long, val candles: List<PatternCandle>)
 
     private val patternSeriesCache = HashMap<String, CachedPatternSeries>()
+
+    /** The §74 board's shared bar series: one symbol at a time, refreshed once per minute. */
+    private data class CachedStrategySeries(
+        val symbol: String,
+        val fetchedAt: Long,
+        val candles: List<StrategyCandle>
+    )
+
+    @Volatile
+    private var strategySeriesCache: CachedStrategySeries? = null
 
     val allPredictionsFlow: Flow<List<PredictionEntity>> = database.predictionDao().getAllPredictionsFlow()
     fun getPredictionsBySymbolFlow(symbol: String): Flow<List<PredictionEntity>> =
@@ -854,10 +875,6 @@ class AlphaPulseRepository(
         // Audit maturing predictions in Room & Online SGD
         auditAndSelfTrain(symbol, currentSpot, modelState)
 
-        // §73: the secondary pattern ledger runs its own pipeline. It shares the asset and
-        // the phase-locked horizon clocks with the price ledger above, never its rows.
-        runPatternLedger(symbol)
-
         // Microstructure & Technical indicators
         val closes = klines.map { it.close }
         val rsi = QuantMath.computeRSI(closes, 14)
@@ -914,6 +931,13 @@ class AlphaPulseRepository(
             forecasts
         } else {
             emptyMap()
+        }
+
+        // §73 + §16: the pattern ledger scores the same mounted ensemble on this same
+        // inference pass. One network call and one model pass feed both ledgers, and a
+        // horizon with no mounted model records that instead of inventing a drift.
+        runPatternLedger(symbol, now) { horizon ->
+            patternForecastFor(tsfmForecasts, modelState, currentSpot, horizon)
         }
 
         val forecastTargets = mutableListOf<ForecastTarget>()
@@ -1221,11 +1245,11 @@ class AlphaPulseRepository(
         )
         database.decisionRecordDao().prune(symbol, DECISION_RECORD_RETENTION)
 
-        // §74: the auxiliary library runs on the bars this snapshot already fetched - no
-        // extra request, and no chance of the board seeing different history than the ledgers.
-        val strategyCandles = klines.map {
-            StrategyCandle(it.openTime, it.open, it.high, it.low, it.close, it.volume)
-        }
+        // §74: the screeners and models need more history than the 40-bar forecast
+        // snapshot provides, so they read a dedicated 1m series from the same Binance
+        // klines source. On a fetch failure the cached series (or this snapshot) is used;
+        // a rule with too little history still reports NEUTRAL rather than a guess.
+        val strategyCandles = strategySeries(symbol, now, klines)
 
         AssetEvaluationResult(
             spotPrice = currentSpot,
@@ -1335,7 +1359,12 @@ class AlphaPulseRepository(
      * evaluation loop does not turn into five REST calls per tick. Settlement and issuing
      * are deliberately per horizon: one horizon's thin data cannot stall another's clock.
      */
-    suspend fun runPatternLedger(symbol: String, now: Long = System.currentTimeMillis()) {
+    suspend fun runPatternLedger(
+        symbol: String,
+        now: Long = System.currentTimeMillis(),
+        /** The mounted ensemble's evidence for a horizon; NONE when nothing is mounted. */
+        forecastFor: (PatternHorizon) -> PatternForecastEvidence = { PatternForecastEvidence.NONE }
+    ) {
         val asset = symbol.removeSuffix("USDT")
         val dao = database.patternLedgerDao()
 
@@ -1391,13 +1420,66 @@ class AlphaPulseRepository(
             // One open prediction per horizon: the previous one must settle first.
             val stillOpen = dao.openFor(asset, horizon.id)
             if (stillOpen.none { it.targetTime > now }) {
-                PatternLedgerEngine.issue(symbol, series, horizon, now)?.let { entry ->
+                PatternLedgerEngine.issue(
+                    symbol = symbol,
+                    candles = series,
+                    horizon = horizon,
+                    nowMs = now,
+                    forecast = forecastFor(horizon)
+                )?.let { entry ->
                     dao.insert(PatternLedgerEntity.from(entry))
                 }
             }
         }
 
         dao.prune(asset, PATTERN_LEDGER_RETENTION)
+    }
+
+    /**
+     * The mounted TSFM ensemble's weighted read for one pattern horizon.
+     *
+     * Both models contribute their own median forecast at the horizon, weighted by the
+     * ensemble shares the price ledger learned for this symbol (§20). A model that is
+     * mounted but produced no forecast is absent rather than zero, and an uncalibrated
+     * ensemble (all shares still at zero) averages the models that did answer. No model,
+     * no evidence: the row records that instead of a synthetic drift.
+     */
+    internal fun patternForecastFor(
+        forecasts: Map<String, TsfmForecast>,
+        modelState: ModelState,
+        spot: Double,
+        horizon: PatternHorizon
+    ): PatternForecastEvidence {
+        val chronos = forecasts[EnsembleWeighting.CHRONOS_ID]
+            ?.driftPerMinute(spot, horizon.minutes)
+        val timesFm = forecasts[EnsembleWeighting.TIMESFM_ID]
+            ?.driftPerMinute(spot, horizon.minutes)
+        if (chronos == null && timesFm == null) return PatternForecastEvidence.NONE
+
+        var weighted = 0.0
+        var weight = 0.0
+        if (chronos != null) {
+            val share = max(0.0, modelState.weight4)
+            weighted += chronos * share
+            weight += share
+        }
+        if (timesFm != null) {
+            val share = max(0.0, modelState.weight5)
+            weighted += timesFm * share
+            weight += share
+        }
+        val perMinute = if (weight > 1e-9) {
+            weighted / weight
+        } else {
+            listOfNotNull(chronos, timesFm).average()
+        }
+        val driftPct = (exp(perMinute * horizon.minutes) - 1.0) * 100.0
+        val provider = when {
+            chronos != null && timesFm != null -> "chronos+timesfm"
+            chronos != null -> "chronos"
+            else -> "timesfm"
+        }
+        return PatternForecastEvidence(provider = provider, driftPct = driftPct)
     }
 
     /**
@@ -1436,6 +1518,54 @@ class AlphaPulseRepository(
 
         if (fetched.isNotEmpty()) patternSeriesCache[key] = CachedPatternSeries(now, fetched)
         return fetched
+    }
+
+    /**
+     * The shared 1m series the §74 board evaluates, refreshed at most once per bar.
+     *
+     * It comes from the same `/fapi/v1/klines` endpoint the price ledger and the audit
+     * calibration use, so the board can never disagree with them about history. A failed
+     * fetch reuses the previous series for the same symbol, then this snapshot's own bars;
+     * the rules decide for themselves that too little history means NEUTRAL.
+     */
+    private suspend fun strategySeries(
+        symbol: String,
+        now: Long,
+        fallback: List<KlineData>
+    ): List<StrategyCandle> {
+        val cached = strategySeriesCache?.takeIf { it.symbol == symbol }
+        if (cached != null && now - cached.fetchedAt < 60_000L) return cached.candles
+
+        val fetched = try {
+            val array = client.getJsonArray(
+                "/fapi/v1/klines?symbol=$symbol&interval=1m&limit=$STRATEGY_KLINE_LIMIT"
+            )
+            (0 until array.length()).map { index ->
+                val bar = array.getJSONArray(index)
+                StrategyCandle(
+                    openTime = bar.getLong(0),
+                    open = bar.getDouble(1),
+                    high = bar.getDouble(2),
+                    low = bar.getDouble(3),
+                    close = bar.getDouble(4),
+                    volume = bar.getDouble(5)
+                )
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val series = when {
+            fetched.isNotEmpty() -> fetched
+            cached != null -> cached.candles
+            else -> fallback.map {
+                StrategyCandle(it.openTime, it.open, it.high, it.low, it.close, it.volume)
+            }
+        }
+        if (series.isNotEmpty()) {
+            strategySeriesCache = CachedStrategySeries(symbol, now, series)
+        }
+        return series
     }
 
     /**
