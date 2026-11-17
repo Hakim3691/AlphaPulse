@@ -595,7 +595,13 @@ jobs:
         # (which cannot be mapped), a wrong size or a wrong digest.
         run: ./gradlew :app:verifyPackagedWeights --console=plain
 
+      # Artifact storage is metered per billing cycle and can refuse an upload even
+      # when the repo holds nothing (GitHub accrues GB-hours; deleting never refunds
+      # them). The uploads stay contract-exact - a missing APK is still fatal - but a
+      # quota refusal must not destroy a fully verified build, because the tag release
+      # below has a second, quota-independent transport for the same two files.
       - name: Upload debug APK (arm64-v8a)
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           # One artifact per build type, so only the APK that is needed is downloaded.
@@ -608,6 +614,7 @@ jobs:
       - name: Upload release APK (arm64-v8a)
         # A manual debug-only run has no release APK; pushes and tags always do.
         if: ${{ hashFiles('app/build/outputs/apk/release/app-arm64-v8a-release.apk') != '' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: alphapulse-arm64-v8a-release
@@ -615,6 +622,19 @@ jobs:
           # A missing APK must fail the job, never ship a release with one asset.
           if-no-files-found: error
           retention-days: 30
+
+      # Cache storage is a separate 10 GB per-repo allowance and is not billed against
+      # the artifact quota, so this is the delivery path that still works when artifact
+      # storage is exhausted. Same run, same verified bytes, keyed to the commit and
+      # attempt so a re-run never restores a stale APK.
+      - name: Stash the verified APKs for the release job
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/cache/save@v4
+        with:
+          key: release-apks-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+            app/build/outputs/apk/release/app-arm64-v8a-release.apk
 
   # =========================================================================
   # JOB 3: Automatic GitHub Release (Triggers only on pushed tags, e.g. v1.0.0)
@@ -645,9 +665,23 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Restore the verified APKs stashed by the build job
+        # Quota-independent transport: the build job saved the same two APKs to the
+        # Actions cache. Restored before the artifact download so the completeness
+        # gate below can use whichever path produced files.
+        uses: actions/cache/restore@v4
+        with:
+          key: release-apks-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+            app/build/outputs/apk/release/app-arm64-v8a-release.apk
+
       - name: Download the arm64-v8a APK artifacts
         # Both per-build-type artifacts, merged flat; whichever build type ran is
-        # what gets attached to the release.
+        # what gets attached to the release. Advisory, because artifact storage can
+        # refuse the upload; the cache restore above then supplies the same files and
+        # the completeness gate still decides whether publishing is allowed.
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: alphapulse-arm64-v8a-*
@@ -659,6 +693,15 @@ jobs:
         # step succeeds even when one artifact is absent, so the published release
         # was previously missing an asset without any job turning red.
         run: |
+          # Harvest both transports into one directory: artifact download first, then
+          # the cache-restored build output. Neither is trusted - the check below is.
+          mkdir -p release-apks
+          for apk in app-arm64-v8a-debug.apk app-arm64-v8a-release.apk; do
+            [ -s "release-apks/$apk" ] && continue
+            for candidate in "app/build/outputs/apk/debug/$apk" "app/build/outputs/apk/release/$apk"; do
+              if [ -s "$candidate" ]; then cp "$candidate" "release-apks/$apk"; break; fi
+            done
+          done
           missing=0
           for apk in app-arm64-v8a-debug.apk app-arm64-v8a-release.apk; do
             if [ ! -s "release-apks/$apk" ]; then
