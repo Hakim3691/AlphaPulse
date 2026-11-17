@@ -281,23 +281,30 @@ jobs:
                   f.write("The `jacocoCoverageGate` task fails the run if domain-logic coverage drops below its recorded floor.\n")
           EOF
 
+      # Advisory only: the coverage GATE is the jacocoCoverageGate task above, which
+      # stays blocking. Shipping this report is a convenience, so a storage-quota
+      # refusal must not sink a run whose tests and coverage gate already passed.
       - name: Upload Coverage Report Artifact
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: coverage-api-${{ matrix.api-level }}-${{ github.sha }}
           path: app/build/reports/jacoco/jacocoTestReport/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
+      # Advisory only: the test gate is the Gradle run above. The XML report is a
+      # debugging convenience and must never decide whether the pipeline is green.
       - name: Upload Test Reports Artifact
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-api-${{ matrix.api-level }}-${{ github.sha }}
           path: app/build/**/test-results/**/*.xml
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
 
   # =========================================================================
   # JOB 2: Build & Package APK (Only runs if ALL test jobs succeed)
@@ -747,8 +754,11 @@ jobs:
               sys.exit("::error::Published ONNX graphs did not both pass")
           EOF
 
+      # Advisory only: both ONNX graphs have already executed above, and that is the
+      # gate. The XML copy is a report, not a verification, so it cannot fail the job.
       - name: Upload Contract Report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: model-artifact-contract-${{ github.sha }}
@@ -756,4 +766,4 @@ jobs:
             app/build/test-results/testDebugUnitTest/TEST-*ModelArtifactSourceContractTest.xml
             app/build/test-results/testDebugUnitTest/TEST-*OnnxModelParityTest.xml
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7
