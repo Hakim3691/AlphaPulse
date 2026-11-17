@@ -31,6 +31,7 @@ import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.ui.model.AppMode
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
 import com.aistudio.alphapulse.di.ServiceLocator
+import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -97,6 +98,14 @@ data class AlphaPulseUiState(
     val isHTFReady: Boolean = false,
     val horizonFilter: String = "ALL",
     val predictions: List<PredictionEntity> = emptyList(),
+
+    /**
+     * §73: the selected asset's pattern predictions, in boundary order.
+     *
+     * A separate list from [predictions] on purpose — the price ledger is the unmodified
+     * baseline, so the secondary table must never be merged into it.
+     */
+    val patternLedger: List<PatternLedgerEntry> = emptyList(),
     val showRefreshDialog: Boolean = false,
     val appMode: AppMode = AppMode.ALPHA_PULSE,
     val snackbarMessage: String? = null,
@@ -148,6 +157,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         startSessionTimer()
         observePredictions()
         observeDecisionHistory()
+        observePatternLedger()
         observeWebSocketTelemetry()
         bootPipeline()
     }
@@ -321,6 +331,37 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                         _uiState.update { it.copy(decisionHistory = records) }
                     }
                 }
+        }
+    }
+
+    /**
+     * §73: follow the selected asset's pattern ledger.
+     *
+     * Same symbol-switch semantics as the decision history: a new asset cancels the previous
+     * query instead of mixing two assets' predictions in one table.
+     */
+    private fun observePatternLedger() {
+        viewModelScope.launch {
+            uiState
+                .map { it.selectedSymbol }
+                .distinctUntilChanged()
+                .collectLatest { symbol ->
+                    if (symbol.isBlank()) {
+                        _uiState.update { it.copy(patternLedger = emptyList()) }
+                        return@collectLatest
+                    }
+                    repository.patternLedgerFlow(symbol).collect { rows ->
+                        _uiState.update { it.copy(patternLedger = rows) }
+                    }
+                }
+        }
+    }
+
+    /** Clears the pattern table and its learned heads; the price ledger is untouched. */
+    fun clearPatternLedger() {
+        viewModelScope.launch {
+            repository.clearPatternLedger()
+            _uiState.update { it.copy(patternLedger = emptyList()) }
         }
     }
 

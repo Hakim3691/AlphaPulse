@@ -64,15 +64,15 @@ class EnsembleWeightsMigrationBddSpec {
     }
 
     @Test
-    fun `given a version 5 database when opened at version 6 then the weights table is created and existing rows survive`() = runBlocking {
+    fun `given a version 5 database when opened at the current version then the weights table is created and existing rows survive`() = runBlocking {
         writeVersion5Database()
 
-        val upgraded = openVersion6(addMigration = true)
+        val upgraded = openAtCurrentVersion(addMigration = true)
         val raw = upgraded.openHelper.writableDatabase
 
         assertEquals(
-            "Room must record the upgraded version",
-            7,
+            "Room must record the upgraded version (schema 8 adds the §73 pattern ledger)",
+            8,
             queryInt(raw, "PRAGMA user_version")
         )
         assertEquals(
@@ -106,7 +106,7 @@ class EnsembleWeightsMigrationBddSpec {
     fun `given an upgraded database when calibration weights are written then they survive a reopen`() = runBlocking {
         writeVersion5Database()
 
-        val upgraded = openVersion6(addMigration = true)
+        val upgraded = openAtCurrentVersion(addMigration = true)
         val expected = EnsembleWeightsEntity(
             compositeKey = "BTCUSDT#15m",
             symbol = "BTCUSDT",
@@ -123,7 +123,7 @@ class EnsembleWeightsMigrationBddSpec {
         assertEquals(1, upgraded.ensembleWeightsDao().getForSymbol("BTCUSDT").size)
         upgraded.close()
 
-        val reopened = openVersion6(addMigration = true)
+        val reopened = openAtCurrentVersion(addMigration = true)
         val rows = reopened.ensembleWeightsDao().getForSymbol("BTCUSDT")
 
         assertEquals("The calibration must still be there after a restart", 1, rows.size)
@@ -157,6 +157,11 @@ class EnsembleWeightsMigrationBddSpec {
                 "VALUES ('seed-1', 'BTCUSDT', 1700000000000, 'LONG', 0.5, 'DETERMINISTIC', '15m', 'seeded')"
         )
         raw.execSQL("DROP TABLE `ensemble_weights`")
+        // Version 5 predates the §71 and §73 ledgers too; the 6->7 and 7->8 migrations
+        // must recreate them, which is what makes this a real upgrade of the whole schema.
+        raw.execSQL("DROP TABLE `proactive_audit_ledger`")
+        raw.execSQL("DROP TABLE `pattern_ledger`")
+        raw.execSQL("DROP TABLE `pattern_sgd_weights`")
         raw.execSQL("PRAGMA user_version = 5")
 
         assertEquals(5, queryInt(raw, "PRAGMA user_version"))
@@ -168,14 +173,20 @@ class EnsembleWeightsMigrationBddSpec {
     }
 
     /**
-     * Open at version 6. With [addMigration] false the production migration is
-     * withheld, which is how the pre-upgrade assertion proves the file really is
-     * version 5 rather than a database that silently appeared at 6.
+     * Open at the current schema version. With [addMigration] false the production
+     * migrations are withheld, which is how the pre-upgrade assertion proves the file
+     * really is version 5 rather than a database that silently appeared at the current one.
      */
-    private fun openVersion6(addMigration: Boolean): AppDatabase {
+    private fun openAtCurrentVersion(addMigration: Boolean): AppDatabase {
         val builder = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
             .allowMainThreadQueries()
-        if (addMigration) builder.addMigrations(AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7)
+        if (addMigration) {
+            builder.addMigrations(
+                AppDatabase.MIGRATION_5_6,
+                AppDatabase.MIGRATION_6_7,
+                AppDatabase.MIGRATION_7_8
+            )
+        }
         return builder.build()
     }
 

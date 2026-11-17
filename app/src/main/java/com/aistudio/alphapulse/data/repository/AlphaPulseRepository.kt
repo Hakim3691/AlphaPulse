@@ -4,6 +4,8 @@ import android.util.Log
 import com.aistudio.alphapulse.data.db.AppDatabase
 import com.aistudio.alphapulse.data.db.DecisionRecordEntity
 import com.aistudio.alphapulse.data.db.EnsembleWeightsEntity
+import com.aistudio.alphapulse.data.db.PatternLedgerEntity
+import com.aistudio.alphapulse.data.db.PatternSgdWeightsEntity
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.db.ScreenedCoinEntity
 import com.aistudio.alphapulse.data.model.*
@@ -38,12 +40,19 @@ import com.aistudio.alphapulse.domain.quant.TradeTapeAnalyzer
 import com.aistudio.alphapulse.domain.quant.QuantMath
 import com.aistudio.alphapulse.domain.ml.TsfmInput
 import com.aistudio.alphapulse.domain.quant.QuantNarrativeAgent
+import com.aistudio.alphapulse.domain.pattern.PatternCandle
+import com.aistudio.alphapulse.domain.pattern.PatternHorizon
+import com.aistudio.alphapulse.domain.pattern.PatternLedgerEngine
+import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
+import com.aistudio.alphapulse.domain.pattern.PatternSgdModel
+import com.aistudio.alphapulse.domain.pattern.PatternTaxonomy
 import com.aistudio.alphapulse.service.AlphaPulseService
 import com.aistudio.alphapulse.core.Formatters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -75,6 +84,12 @@ private const val DECISION_RECORD_RETENTION = 10_000
 
 /** Verdicts the on-screen decision log holds; the ledger itself keeps far more. */
 private const val DECISION_HISTORY_LIMIT = 50
+
+/** Pattern rows kept per asset; five horizons issue continuously, so the table needs a bound. */
+private const val PATTERN_LEDGER_RETENTION = 500
+
+/** Bars requested per horizon for pattern classification (enough for hourly structure). */
+private const val PATTERN_KLINE_LIMIT = 60
 
 /** Klines per calibration request; Binance Futures allows at most 1500. */
 private const val CALIBRATION_PAGE_SIZE = 1000
@@ -115,6 +130,11 @@ class AlphaPulseRepository(
      */
     private val calibrationOrchestrator: CoinCalibrationOrchestrator = CoinCalibrationOrchestrator()
 ) {
+    /** One horizon's cached bars, refreshed at most once per bar (§73). */
+    private data class CachedPatternSeries(val fetchedAt: Long, val candles: List<PatternCandle>)
+
+    private val patternSeriesCache = HashMap<String, CachedPatternSeries>()
+
     val allPredictionsFlow: Flow<List<PredictionEntity>> = database.predictionDao().getAllPredictionsFlow()
     fun getPredictionsBySymbolFlow(symbol: String): Flow<List<PredictionEntity>> =
         database.predictionDao().getPredictionsBySymbolFlow(symbol)
@@ -829,6 +849,10 @@ class AlphaPulseRepository(
         // Audit maturing predictions in Room & Online SGD
         auditAndSelfTrain(symbol, currentSpot, modelState)
 
+        // §73: the secondary pattern ledger runs its own pipeline. It shares the asset and
+        // the phase-locked horizon clocks with the price ledger above, never its rows.
+        runPatternLedger(symbol)
+
         // Microstructure & Technical indicators
         val closes = klines.map { it.close }
         val rsi = QuantMath.computeRSI(closes, 14)
@@ -1275,6 +1299,130 @@ class AlphaPulseRepository(
     suspend fun clearLedger() {
         database.predictionDao().clearAll()
         database.decisionRecordDao().clearAll()
+    }
+
+    // ------------------------------------------------------- §73 pattern ledger
+
+    /** The selected asset's pattern rows, in boundary order (§73). */
+    fun patternLedgerFlow(symbol: String): Flow<List<PatternLedgerEntry>> =
+        database.patternLedgerDao()
+            .flowForAsset(symbol.removeSuffix("USDT"))
+            .map { rows -> rows.map { it.toEntry() } }
+
+    suspend fun clearPatternLedger() {
+        database.patternLedgerDao().clearAll()
+        database.patternLedgerDao().clearWeights()
+        patternSeriesCache.clear()
+    }
+
+    /**
+     * Issue, settle and learn one pass of the pattern ledger.
+     *
+     * Each horizon is fetched at its own interval and cached for one bar, so a 10-second
+     * evaluation loop does not turn into five REST calls per tick. Settlement and issuing
+     * are deliberately per horizon: one horizon's thin data cannot stall another's clock.
+     */
+    suspend fun runPatternLedger(symbol: String, now: Long = System.currentTimeMillis()) {
+        val asset = symbol.removeSuffix("USDT")
+        val dao = database.patternLedgerDao()
+
+        for (horizon in PatternHorizon.entries) {
+            val series = patternSeries(symbol, horizon, now)
+            if (series.size < 2) continue
+
+            val classes = PatternTaxonomy.idsFor(horizon)
+            val key = "$asset#${horizon.id}"
+            val stored = dao.weights(key)
+            val model = PatternSgdModel.fromCsv(
+                classes = classes,
+                learningRate = stored?.learningRate ?: PatternSgdModel.DEFAULT_LEARNING_RATE,
+                csv = stored?.weightsCsv ?: ""
+            )
+
+            var learned = false
+            for (row in dao.openFor(asset, horizon.id).filter { it.targetTime <= now }) {
+                // A boundary whose bar never arrives must not block this horizon's clock
+                // forever; two full bars of silence is an expired observation.
+                if (now - row.targetTime > horizon.durationMs * 2) {
+                    dao.update(
+                        row.copy(
+                            status = PatternLedgerEngine.STATUS_SETTLED,
+                            realizedPattern = PatternLedgerEngine.NO_PATTERN,
+                            sgdAction = PatternLedgerEngine.SGD_SKIPPED,
+                            settled = true
+                        )
+                    )
+                    continue
+                }
+
+                val settlement = PatternLedgerEngine.settle(row.toEntry(), series, horizon, model)
+                dao.update(PatternLedgerEntity.from(settlement.entry))
+                if (settlement.step != null) learned = true
+            }
+
+            if (learned) {
+                dao.saveWeights(
+                    PatternSgdWeightsEntity(
+                        compositeKey = key,
+                        symbol = symbol,
+                        horizonId = horizon.id,
+                        weightsCsv = model.toCsv(),
+                        learningRate = model.learningRate,
+                        steps = (stored?.steps ?: 0) + model.steps,
+                        lastLoss = model.lastLoss,
+                        updatedAt = now
+                    )
+                )
+            }
+
+            // One open prediction per horizon: the previous one must settle first.
+            val stillOpen = dao.openFor(asset, horizon.id)
+            if (stillOpen.none { it.targetTime > now }) {
+                PatternLedgerEngine.issue(symbol, series, horizon, now)?.let { entry ->
+                    dao.insert(PatternLedgerEntity.from(entry))
+                }
+            }
+        }
+
+        dao.prune(asset, PATTERN_LEDGER_RETENTION)
+    }
+
+    /**
+     * One horizon's bars, re-fetched at most once per bar.
+     *
+     * On a network failure the previous series is reused rather than settling against an
+     * empty list, which would grade every open row against nothing.
+     */
+    private suspend fun patternSeries(
+        symbol: String,
+        horizon: PatternHorizon,
+        now: Long
+    ): List<PatternCandle> {
+        val key = "$symbol#${horizon.id}"
+        val cached = patternSeriesCache[key]
+        if (cached != null && now - cached.fetchedAt < horizon.durationMs) return cached.candles
+
+        val fetched = try {
+            val array = client.getJsonArray(
+                "/fapi/v1/klines?symbol=$symbol&interval=${horizon.id}&limit=$PATTERN_KLINE_LIMIT"
+            )
+            (0 until array.length()).map { index ->
+                val bar = array.getJSONArray(index)
+                PatternCandle(
+                    openTime = bar.getLong(0),
+                    open = bar.getDouble(1),
+                    high = bar.getDouble(2),
+                    low = bar.getDouble(3),
+                    close = bar.getDouble(4),
+                    volume = bar.getDouble(5)
+                )
+            }
+        } catch (_: Exception) {
+            cached?.candles ?: emptyList()
+        }
+
+        if (fetched.isNotEmpty()) patternSeriesCache[key] = CachedPatternSeries(now, fetched)
+        return fetched
     }
 
     /**
