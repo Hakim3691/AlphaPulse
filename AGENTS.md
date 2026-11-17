@@ -27,7 +27,7 @@ behaviour that is already decided.
 
 ## Finalized decisions are not up for silent reversal
 
-`FINALIZED_CONTRACTS.md` records sixteen decisions (C-01 … C-16) with the guard
+`FINALIZED_CONTRACTS.md` records twenty-six decisions (C-01 … C-26) with the guard
 spec that proves each one. `FinalizedContractGuardBddSpec` fails the build when a
 contract row disappears, a guard spec is missing, a pinned digest drifts, a removed
 component returns, or a documented CI gate stops running. `scripts/check_integrity.py`

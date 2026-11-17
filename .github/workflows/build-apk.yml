@@ -712,10 +712,33 @@ jobs:
           [ "$missing" -eq 0 ] || exit 1
           ls -l release-apks
 
+      - name: Compose the release notes from CHANGELOG.md
+        # The release page used to say only "Full Changelog: compare/...", which is why the
+        # published notes looked years behind the app. The newest section of the repository
+        # changelog is now the body; generated notes are appended as the commit appendix.
+        run: |
+          python3 - << 'EOF'
+          from pathlib import Path
+
+          text = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          lines = text.splitlines()
+          start = next((i for i, line in enumerate(lines) if line.startswith("## [")), None)
+          if start is None:
+              raise SystemExit("::error::CHANGELOG.md has no version section to publish")
+          end = next(
+              (i for i in range(start + 1, len(lines)) if lines[i].startswith("## [")),
+              len(lines),
+          )
+          body = "\n".join(lines[start:end]).strip()
+          Path("release-notes.md").write_text(body + "\n", encoding="utf-8")
+          print(body[:400])
+          EOF
+
       - name: Publish Release with APK Assets
         uses: softprops/action-gh-release@v2
         with:
           files: release-apks/*.apk
+          body_path: release-notes.md
           generate_release_notes: true
           draft: false
           prerelease: false

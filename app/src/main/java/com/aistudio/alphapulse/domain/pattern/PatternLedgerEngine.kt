@@ -1,7 +1,10 @@
 package com.aistudio.alphapulse.domain.pattern
 
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.round
 
 /**
  * One row of the secondary Pattern Prediction & Learning Ledger.
@@ -36,7 +39,13 @@ data class PatternLedgerEntry(
     val status: String,
     /** The SGD callback state, e.g. `SGD Step: +w_reinforce (Loss: 0.41)`. */
     val sgdAction: String,
-    val settled: Boolean = false
+    val settled: Boolean = false,
+    /** Mounted TSFMs that contributed to this prediction: `chronos+timesfm`, `chronos`, `timesfm`, or empty. */
+    val tsfmProvider: String = "",
+    /** The ensemble's weighted median move over this horizon, in percent of spot. */
+    val tsfmDriftPct: Double = 0.0,
+    /** True when the ensemble confirmed the formation, false when it contradicted it, null when undecidable. */
+    val tsfmAligned: Boolean? = null
 )
 
 /** Result of settling one entry. */
@@ -75,6 +84,9 @@ object PatternLedgerEngine {
 
     /** Recorded on a row whose settlement produced no usable ground truth. */
     const val SGD_SKIPPED = "SGD Skip: no realized pattern"
+
+    /** Recorded in `tsfmProvider` when no mounted model produced a forecast. */
+    const val NO_MODEL = ""
 
     /** The phase-locked expiry the price ledger uses for the same horizon. */
     fun targetTimestamp(nowMs: Long, horizon: PatternHorizon): Long =
@@ -119,11 +131,15 @@ object PatternLedgerEngine {
         symbol: String,
         candles: List<PatternCandle>,
         horizon: PatternHorizon,
-        nowMs: Long
+        nowMs: Long,
+        forecast: PatternForecastEvidence = PatternForecastEvidence.NONE
     ): PatternLedgerEntry? {
         val series = aggregate(candles, horizon)
         if (series.size < 2) return null
-        val match = PatternClassifier.classify(series, horizon).firstOrNull() ?: return null
+        val found = PatternClassifier.classify(series, horizon).firstOrNull() ?: return null
+        // The formation stays the classifier's; the models may only move the prior.
+        val aligned = alignment(found, series, forecast)
+        val match = applyForecast(found, aligned, forecast)
         val target = targetTimestamp(nowMs, horizon)
 
         return PatternLedgerEntry(
@@ -140,8 +156,71 @@ object PatternLedgerEngine {
             fitLoss = null,
             status = STATUS_PENDING,
             sgdAction = "Pending Settlement",
-            settled = false
+            settled = false,
+            tsfmProvider = if (forecast.available) forecast.provider else NO_MODEL,
+            tsfmDriftPct = if (forecast.available) forecast.driftPct else 0.0,
+            tsfmAligned = aligned
         )
+    }
+
+    /**
+     * Whether the mounted ensemble points the same way as [match].
+     *
+     * A reversal is judged by its own direction (a bullish reversal needs positive drift).
+     * A continuation is judged against the trend it is continuing, measured on the same
+     * bars the classifier saw, so a rising flag is not confirmed by a falling forecast.
+     * Null means "no opinion": no model, a flat forecast, or no trend to continue.
+     */
+    fun alignment(
+        match: PatternMatch,
+        series: List<PatternCandle>,
+        forecast: PatternForecastEvidence
+    ): Boolean? {
+        if (!forecast.available) return null
+        if (abs(forecast.driftPct) < PatternForecastEvidence.MIN_DRIFT_PCT) return null
+        val expected = when (match.category) {
+            PatternCategory.BULLISH_REVERSAL -> 1
+            PatternCategory.BEARISH_REVERSAL -> -1
+            PatternCategory.CONTINUATION -> trendSign(series)
+        }
+        if (expected == 0) return null
+        return forecast.driftPct * expected > 0.0
+    }
+
+    /**
+     * Apply the ensemble's bounded prior to a formation's confidence.
+     *
+     * A confirmed formation gains [PatternForecastEvidence.AGREEMENT_BONUS]; a contradicted
+     * one loses [PatternForecastEvidence.CONTRADICTION_PENALTY]. The result stays inside the
+     * classifier's own confidence contract, and an undecided ensemble changes nothing.
+     */
+    fun applyForecast(
+        match: PatternMatch,
+        aligned: Boolean?,
+        forecast: PatternForecastEvidence
+    ): PatternMatch {
+        if (!forecast.available || aligned == null) return match
+        val delta = if (aligned) {
+            PatternForecastEvidence.AGREEMENT_BONUS
+        } else {
+            -PatternForecastEvidence.CONTRADICTION_PENALTY
+        }
+        val confidence = round(
+            min(0.99, max(PatternClassifier.MIN_CONFIDENCE, match.confidence + delta)) * 100.0
+        ) / 100.0
+        return match.copy(confidence = confidence)
+    }
+
+    /** Direction of the move the series has already made: +1 up, -1 down, 0 flat. */
+    fun trendSign(series: List<PatternCandle>): Int {
+        if (series.size < 2) return 0
+        val first = series.first().close
+        val last = series.last().close
+        return when {
+            last > first -> 1
+            last < first -> -1
+            else -> 0
+        }
     }
 
     /**

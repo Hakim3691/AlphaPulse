@@ -34,6 +34,9 @@ object QuantStrategyEngine {
     /** Opening Range Breakout: the first 15 bars form the opening range. */
     const val ORB_BARS = 15
 
+    /** Crypto sessions anchor at UTC midnight, which is what "the open" means for ORB. */
+    const val SESSION_MS = 86_400_000L
+
     /** SuperTrend: ATR(10) × 3 (canonical parameters). */
     const val SUPERTREND_PERIOD = 10
     const val SUPERTREND_MULTIPLIER = 3.0
@@ -140,17 +143,30 @@ object QuantStrategyEngine {
         }
     }
 
-    /** §3 Opening Range Breakout: the first [ORB_BARS] bars form the range; measured move is the target. */
+    /**
+     * §3 Opening Range Breakout: the first [ORB_BARS] bars of the current UTC session form
+     * the range; the measured move is the target.
+     *
+     * Anchoring on the session matters now that the board is fed a multi-hundred-bar
+     * series: reading the oldest 15 bars of an arbitrary window would call yesterday's range
+     * "the open". A series that starts mid-session cannot know the open, so it reports
+     * NEUTRAL instead of manufacturing one.
+     */
     fun openingRangeBreakout(series: List<StrategyCandle>): StrategySignal {
         val id = "opening-range-breakout"
         val name = "Opening Range Breakout"
-        if (series.size <= ORB_BARS) return neutral(id, name, "Needs the opening range plus a breakout bar")
+        val lastBar = series.lastOrNull() ?: return neutral(id, name, "No bars")
+        val sessionStart = lastBar.openTime - (lastBar.openTime % SESSION_MS)
+        val session = series.filter { it.openTime >= sessionStart }
+        if (session.size <= ORB_BARS) {
+            return neutral(id, name, "Needs the session's opening range plus a breakout bar")
+        }
 
-        val openingRange = series.take(ORB_BARS)
+        val openingRange = session.take(ORB_BARS)
         val high = openingRange.maxOf { it.high }
         val low = openingRange.minOf { it.low }
         val height = high - low
-        val close = series.last().close
+        val close = lastBar.close
 
         return when {
             close > high -> StrategySignal(

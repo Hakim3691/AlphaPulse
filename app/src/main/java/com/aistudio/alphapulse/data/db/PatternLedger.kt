@@ -37,6 +37,15 @@ object PatternLedgerSchema {
     const val SETTLED_COLUMN = "settled"
 
     /**
+     * The TSFM evidence columns added by the 8 -> 9 migration.
+     *
+     * They are separate from [LEDGER_FIELDS] because that list is the directive's own
+     * eleven-field record; these three record which mounted model produced a forecast,
+     * how far it expected price to move, and whether it confirmed the formation.
+     */
+    val TSFM_FIELDS: List<String> = listOf("tsfmProvider", "tsfmDriftPct", "tsfmAligned")
+
+    /**
      * The directive's `PatternLedgerEntry` fields, with `predictedPattern` flattened.
      * Order is the column order of the exports, so it is part of the contract.
      */
@@ -74,6 +83,19 @@ object PatternLedgerSchema {
         append("PRIMARY KEY(`").append(KEY_COLUMN).append("`))")
     }
 
+    /**
+     * The production 8 -> 9 statements.
+     *
+     * `tsfmProvider` and `tsfmDriftPct` are NOT NULL with defaults so every row issued
+     * before the ensemble was wired in still reads back coherently; `tsfmAligned` is
+     * nullable because "the models had no opinion" is a real state, not a false one.
+     */
+    val MIGRATION_8_9_SQL: List<String> = listOf(
+        "ALTER TABLE `$TABLE` ADD COLUMN `tsfmProvider` TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE `$TABLE` ADD COLUMN `tsfmDriftPct` REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE `$TABLE` ADD COLUMN `tsfmAligned` INTEGER"
+    )
+
     /** Separate table: weights are a model, not an audit row. */
     const val WEIGHTS_TABLE = "pattern_sgd_weights"
 
@@ -102,7 +124,11 @@ data class PatternLedgerEntity(
     val fitLoss: Double?,
     val status: String,
     val sgdAction: String,
-    val settled: Boolean
+    val settled: Boolean,
+    /** `chronos+timesfm`, `chronos`, `timesfm` or empty when no model forecast the horizon. */
+    val tsfmProvider: String = "",
+    val tsfmDriftPct: Double = 0.0,
+    val tsfmAligned: Boolean? = null
 ) {
     /** The screen and the engine both speak the domain record. */
     fun toEntry(): PatternLedgerEntry = PatternLedgerEntry(
@@ -119,7 +145,10 @@ data class PatternLedgerEntity(
         fitLoss = fitLoss,
         status = status,
         sgdAction = sgdAction,
-        settled = settled
+        settled = settled,
+        tsfmProvider = tsfmProvider,
+        tsfmDriftPct = tsfmDriftPct,
+        tsfmAligned = tsfmAligned
     )
 
     companion object {
@@ -137,7 +166,10 @@ data class PatternLedgerEntity(
             fitLoss = entry.fitLoss,
             status = entry.status,
             sgdAction = entry.sgdAction,
-            settled = entry.settled
+            settled = entry.settled,
+            tsfmProvider = entry.tsfmProvider,
+            tsfmDriftPct = entry.tsfmDriftPct,
+            tsfmAligned = entry.tsfmAligned
         )
     }
 }

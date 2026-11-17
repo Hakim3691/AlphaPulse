@@ -1,6 +1,8 @@
 package com.aistudio.alphapulse.ui
 
+import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -75,5 +77,45 @@ class ProactiveMsNavigationBddSpec {
         assertNull(workspace.activeSymbol)
         assertEquals(ProactiveMsTab.SCREENER, workspace.activeTab)
         assertTrue(workspace.availableSymbols.isEmpty())
+    }
+
+    @Test
+    fun `given the AlphaPulse tab when its source is read then no ProactiveMS campaign or live-order board is mounted on it`() {
+        // The merge that added the ProactiveMS boards put "LIVE CAMPAIGNS & ORDERS" under
+        // the AlphaPulse ledgers and was described as rolled back while it was still there.
+        // This is the rollback, asserted: AlphaPulse renders AlphaPulse only (C-22).
+        val screen = repoFile("app/src/main/java/com/aistudio/alphapulse/ui/AlphaPulseScreen.kt").readText()
+        assertFalse(
+            "AlphaPulseScreen must not mount the ProactiveMS campaign workspace",
+            screen.contains("CampaignWorkspaceSection")
+        )
+        assertFalse(
+            "AlphaPulseScreen must not take the campaign view model",
+            screen.contains("campaignViewModel")
+        )
+
+        val activity = repoFile("app/src/main/java/com/aistudio/alphapulse/MainActivity.kt").readText()
+        assertFalse(
+            "MainActivity must not hand the campaign view model to the AlphaPulse screen",
+            activity.contains("campaignViewModel")
+        )
+        assertTrue(
+            "The app root must mount the AlphaPulse screen with its own view model only",
+            activity.contains("AlphaPulseScreen(viewModel = viewModel)")
+        )
+    }
+
+    /** Locates a repository file from whichever directory tests run in. */
+    private fun repoFile(relativePath: String): File {
+        var directory: File? = File("").absoluteFile
+        while (directory != null) {
+            if (File(directory, "settings.gradle.kts").isFile) {
+                val file = File(directory, relativePath)
+                if (!file.exists()) throw AssertionError("Missing repository file: $relativePath")
+                return file
+            }
+            directory = directory.parentFile
+        }
+        throw AssertionError("Could not locate the repository root from ${File("").absolutePath}")
     }
 }

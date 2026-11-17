@@ -108,6 +108,48 @@ class QuantStrategyEngineBddSpec {
     }
 
     @Test
+    fun `given a series spanning two sessions when orb runs then the opening range is the current session's first bars not the window's oldest bars`() {
+        // Yesterday traded far above today; reading the oldest 15 bars would claim a
+        // 200-level "opening range" the current session never opened with.
+        val previousSession = (0 until 15).map { index ->
+            StrategyCandle(
+                openTime = index * 60_000L,
+                open = 200.0,
+                high = 201.0,
+                low = 199.0,
+                close = 200.0,
+                volume = 100.0
+            )
+        }
+        val sessionStart = QuantStrategyEngine.SESSION_MS
+        val today = (0 until 20).map { index ->
+            StrategyCandle(
+                openTime = sessionStart + index * 60_000L,
+                open = 100.0,
+                high = 101.0,
+                low = 99.0,
+                close = 100.0,
+                volume = 100.0
+            )
+        }
+        val breakout = StrategyCandle(
+            openTime = sessionStart + 20 * 60_000L,
+            open = 100.0,
+            high = 102.5,
+            low = 100.0,
+            close = 102.0,
+            volume = 100.0
+        )
+
+        val signal = QuantStrategyEngine.openingRangeBreakout(previousSession + today + breakout)
+
+        assertEquals(SignalDirection.BULLISH, signal.direction)
+        assertEquals("Today's opening range high", 101.0, signal.entry!!, 1e-9)
+        assertEquals("Measured move from today's range", 103.0, signal.exit!!, 1e-9)
+        assertEquals(99.0, signal.invalidation!!, 1e-9)
+    }
+
+    @Test
     fun `given a sustained advance when supertrend runs then it stays long with the trailing line below price`() {
         val series = ascending(40)
         val signal = QuantStrategyEngine.superTrend(series)

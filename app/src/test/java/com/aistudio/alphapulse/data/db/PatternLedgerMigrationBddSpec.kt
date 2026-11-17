@@ -69,6 +69,31 @@ class PatternLedgerMigrationBddSpec {
     }
 
     @Test
+    fun `given the production 8 to 9 migration when its statements are read then each TSFM column is added without touching the price ledger`() {
+        val statements = PatternLedgerSchema.MIGRATION_8_9_SQL
+
+        assertEquals(
+            "One additive statement per evidence column: $statements",
+            PatternLedgerSchema.TSFM_FIELDS.size,
+            statements.size
+        )
+        PatternLedgerSchema.TSFM_FIELDS.forEach { field ->
+            assertTrue(
+                "The 8 -> 9 migration must add `$field`: $statements",
+                statements.any { it.contains("ADD COLUMN `$field`") }
+            )
+        }
+        assertTrue(
+            "The migration must not drop or rewrite the directive's own fields: $statements",
+            statements.none { it.contains("DROP") || it.contains("predictions") }
+        )
+        assertTrue(
+            "The 7 -> 8 statement must stay the version-8 table; the evidence columns arrive in 8 -> 9",
+            PatternLedgerSchema.TSFM_FIELDS.none { PatternLedgerSchema.DDL.contains("`$it`") }
+        )
+    }
+
+    @Test
     fun `given the ledger entity when reflected then it declares the key and every directive field`() {
         val fields = PatternLedgerEntity::class.java.declaredFields
             .filterNot { it.isSynthetic || it.name.startsWith("$") || it.name == "Companion" }
@@ -84,19 +109,30 @@ class PatternLedgerMigrationBddSpec {
         assertTrue("The entity needs its issue time", PatternLedgerSchema.ISSUED_COLUMN in fields)
         assertTrue("The entity needs its settlement flag", PatternLedgerSchema.SETTLED_COLUMN in fields)
         assertEquals(
-            "The entity carries the key, two bookkeeping columns and exactly the 11 fields",
-            14,
+            "The entity carries the key, two bookkeeping columns, the 11 fields and the 3 evidence columns",
+            17,
             fields.size
+        )
+        assertTrue(
+            "The entity must persist every TSFM evidence column: " +
+                PatternLedgerSchema.TSFM_FIELDS.filterNot { it in fields },
+            fields.containsAll(PatternLedgerSchema.TSFM_FIELDS)
         )
     }
 
     @Test
-    fun `given the database when inspected then it is version 8 and the pattern tables are mounted beside the price ledger`() {
+    fun `given the database when inspected then it is version 9 and the pattern tables are mounted beside the price ledger`() {
         assertEquals(7, AppDatabase.MIGRATION_7_8.startVersion)
         assertEquals(
             "The pattern ledger arrives as a schema version, not as nullable columns on `predictions`",
             8,
             AppDatabase.MIGRATION_7_8.endVersion
+        )
+        assertEquals(8, AppDatabase.MIGRATION_8_9.startVersion)
+        assertEquals(
+            "The TSFM evidence arrives as its own version, not as a rewrite of the ledger",
+            9,
+            AppDatabase.MIGRATION_8_9.endVersion
         )
         assertTrue(
             "The database must expose the pattern ledger DAO",
@@ -124,7 +160,10 @@ class PatternLedgerMigrationBddSpec {
             fitLoss = 0.41,
             status = "Settled",
             sgdAction = "SGD Step: +w_reinforce (Loss: 0.41)",
-            settled = true
+            settled = true,
+            tsfmProvider = "chronos+timesfm",
+            tsfmDriftPct = 0.12,
+            tsfmAligned = true
         )
 
         val restored = PatternLedgerEntity.from(entry).toEntry()

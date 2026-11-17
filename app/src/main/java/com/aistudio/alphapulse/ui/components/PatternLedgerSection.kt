@@ -204,6 +204,7 @@ fun PatternLedgerSection(
                 header("FIT / LOSS", 75.dp)
                 header("STATUS", 90.dp)
                 header("SGD LEARNING ACTION", 175.dp)
+                header("TSFM ENSEMBLE", 150.dp)
             }
 
             HorizontalDivider(color = BrandBorder)
@@ -303,6 +304,17 @@ fun PatternLedgerSection(
                             fontFamily = FontFamily.Monospace,
                             modifier = Modifier.width(175.dp)
                         )
+                        Text(
+                            text = forecastText(entry),
+                            color = when (entry.tsfmAligned) {
+                                true -> BrandBullish
+                                false -> BrandBearish
+                                null -> TextTertiary
+                            },
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.width(150.dp)
+                        )
                     }
 
                     HorizontalDivider(color = BrandBorder.copy(alpha = 0.3f))
@@ -310,6 +322,21 @@ fun PatternLedgerSection(
             }
         }
     }
+}
+
+/**
+ * The TSFM evidence column: which mounted models spoke, their weighted move and whether
+ * they confirmed or contradicted the formation. No model means no claim is made.
+ */
+private fun forecastText(entry: PatternLedgerEntry): String {
+    if (entry.tsfmProvider.isEmpty()) return "no model"
+    val drift = String.format(Locale.US, "%+.2f%%", entry.tsfmDriftPct)
+    val verdict = when (entry.tsfmAligned) {
+        true -> "✓ aligned"
+        false -> "✗ opposed"
+        null -> "— no opinion"
+    }
+    return "${entry.tsfmProvider} $drift $verdict"
 }
 
 /** Colour a formation by the direction it implies, not by its label. */

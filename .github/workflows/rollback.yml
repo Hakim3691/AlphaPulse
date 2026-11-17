@@ -1,0 +1,267 @@
+name: Rollback Release
+
+# C-26 — a rollback is a release, not a branch reset.
+#
+# Why this exists
+# ---------------
+# Rolling back used to mean "revert the merge and hope". That is not a strategy: a revert
+# discards the verified artifact chain, and an APK built from an old tag still carries the
+# old versionCode, which Android refuses to install over the current release. A real
+# rollback therefore rebuilds the previously verified tag at a *higher* versionCode, proves
+# the two APKs and the pinned checkpoint, and publishes the result as the latest release.
+# Nothing is force-pushed, no tag is moved and no user has to uninstall. The target is an
+# existing `refs/tags/<tag>`; a rollback rebuilds released source, never a branch head.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_tag:
+        description: 'Existing verified v* tag to rebuild (e.g. v1.0.15)'
+        required: true
+        type: string
+      version_code:
+        description: 'versionCode for the rebuild; must be greater than the newest published release'
+        required: true
+        type: string
+      reason:
+        description: 'Why this rollback is happening (recorded in the release and the run summary)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rollback-${{ github.event.inputs.target_tag }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Rebuild and publish the rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Validate the requested rollback
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_TAG: ${{ github.event.inputs.target_tag }}
+          VERSION_CODE: ${{ github.event.inputs.version_code }}
+          REASON: ${{ github.event.inputs.reason }}
+        run: |
+          set -euo pipefail
+          echo "Rollback request: tag=$TARGET_TAG versionCode=$VERSION_CODE"
+          [ -n "$REASON" ] || { echo "::error::A rollback needs a reason; it is a product decision, not a retry."; exit 1; }
+          echo "$TARGET_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "::error::target_tag must be an existing v<major>.<minor>.<patch> tag, got '$TARGET_TAG'."; exit 1; }
+          echo "$VERSION_CODE" | grep -Eq '^[0-9]+$' \
+            || { echo "::error::version_code must be an integer, got '$VERSION_CODE'."; exit 1; }
+
+          # The tag must already exist: a rollback rebuilds released source, never main.
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TARGET_TAG}" > /dev/null \
+            || { echo "::error::Tag '${TARGET_TAG}' does not exist in ${GITHUB_REPOSITORY}."; exit 1; }
+
+      - name: Refuse a version code that cannot install over the current release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_CODE: ${{ github.event.inputs.version_code }}
+        run: |
+          set -euo pipefail
+          mkdir -p .rollback
+          latest_tag="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          if [ -z "$latest_tag" ]; then
+            echo "::error::No published release was found; there is nothing to roll back from."
+            exit 1
+          fi
+          echo "Newest published release: $latest_tag"
+
+          asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" \
+            --jq '.assets[] | select(.name == "app-arm64-v8a-release.apk") | .browser_download_url')"
+          [ -n "$asset_url" ] || { echo "::error::The latest release has no release APK to compare against."; exit 1; }
+          curl -sSL "$asset_url" -o .rollback/latest-release.apk
+          sha256sum .rollback/latest-release.apk
+
+          AAPT2="$(command -v aapt2 || true)"
+          if [ -z "$AAPT2" ]; then
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;34.0.0" > /dev/null 2>&1 || true
+            AAPT2="$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort | tail -1)"
+          fi
+          [ -x "$AAPT2" ] || { echo "::error::aapt2 is unavailable, so the installed versionCode cannot be verified."; exit 1; }
+
+          installed_code="$("$AAPT2" dump badging .rollback/latest-release.apk | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -1)"
+          [ -n "$installed_code" ] || { echo "::error::Could not read the versionCode of the latest release APK."; exit 1; }
+          echo "Installed versionCode: $installed_code; requested: $VERSION_CODE"
+          if [ "$VERSION_CODE" -le "$installed_code" ]; then
+            echo "::error::version_code $VERSION_CODE must be greater than the newest published versionCode $installed_code, or Android rejects the rollback as a downgrade."
+            exit 1
+          fi
+          {
+            echo "### Rollback request"
+            echo ""
+            echo "- Target tag: \`${{ github.event.inputs.target_tag }}\`"
+            echo "- New versionCode: \`$VERSION_CODE\` (current release: \`$installed_code\`)"
+            echo "- Reason: ${{ github.event.inputs.reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout the target tag
+        uses: actions/checkout@v4
+        with:
+          # The rollback rebuilds exactly the source that produced the verified release.
+          ref: ${{ github.event.inputs.target_tag }}
+          fetch-depth: 0
+
+      - name: Setup Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Configure Gradle Memory & Performance Options
+        run: |
+          mkdir -p ~/.gradle
+          cat << 'EOF' >> ~/.gradle/gradle.properties
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC
+          org.gradle.parallel=true
+          org.gradle.configuration-cache=true
+          EOF
+
+      - name: Accept Android SDK Licenses
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses"
+          printf "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16\n" > "$ANDROID_HOME/licenses/android-sdk-license"
+          printf "84831b9409646a918e30573bab4c9c91346d8abd\n" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          yes | sdkmanager --licenses || true
+
+      - name: Install the NDK & CMake for the vendored Cactus engine
+        run: |
+          if command -v sdkmanager > /dev/null 2>&1; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          else
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install "ndk;27.0.12077973" "cmake;3.22.1"
+          test -d "$ANDROID_HOME/ndk/27.0.12077973" || { echo "::error::NDK 27.0.12077973 is missing."; exit 1; }
+          test -d "$ANDROID_HOME/cmake/3.22.1" || { echo "::error::CMake 3.22.1 is missing."; exit 1; }
+
+      - name: Restore the signing keystores
+        # Same cache key as the forward pipeline: a rollback must sign with the same
+        # certificate, or it cannot install over the release it is rolling back from.
+        uses: actions/cache@v4
+        with:
+          path: |
+            my-upload-key.jks
+            debug.keystore
+          key: alphapulse-signing-keystores-v1
+
+      - name: Provision persistent signing keystores
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ ! -f .env ]; then
+            [ -f .env.example ] && cp .env.example .env || touch .env
+          fi
+          chmod +x gradlew
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 -d > my-upload-key.jks
+          fi
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 -d > debug.keystore
+          fi
+          if [ ! -s debug.keystore ]; then
+            keytool -genkeypair -v -keystore debug.keystore -alias androiddebugkey \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Android Debug, O=Android, C=US"
+          fi
+          if [ ! -s my-upload-key.jks ]; then
+            echo "::warning::No persistent release keystore found; generating one for this run. Add KEYSTORE_BASE64 to keep in-place updates working."
+            keytool -genkeypair -v -keystore my-upload-key.jks -alias upload \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Alpha Pulse, OU=Engineering, O=Alpha Pulse, L=Mountain View, ST=CA, C=US"
+          fi
+
+      - name: Bundle the pinned Needle 3 checkpoint
+        run: |
+          ./gradlew :app:bundleNeedle3Weights --console=plain
+          test -s app/src/main/assets/needle3.cact || { echo "::error::Needle 3 weights were not bundled."; exit 1; }
+          sha256sum app/src/main/assets/needle3.cact
+
+      - name: Build both arm64-v8a APKs at the rollback versionCode
+        env:
+          # C-05's explicit override: the rollback ships a higher versionCode than the
+          # release it replaces, so the device accepts it as an in-place update.
+          VERSION_CODE: ${{ github.event.inputs.version_code }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          set -o pipefail
+          export KEYSTORE_PATH="$GITHUB_WORKSPACE/my-upload-key.jks"
+          export STORE_PASSWORD="${{ secrets.STORE_PASSWORD }}"; export STORE_PASSWORD="${STORE_PASSWORD:-android}"
+          export KEY_PASSWORD="${{ secrets.KEY_PASSWORD }}"; export KEY_PASSWORD="${KEY_PASSWORD:-android}"
+          ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace 2>&1 | tee rollback-build.log
+
+      - name: Verify the packaged Needle 3 weights
+        run: ./gradlew :app:verifyPackagedWeights --console=plain
+
+      - name: Prove the rollback APK carries the requested versionCode and ABI
+        env:
+          VERSION_CODE: ${{ github.event.inputs.version_code }}
+        run: |
+          set -euo pipefail
+          AAPT2="$(command -v aapt2 || true)"
+          [ -n "$AAPT2" ] || AAPT2="$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort | tail -1)"
+          for apk in app/build/outputs/apk/debug/app-arm64-v8a-debug.apk app/build/outputs/apk/release/app-arm64-v8a-release.apk; do
+            test -s "$apk" || { echo "::error::Missing $apk"; exit 1; }
+            badging="$("$AAPT2" dump badging "$apk")"
+            echo "$badging" | grep -q "versionCode='$VERSION_CODE'" \
+              || { echo "::error::$apk does not carry versionCode $VERSION_CODE; the target tag predates the VERSION_CODE override."; exit 1; }
+            echo "$badging" | grep -q "native-code:.*arm64-v8a" \
+              || { echo "::error::$apk is not the arm64-v8a build."; exit 1; }
+            sha256sum "$apk"
+          done
+
+      - name: Require both APKs before publishing the rollback
+        run: |
+          set -euo pipefail
+          mkdir -p release-apks
+          cp app/build/outputs/apk/debug/app-arm64-v8a-debug.apk release-apks/
+          cp app/build/outputs/apk/release/app-arm64-v8a-release.apk release-apks/
+          missing=0
+          for apk in app-arm64-v8a-debug.apk app-arm64-v8a-release.apk; do
+            if [ ! -s "release-apks/$apk" ]; then
+              echo "::error::The rollback is missing $apk. A rollback must attach both APKs."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          ls -l release-apks
+
+      - name: Publish the rollback release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Deliberately not a v* tag: this is a rebuild marker, not a new product version.
+          tag_name: rollback-${{ github.event.inputs.target_tag }}-r${{ github.run_number }}
+          name: Rollback to ${{ github.event.inputs.target_tag }} (versionCode ${{ github.event.inputs.version_code }})
+          make_latest: true
+          draft: false
+          prerelease: false
+          files: release-apks/*.apk
+          body: |
+            ## Rollback to ${{ github.event.inputs.target_tag }}
+
+            ${{ github.event.inputs.reason }}
+
+            This release rebuilds the source of `${{ github.event.inputs.target_tag }}` at
+            versionCode `${{ github.event.inputs.version_code }}`, so installed devices accept it
+            as an in-place update, and marks it as the latest release. The debug and release
+            arm64-v8a APKs and the pinned Needle 3 checkpoint were verified in run
+            [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+            No tag was moved and no history was force-pushed.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
