@@ -354,6 +354,66 @@ class BuildContractBddSpec {
     }
 
     private fun failWith(message: String): Nothing = throw AssertionError(message)
+
+    @Test
+    fun `given the release build type when read then R8 shrinking and resource shrinking are enforced with narrow native keep rules`() {
+        val release = Regex("""release\s*\{([\s\S]*?)\n    \}""")
+            .find(moduleBuild)
+            ?.groupValues
+            ?.get(1)
+            ?: failWith("app/build.gradle.kts must declare a release build type")
+
+        assertTrue(
+            "The release APK must be shrunk and obfuscated by R8, not shipped unshrunk: $release",
+            release.contains("isMinifyEnabled = true")
+        )
+        assertTrue(
+            "Unreferenced resources must be stripped from the release APK: $release",
+            release.contains("isShrinkResources = true")
+        )
+        assertTrue(
+            "Aggressive optimisation must come from the optimise rules, not the no-op default: $release",
+            release.contains("proguard-android-optimize.txt")
+        )
+
+        val rules = repoFile("app/proguard-rules.pro").readText()
+        assertTrue(
+            "JNI looks native methods up by name; they must survive renaming",
+            rules.contains("native <methods>")
+        )
+        assertTrue(
+            "ONNX Runtime reaches Java through its native library and must be kept",
+            rules.contains("ai.onnxruntime")
+        )
+        assertTrue(
+            "The Cactus bridge is a JNI boundary and must be kept explicitly",
+            rules.contains("Needle3Jni")
+        )
+        assertFalse(
+            "A blanket keep of the app defeats R8 entirely; only platform boundaries may be kept",
+            rules.contains("-keep class com.aistudio.alphapulse.**")
+        )
+    }
+
+    @Test
+    fun `given the module dependencies when read then no unused Firebase Retrofit or logging SDK is shipped`() {
+        for (unused in listOf(
+            "libs.firebase.bom",
+            "libs.firebase.ai",
+            "libs.firebase.appcheck.recaptcha",
+            "libs.firebase.appcheck.debug",
+            "libs.retrofit",
+            "libs.converter.moshi",
+            "libs.logging.interceptor"
+        )) {
+            assertFalse(
+                "$unused has no production or test reference and only inflates the APK; " +
+                    "the zero-bloat budget removes it instead of shipping it",
+                Regex("""^\s*implementation\($unused\)""", RegexOption.MULTILINE).containsMatchIn(moduleBuild)
+            )
+        }
+    }
+
     @Test
     fun `given a push when the workflow builds then both APKs are assembled`() {
         // The build job uploads the debug and the release APK as two artifacts, so a
@@ -365,5 +425,4 @@ class BuildContractBddSpec {
             buildStep.contains("-both}")
         )
     }
-
 }
