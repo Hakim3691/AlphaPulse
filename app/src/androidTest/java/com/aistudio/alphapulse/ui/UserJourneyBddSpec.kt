@@ -4,11 +4,13 @@ import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.aistudio.alphapulse.MainActivity
 import com.aistudio.alphapulse.data.db.AppDatabase
 import com.aistudio.alphapulse.data.db.DecisionRecordEntity
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -26,13 +28,18 @@ import java.util.UUID
  * Compose renders correctly, and Room writes survive on disk.
  *
  * Spec Ref: §22 (Unified 7-Tab Navigation UI), §39 (User Interface),
- * §63 (Definition of Done)
+ * §63 (Definition of Done), §73 (Pattern Ledger)
  *
  * Covers:
  * - 7-tab navigation (Screener, AlphaPulse, Dashboard, Telemetry, Guardrails, Replay, Audit)
  * - App launches and renders main UI
- * - Prediction audit ledger persistence
- * - Synchronized symbol selection across tabs
+ * - Prediction audit ledger persistence, against the current 8-field record
+ * - Synchronized symbol selection across tabs (no cross-symbol leakage)
+ *
+ * The persistence cases were written against an earlier record shape (horizon/modelType/
+ * verdict/answeringRouter/stateMachineState/targetPrice/createdAt/updatedAt/isSettled) and
+ * stopped compiling when the ledger moved to the §21/§29 fields. They now exercise the
+ * production entity and DAO the app actually writes.
  */
 @RunWith(AndroidJUnit4::class)
 class UserJourneyBddSpec {
@@ -47,7 +54,10 @@ class UserJourneyBddSpec {
     @Before
     fun setUp() {
         context.deleteDatabase(dbName)
-        database = AppDatabase.getInstance(context, dbName)
+        // A fresh file at the current schema version, so no migration is needed here.
+        database = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .allowMainThreadQueries()
+            .build()
     }
 
     @After
@@ -55,6 +65,23 @@ class UserJourneyBddSpec {
         database?.close()
         context.deleteDatabase(dbName)
     }
+
+    /** The production record shape: one routed verdict per evaluated snapshot. */
+    private fun record(
+        symbol: String,
+        state: String,
+        confidence: Double,
+        horizon: String = "1m"
+    ) = DecisionRecordEntity(
+        id = UUID.randomUUID().toString(),
+        symbol = symbol,
+        issuedTimestamp = System.currentTimeMillis(),
+        state = state,
+        confidence = confidence,
+        source = "NEEDLE3",
+        referenceHorizon = horizon,
+        reason = "seeded by UserJourneyBddSpec"
+    )
 
     @Test
     fun `given a cold install when the app opens then the workspace header is visible`() {
@@ -70,127 +97,58 @@ class UserJourneyBddSpec {
 
     @Test
     fun `given a decision record when saved to the ledger then it survives app restart`() {
-        val record = DecisionRecordEntity(
-            id = UUID.randomUUID().toString(),
-            symbol = "BTCUSDT",
-            horizon = "1m",
-            modelType = "Tri-Factor Ensemble",
-            verdict = "NEUTRAL",
-            confidence = 0.85,
-            answeringRouter = "NEEDLE3",
-            stateMachineState = "ISSUED",
-            targetPrice = 50000.0,
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis(),
-            isSettled = false
-        )
+        val seeded = record(symbol = "BTCUSDT", state = "LONG", confidence = 0.85)
+        runBlocking { database?.decisionRecordDao()?.insert(seeded) }
 
-        runBlocking {
-            database?.decisionRecordDao()?.insertRecord(record)
-        }
+        // Close and reopen the file: a write that only lived in memory would vanish here.
+        database?.close()
+        database = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .allowMainThreadQueries()
+            .build()
 
-        val stored = runBlocking { database?.decisionRecordDao()?.getRecordsBySymbol("BTCUSDT") }
+        val stored = runBlocking { database?.decisionRecordDao()?.getAllDecisionRecords() }
 
         assertEquals(1, stored!!.size)
         assertEquals("BTCUSDT", stored[0].symbol)
-        assertEquals("NEUTRAL", stored[0].verdict)
+        assertEquals("LONG", stored[0].state)
         assertEquals(0.85, stored[0].confidence, 0.001)
+        assertEquals("NEEDLE3", stored[0].source)
     }
 
     @Test
     fun `given multiple decision records when saved then all are retrievable`() {
-        val records = listOf(
-            DecisionRecordEntity(
-                id = UUID.randomUUID().toString(),
-                symbol = "BTCUSDT",
-                horizon = "1m",
-                modelType = "Tri-Factor Ensemble",
-                verdict = "LONG",
-                confidence = 0.92,
-                answeringRouter = "NEEDLE3",
-                stateMachineState = "ISSUED",
-                targetPrice = 51000.0,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis(),
-                isSettled = false
-            ),
-            DecisionRecordEntity(
-                id = UUID.randomUUID().toString(),
-                symbol = "ETHUSDT",
-                horizon = "5m",
-                modelType = "Penta-Factor Ensemble",
-                verdict = "SHORT",
-                confidence = 0.78,
-                answeringRouter = "NEEDLE3",
-                stateMachineState = "ISSUED",
-                targetPrice = 3000.0,
-                createdAt = System.currentTimeMillis(),
-                updatedAt = System.currentTimeMillis(),
-                isSettled = false
-            )
-        )
+        val long = record(symbol = "BTCUSDT", state = "LONG", confidence = 0.92)
+        val short = record(symbol = "ETHUSDT", state = "SHORT", confidence = 0.78, horizon = "5m")
 
         runBlocking {
-            database?.decisionRecordDao()?.insertRecord(records[0])
-            database?.decisionRecordDao()?.insertRecord(records[1])
+            database?.decisionRecordDao()?.insert(long)
+            database?.decisionRecordDao()?.insert(short)
         }
 
-        val btcRecords = runBlocking { database?.decisionRecordDao()?.getRecordsBySymbol("BTCUSDT") }
-        val ethRecords = runBlocking { database?.decisionRecordDao()?.getRecordsBySymbol("ETHUSDT") }
+        val all = runBlocking { database?.decisionRecordDao()?.getAllDecisionRecords() }!!
 
-        assertEquals(1, btcRecords!!.size)
-        assertEquals("LONG", btcRecords[0].verdict)
-        assertEquals(1, ethRecords!!.size)
-        assertEquals("SHORT", ethRecords[0].verdict)
+        assertEquals(2, all.size)
+        assertEquals("LONG", all.first { it.symbol == "BTCUSDT" }.state)
+        assertEquals("SHORT", all.first { it.symbol == "ETHUSDT" }.state)
     }
 
     @Test
     fun `given decision records for different symbols when queried then no cross-symbol leakage occurs`() {
-        val btcRecord = DecisionRecordEntity(
-            id = UUID.randomUUID().toString(),
-            symbol = "BTCUSDT",
-            horizon = "1m",
-            modelType = "Tri-Factor Ensemble",
-            verdict = "LONG",
-            confidence = 0.90,
-            answeringRouter = "NEEDLE3",
-            stateMachineState = "ISSUED",
-            targetPrice = 50500.0,
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis(),
-            isSettled = false
-        )
-
-        val ethRecord = DecisionRecordEntity(
-            id = UUID.randomUUID().toString(),
-            symbol = "ETHUSDT",
-            horizon = "5m",
-            modelType = "Penta-Factor Ensemble",
-            verdict = "SHORT",
-            confidence = 0.82,
-            answeringRouter = "NEEDLE3",
-            stateMachineState = "ISSUED",
-            targetPrice = 2950.0,
-            createdAt = System.currentTimeMillis(),
-            updatedAt = System.currentTimeMillis(),
-            isSettled = false
-        )
-
         runBlocking {
-            database?.decisionRecordDao()?.insertRecord(btcRecord)
-            database?.decisionRecordDao()?.insertRecord(ethRecord)
+            database?.decisionRecordDao()?.insert(record("BTCUSDT", "LONG", 0.90))
+            database?.decisionRecordDao()?.insert(record("ETHUSDT", "SHORT", 0.82, horizon = "5m"))
         }
 
-        val btcOnly = runBlocking { database?.decisionRecordDao()?.getRecordsBySymbol("BTCUSDT") }
-        val ethOnly = runBlocking { database?.decisionRecordDao()?.getRecordsBySymbol("ETHUSDT") }
+        val btcOnly = runBlocking { database?.decisionRecordDao()?.getDecisionHistoryFlow("BTCUSDT", 10)?.first() }
+        val ethOnly = runBlocking { database?.decisionRecordDao()?.getDecisionHistoryFlow("ETHUSDT", 10)?.first() }
 
         assertEquals(1, btcOnly!!.size)
         assertEquals("BTCUSDT", btcOnly[0].symbol)
-        assertEquals("LONG", btcOnly[0].verdict)
+        assertEquals("LONG", btcOnly[0].state)
 
         assertEquals(1, ethOnly!!.size)
         assertEquals("ETHUSDT", ethOnly[0].symbol)
-        assertEquals("SHORT", ethOnly[0].verdict)
+        assertEquals("SHORT", ethOnly[0].state)
 
         // Verify no cross-contamination
         assertTrue(btcOnly[0].symbol != ethOnly[0].symbol)
