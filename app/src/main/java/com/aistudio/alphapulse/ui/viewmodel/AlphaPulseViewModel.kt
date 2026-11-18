@@ -646,10 +646,13 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             try {
                 val context = getApplication<Application>().applicationContext
-                val allEntries = repository.allPredictionsFlow.value ?: emptyList()
+                // The pattern ledger is state the screen already holds; the price
+                // predictions flow is a different table and has no `.value` to read.
+                val allEntries: List<PatternLedgerEntry> = _uiState.value.patternLedger
                 val selectedSymbol = _uiState.value.selectedSymbol
-                val filteredEntries = if (selectedSymbol.isNotBlank()) {
-                    allEntries.filter { it.symbol == selectedSymbol }
+                val baseAsset = selectedSymbol.removeSuffix("USDT")
+                val filteredEntries = if (baseAsset.isNotBlank()) {
+                    allEntries.filter { it.asset.equals(baseAsset, ignoreCase = true) }
                 } else allEntries
 
                 // Build CSV content: timestamp, symbol, horizon, predictedPattern, realizedPattern, fitLoss, inCone
@@ -661,7 +664,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                     val horz = entry.horizon
                     val predPattern = entry.predictedPatternName
                     val rezPattern = entry.realizedPattern ?: ""
-                    val fitLoss = entry.fitLoss != null ? String.format(Locale.US, "%.2f", entry.fitLoss) : ""
+                    val fitLoss = entry.fitLoss?.let { String.format(Locale.US, "%.2f", it) } ?: ""
                     val inCone = if (entry.settled && entry.inCone) "true" else ""
                     sb.append("$ts,$sym,$horz,$predPattern,$rezPattern,$fitLoss,$inCone\n")
                 }

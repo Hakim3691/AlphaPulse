@@ -45,7 +45,9 @@ data class PatternLedgerEntry(
     /** The ensemble's weighted median move over this horizon, in percent of spot. */
     val tsfmDriftPct: Double = 0.0,
     /** True when the ensemble confirmed the formation, false when it contradicted it, null when undecidable. */
-    val tsfmAligned: Boolean? = null
+    val tsfmAligned: Boolean? = null,
+    /** True when the prediction is within the confidence cone. */
+    val inCone: Boolean = false
 )
 
 /** Result of settling one entry. */
