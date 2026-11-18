@@ -7,6 +7,60 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [14.5] — 2026-11-17
+
+Zero-bloat release: R8 minification enabled, all Firebase/Retrofit/moshi/logging
+dependencies removed from the production APK, and only the two native boundaries
+(ONNX Runtime and the JNI Needle 3 bridge) are kept via proguard-rules.pro.
+The pattern ledger's `applyForecast` signature was simplified (the `forecast` param
+was dropped) and `patternForecastFor` now private; `patternForecastFor` uses the same
+mounted Chronos-Bolt / TimesFM ensemble as the price ledger, producing production-grade
+forecast evidence without simulation.
+
+### Added
+
+- **R8 release shrinking (C-27).** Release builds now have `isMinifyEnabled = true` and
+  `isShrinkResources = true` with `proguard-android-optimize.txt`; only `ai.onnxruntime.**`,
+  `Needle3Jni`, and `native <methods>` are kept — a blanket application keep is forbidden.
+- **Zero-external-dependency budget.** All Firebase BOM, `firebase.ai`, 
+  `firebase.appcheck.*`, `converter-moshi`, `retrofit`, and `logging-interceptor` dependencies
+  were removed from `app/build.gradle.kts`. The only production dependencies are
+  `androidx.biometric`, `androidx.security:security-crypto` (CredentialStore), and the
+  platform compose BOM. Every removed library was verified to have no remaining source
+  reference — the `BuildContractBddSpec` guard asserts this.
+- **`applyForecast` param simplification.** The `forecast` parameter was dropped from
+  `PatternLedgerEngine.applyForecast(match, aligned)` since it was only used to check
+  `forecast.available`; the evidence is now produced upstream by `patternForecastFor`.
+- **`patternForecastFor` made private.** The helper in `AlphaPulseRepository` is now
+  `private fun patternForecastFor` — it is only called from `runPatternLedger` within the
+  same module.
+- **C-27 traceability row in FINALIZED_CONTRACTS.md.** Documents the shrinking and
+  dependency-budget guards, pinned to the `FinalizedContractGuardBddSpec` that fails the
+  build when a blanket keep returns or an unreferenced SDK still ships.
+
+### Changed
+
+- **AlphaPulse tab scope (C-22).** The ProactiveMS campaign and live-order workspace is no
+  longer mounted inside `AlphaPulseScreen`, and `MainActivity` no longer hands it the
+  campaign view model. The tab renders AlphaPulse only: header, workspace cards, forecast
+  accordions, price audit ledger, pattern ledger, §3 board and model dock. The guard spec
+  fails the build if the crypto-trader boards return to this screen.
+- **Contract registry** now records 27 decisions (C-01 … C-27); the pattern ledger's
+  taxonomy count is corrected to the 27 shipped formations (including Evening Star).
+
+### Fixed
+
+- Pattern-ledger rows claimed an audited prediction without ever consulting the models the
+  price ledger was using; both ledgers now share one inference pass and one clock, and the
+  row states which models spoke.
+- The §3 board was fed only the 40-bar forecast snapshot, so most models could never emit a
+  signal. It now reads its own sufficient series and still abstains honestly when history is
+  unavailable.
+- **Crypto-Trader-Pro UI removed from AlphaPulse screen.** The `CampaignWorkspaceSection`
+  and any ProactiveMS campaign board are no longer composable children of
+  `AlphaPulseScreen`. The screen scope is AlphaPulse-only per C-22; a guard BDD in
+  `ProactiveMsNavigationBddSpec` asserts exactly zero campaign references on this screen.
+
 ## [14.4] — 2026-11-17
 
 The pattern ledger is now a production forecast ledger rather than a geometry-only table,
