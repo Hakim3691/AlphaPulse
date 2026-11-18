@@ -14,6 +14,18 @@
 -keep class ai.onnxruntime.** { *; }
 -dontwarn ai.onnxruntime.**
 
+# OkHttp probes for optional TLS providers that nothing in this module ships:
+# BouncyCastle, Conscrypt and OpenJSSE are named by its platform detection code,
+# and no dependency provides them. R8 full mode treats a missing class as a hard
+# error - "Missing classes detected while running R8" - which is exactly what
+# failed v1.0.20's `:app:minifyReleaseWithR8` while every other gate passed. They
+# are optional at runtime (OkHttp falls back to the platform TLS stack), so a
+# warning is correct here and a keep rule is not: keeping classes that are not
+# on the classpath would only hide the next real missing-class error.
+-dontwarn org.bouncycastle.jsse.**
+-dontwarn org.conscrypt.**
+-dontwarn org.openjsse.**
+
 # The Cactus Needle 3 engine is invoked through JNI: the native side resolves the
 # declaring class and each external method by name, so both must survive renaming.
 -keep class com.aistudio.alphapulse.domain.decision.Needle3Jni { *; }

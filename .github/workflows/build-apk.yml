@@ -60,6 +60,104 @@ jobs:
         run: python3 scripts/check_integrity.py
 
   # =========================================================================
+  # JOB 0b: Preflight (cheap gates that used to fail late, or not at all)
+  # =========================================================================
+  # The v1.0.20 tag run is why this job exists. Every gate passed, the build job
+  # reported success, and the release still failed five minutes later because
+  # `assembleRelease` had died inside `:app:minifyReleaseWithR8` while the build
+  # step's `gradle ... | tee` pipeline reported tee's status. Nothing before the
+  # NDK build had ever compiled the release variant or run R8, so the most
+  # expensive job was the first one to discover it. These checks are cheap and run
+  # first: the workflow's own contract, both Kotlin source sets, and the release
+  # minification pass.
+  preflight:
+    name: Preflight Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check the workflow, release completeness and changelog body
+        # No Gradle and no SDK: a pipeline that cannot report a failure, an upload
+        # that self-skips, or an empty release body is caught in seconds.
+        run: python3 scripts/check_ci_preflight.py
+
+      - name: Setup Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Configure Gradle Memory & Performance Options
+        run: |
+          mkdir -p ~/.gradle
+          cat << 'EOF' >> ~/.gradle/gradle.properties
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseParallelGC
+          org.gradle.parallel=true
+          org.gradle.configuration-cache=true
+          EOF
+
+      - name: Accept Android SDK Licenses
+        run: |
+          mkdir -p "$ANDROID_HOME/licenses"
+          printf "24333f8a63b6825ea9c5514f83c2829b004d1fee\nd975f78077227923285f433e6574f90f169b7f16\n" > "$ANDROID_HOME/licenses/android-sdk-license"
+          printf "84831b9409646a918e30573bab4c9c91346d8abd\n" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          yes | sdkmanager --licenses || true
+
+      - name: Provision a throwaway signing keystore
+        # The release variant evaluates its signing config even for the R8 task, so
+        # the pin below needs a keystore to exist. This one signs nothing: it is
+        # not cached and never leaves the runner.
+        run: |
+          if [ ! -f .env ]; then
+            [ -f .env.example ] && cp .env.example .env || touch .env
+          fi
+          chmod +x gradlew
+          if [ ! -s my-upload-key.jks ]; then
+            keytool -genkeypair -v \
+              -keystore my-upload-key.jks \
+              -alias upload \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=Alpha Pulse Preflight, O=Alpha Pulse, C=US"
+          fi
+
+      - name: Restore the bundled Needle 3 weights
+        # R8 runs on the release variant that packages these assets, so this leg
+        # sees the same inputs as the build job. Cached under the pinned digest.
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/assets/needle3.cact
+          key: needle3-weights-c9d915ec-v1
+
+      - name: Bundle the Needle 3 weights
+        run: ./gradlew :app:bundleNeedle3Weights --console=plain
+
+      - name: Compile both Kotlin source sets
+        # The red that started the v1.0.18 release cycle was a single unresolved
+        # reference in a view model; it surfaced after the test matrix. Both source
+        # sets compile here, so a compilation error fails in minutes.
+        run: ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin --console=plain
+
+      - name: Minify the release variant (R8 gate)
+        # `assembleRelease` never succeeded in v1.0.20 because of this task. Running
+        # it on its own costs about a minute and needs neither a signed APK nor the
+        # NDK, so the release failure cannot hide behind a green build step again.
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          STORE_PASSWORD: android
+          KEY_PASSWORD: android
+        run: ./gradlew :app:minifyReleaseWithR8 --console=plain
+
+  # =========================================================================
   # JOB 1: Test Suite (Gating matrix)
   # =========================================================================
   test:
@@ -313,8 +411,8 @@ jobs:
     name: Assemble APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: test
-    if: ${{ always() && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
+    needs: [preflight, test]
+    if: ${{ always() && needs.preflight.result == 'success' && (needs.test.result == 'success' || needs.test.result == 'skipped') }}
 
     steps:
       - name: Checkout Repository
@@ -495,6 +593,12 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
           GIT_SHA: ${{ github.sha }}
         run: |
+          # This step pipes every Gradle invocation into tee. Without pipefail the
+          # pipeline reports tee's exit status, so assembleRelease dying inside R8
+          # still left the step (and the job) green with no release APK - the exact
+          # shape of the v1.0.20 failure. A blocking step must be able to fail.
+          set -o pipefail
+
           RAW_TYPE="${{ github.event.inputs.build_type }}"
           if [ -n "$RAW_TYPE" ]; then
             BUILD_TYPE="$RAW_TYPE"
@@ -539,6 +643,23 @@ jobs:
               ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee build-output.log
               ;;
           esac
+
+          # Proof that the variants this run asked for were really produced. A tag
+          # or a push builds `both`, so both files must exist here; the release job
+          # repeats this check from its own transports, but failing here keeps the
+          # error on the run that caused it.
+          case "$BUILD_TYPE" in
+            "debug")   expected="app/build/outputs/apk/debug/app-arm64-v8a-debug.apk" ;;
+            "release") expected="app/build/outputs/apk/release/app-arm64-v8a-release.apk" ;;
+            *)         expected="app/build/outputs/apk/debug/app-arm64-v8a-debug.apk app/build/outputs/apk/release/app-arm64-v8a-release.apk" ;;
+          esac
+          for apk in $expected; do
+            if [ ! -s "$apk" ]; then
+              echo "::error::BUILD_TYPE=$BUILD_TYPE was requested but $apk was not produced. A silently missing variant must fail this step, not surface in the release job after another build."
+              exit 1
+            fi
+            echo "Produced $apk ($(wc -c < "$apk") bytes)"
+          done
 
       - name: Surface Detailed Compilation Failures
         if: failure()
@@ -613,7 +734,11 @@ jobs:
 
       - name: Upload release APK (arm64-v8a)
         # A manual debug-only run has no release APK; pushes and tags always do.
-        if: ${{ hashFiles('app/build/outputs/apk/release/app-arm64-v8a-release.apk') != '' }}
+        # This used to be gated on a hash of the APK's own path, which turned a
+        # missing release APK into a *skipped* step: the build job stayed green and
+        # the release job failed minutes later. It now reads the requested build
+        # type, and `if-no-files-found: error` fails the job when the file is gone.
+        if: ${{ !cancelled() && github.event.inputs.build_type != 'debug' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
@@ -642,7 +767,7 @@ jobs:
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    needs: [integrity, build, model-artifacts]
+    needs: [integrity, preflight, build, model-artifacts]
     # !cancelled() is required so the job still evaluates when a needed job
     # failed or was skipped: instead of silently skipping the release, it runs
     # the guard below and fails with an explicit reason.
@@ -657,9 +782,9 @@ jobs:
       # A tag may only publish artifacts whose tests passed AND whose two
       # published ONNX graphs both executed and passed in this same run.
       - name: Refuse to publish unverified artifacts
-        if: ${{ needs.integrity.result != 'success' || needs.build.result != 'success' || needs.model-artifacts.result != 'success' }}
+        if: ${{ needs.integrity.result != 'success' || needs.preflight.result != 'success' || needs.build.result != 'success' || needs.model-artifacts.result != 'success' }}
         run: |
-          echo "::error::Release blocked: integrity result '${{ needs.integrity.result }}', build result '${{ needs.build.result }}', model artifact verification result '${{ needs.model-artifacts.result }}'. A release requires a clean integrity check, a successful build, and both published ONNX graphs executed and passing in this run."
+          echo "::error::Release blocked: integrity result '${{ needs.integrity.result }}', preflight result '${{ needs.preflight.result }}', build result '${{ needs.build.result }}', model artifact verification result '${{ needs.model-artifacts.result }}'. A release requires a clean integrity check, passing preflight gates (both Kotlin source sets and the release R8 pass), a successful build, and both published ONNX graphs executed and passing in this run."
           exit 1
 
       - name: Checkout Repository

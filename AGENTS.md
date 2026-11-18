@@ -19,11 +19,14 @@ behaviour that is already decided.
    - `./gradlew :app:assembleDebug`
    - `./gradlew :app:verifyPackagedWeights` (any change to the weights, build or
      packaging path)
-4. **CI/CD ships it.** Push to `main`: integrity → unit/Robolectric tests (API 33
-   and 34) → APK assembly with packaged-weights verification → published
-   model-artifact contract → GitHub Release from the verified artifacts. A pushed
-   `v*` tag publishes a versioned release. Do not bypass, weaken or skip a gate to
-   make a red run green — fix the cause.
+4. **CI/CD ships it.** Push to `main`: integrity → preflight (the workflow
+   contract, both Kotlin source sets and the release R8 pass) → unit/Robolectric
+   tests (API 33 and 34) → APK assembly with packaged-weights verification →
+   published model-artifact contract → GitHub Release from the verified
+   artifacts. A pushed `v*` tag publishes a versioned release. Do not bypass,
+   weaken or skip a gate to make a red run green — fix the cause. The preflight
+   gates exist because a run once passed every check and still produced no
+   release; [`docs/ci-incidents.md`](docs/ci-incidents.md) records why.
 
 ## Finalized decisions are not up for silent reversal
 

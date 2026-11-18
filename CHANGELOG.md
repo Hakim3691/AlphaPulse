@@ -7,6 +7,48 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [14.7] — 2026-11-18
+
+The release that was not published: v1.0.20 built and verified its APKs, and the
+GitHub Release job still refused to publish because the release APK did not exist.
+The cause was a release build that had failed silently, so the pipeline now runs
+the gates that would have caught it *first*, and can no longer pass on a variant
+it did not produce. See [`docs/ci-incidents.md`](docs/ci-incidents.md).
+
+### Fixed
+
+- **The release APK could not be built (R8).** `:app:minifyReleaseWithR8` failed
+  with "Missing classes detected while running R8": OkHttp names three optional
+  TLS providers (BouncyCastle, Conscrypt, OpenJSSE) that this module does not
+  ship, and R8 full mode treats the missing classes as a hard error. They are
+  optional at runtime — OkHttp falls back to the platform TLS stack — so
+  `proguard-rules.pro` now `-dontwarn`s exactly those packages. The release APK
+  builds, shrinks and signs as before; no keep rule was added for classes that
+  are not on the classpath.
+- **A failed build step could report success.** The APK step pipes Gradle into
+  `tee`; without `pipefail` the pipeline reported `tee`'s status, which is how a
+  dead `assembleRelease` looked like "APKs built". The step now enables
+  `pipefail` and asserts that every APK its `BUILD_TYPE` implies exists.
+- **A missing APK became a skipped upload.** The release APK upload was gated on
+  `hashFiles(<the APK itself>)`, so the absence turned into a skipped step and a
+  green job. It is now gated on the requested build type and still fails on a
+  missing file.
+
+### Added
+
+- **Preflight gates (C-28).** A `preflight` job runs before the APK build: the
+  workflow contract (`scripts/check_ci_preflight.py`), both Kotlin source sets,
+  and the release R8 pass. The `build` and `release` jobs depend on it, so a
+  compilation or minification failure costs a minute instead of a full test
+  matrix plus an NDK build.
+- **CI contract checks.** `scripts/check_ci_preflight.py` and
+  `build/CiGateIntegrityBddSpec.kt` fail when a blocking step pipes Gradle into
+  `tee` without `pipefail`, when an APK upload self-skips, when the build step
+  stops proving its artifacts, when the preflight wiring is removed, or when the
+  newest changelog section (the published release body) is empty.
+- **Incident record.** `docs/ci-incidents.md` documents why v1.0.18, v1.0.19 and
+  v1.0.20 failed and which check now catches each cause first.
+
 ## [14.6] — 2026-11-18
 
 The dual-ledger release: the price, pattern and decisions ledgers are all on the board,

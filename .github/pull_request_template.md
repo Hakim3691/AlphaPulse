@@ -28,5 +28,6 @@ regression, not a cleanup.
 
 ## CI/CD
 
-- [ ] No CI gate was weakened, disabled, made advisory, or removed (`test`, `integrity`, `build`, `model-artifacts`, `release`).
+- [ ] No CI gate was weakened, disabled, made advisory, or removed (`integrity`, `preflight`, `test`, `build`, `model-artifacts`, `release`).
+- [ ] `scripts/check_ci_preflight.py` still passes, and no blocking step pipes Gradle into `tee` without `pipefail` (see `docs/ci-incidents.md`).
 - [ ] The release job still refuses to publish artifacts whose gates did not succeed.
