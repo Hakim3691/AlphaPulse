@@ -251,9 +251,9 @@ tasks.withType<Test>().configureEach {
   // in the default 512 MB test JVM.
   maxHeapSize = "2g"
   // JaCoCo's agent instruments each test JVM; its output lands in build/jacoco/.
-  systemProperty("verifyArtifactNetwork", System.getenv("VERIFY_ARTIFACT_NETWORK") ?: "false")
+  systemProperty("verifyArtifactNetwork", System.getProperty("verifyArtifactNetwork") ?: "false")
   // The 250 MB TimesFM parity run is opt-in even when network checks are on.
-  systemProperty("verifyLargeModel", System.getenv("VERIFY_LARGE_MODEL") ?: "false")
+  systemProperty("verifyLargeModel", System.getProperty("verifyLargeModel") ?: "false")
 }
 
 /**
