@@ -48,13 +48,20 @@ fun PatternLedgerSection(
     horizonFilter: String,
     onFilterChange: (String) -> Unit,
     onExportClick: () -> Unit,
-    onClearClick: () -> Unit = {}
+    onClearClick: () -> Unit = {},
+    /** Settled rows are hidden by default; the toggle reveals them. */
+    initiallyShowSettled: Boolean = false
 ) {
+    var showSettled by remember { mutableStateOf(initiallyShowSettled) }
+
     val filteredList = if (horizonFilter == "ALL") {
         entries
     } else {
         entries.filter { it.horizon == horizonFilter }
     }
+    // The ledger is a working list: settled rows are already graded, so they only
+    // appear when the user asks for them.
+    val visibleList = filteredList.filter { showSettled || !it.settled }
     val pendingCount = filteredList.count { !it.settled }
     val settledCount = filteredList.count { it.settled }
     // A hit is a settled row whose realized geometry matched the prediction. The
@@ -99,11 +106,13 @@ fun PatternLedgerSection(
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
                         contentDescription = null,
-                        tint = BrandNeural,
+                        tint = BrandBullish,
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "Pattern Prediction Ledger",
+                        // Same wording and casing as the price ledger above it: the two
+                        // tables are one instrument in two halves.
+                        text = "PATTERN PREDICTION LEDGER",
                         color = TextPrimary,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
@@ -129,25 +138,29 @@ fun PatternLedgerSection(
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        text = hitRateText,
-                        color = if (filteredList.isEmpty()) TextTertiary else if (
-                            (hitCount.toDouble() / filteredList.size) >= 0.6
-                        ) BrandBullish else BrandAmber,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
                 }
             }
 
-            // Action buttons row (second toolbar line of the two-line header)
+            // Action row, same layout as the price ledger: hit rate on the left, then
+            // the visibility switch and the ledger buttons on the right.
             Row(
                 modifier = Modifier.fillMaxWidth().padding(top = 3.dp, bottom = 2.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Text(
+                    text = hitRateText,
+                    color = if (filteredList.isEmpty()) TextTertiary else if (
+                        (hitCount.toDouble() / filteredList.size) >= 0.6
+                    ) BrandBullish else BrandAmber,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+
+                LedgerSettledToggle(showSettled = showSettled, onToggle = { showSettled = !showSettled })
+
                 // Export Pattern Ledger CSV Button
                 Box(
                     modifier = Modifier
@@ -284,8 +297,23 @@ fun PatternLedgerSection(
                         fontFamily = FontFamily.Monospace
                     )
                 }
+            } else if (visibleList.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No pending pattern rows for this filter. $settledCount settled " +
+                            "row(s) hidden — SHOW SETTLED to review them.",
+                        color = TextTertiary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             } else {
-                filteredList.forEach { entry ->
+                visibleList.forEach { entry ->
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),

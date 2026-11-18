@@ -134,8 +134,7 @@ fun AlphaPulseScreen(
                     onFilterChange = { viewModel.setHorizonFilter(it) },
                     onClearClick = { viewModel.clearLedger() },
                     onExportClick = { viewModel.exportAndShareAuditCsv() },
-                    onExportUniverseClick = { viewModel.export4TabUniverseCsv() },
-                    decisionHistory = uiState.decisionHistory
+                    onExportUniverseClick = { viewModel.export4TabUniverseCsv() }
                 )
 
                 // §73 Secondary Pattern Prediction & Learning Ledger. Mounted directly
@@ -149,9 +148,11 @@ fun AlphaPulseScreen(
                     onClearClick = { viewModel.clearPatternLedger() }
                 )
 
-                // Decisions Ledger - shows ALL recorded §29 verdicts, not limited to 5
+                // Decisions Ledger — the §29 verdicts, graded against the price ledger's
+                // settlement (C-29). It replaced the five-row copy that lived inside the
+                // price ledger, so there is exactly one decisions table.
                 DecisionsLedgerSection(
-                    decisions = uiState.decisionHistory,
+                    rows = uiState.decisionLedger,
                     onClearClick = { viewModel.clearLedger() }
                 )
 

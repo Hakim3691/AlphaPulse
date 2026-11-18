@@ -1,48 +1,62 @@
 package com.aistudio.alphapulse.ui.components
 
+/**
+ * The decisions ledger: every §29 verdict the router recorded, graded.
+ *
+ * It used to be a second copy of the five newest verdicts inside the price ledger and
+ * it never settled anything. Now it is its own board, it renders only what is still
+ * pending by default (settled rows are one toggle away), and each row reports whether
+ * the call it made was right once the forecast it drove settled.
+ *
+ * Spec Ref: §21 Prediction Audit Ledger, §29 Quantitative Decision Router, C-10, C-29
+ */
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.*
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.aistudio.alphapulse.data.db.DecisionRecordEntity
+import com.aistudio.alphapulse.core.Formatters
+import com.aistudio.alphapulse.data.repository.DecisionLedgerRow
 import com.aistudio.alphapulse.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.delay
-import androidx.compose.ui.graphics.Color
 
 @Composable
 fun DecisionsLedgerSection(
-    decisions: List<DecisionRecordEntity>,
-    onClearClick: () -> Unit
+    rows: List<DecisionLedgerRow>,
+    onClearClick: () -> Unit,
+    /** Settled verdicts are hidden by default; the toggle reveals them. */
+    initiallyShowSettled: Boolean = false
 ) {
-    var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            delay(1000)
-            currentTime = System.currentTimeMillis()
-        }
-    }
+    var showSettled by remember { mutableStateOf(initiallyShowSettled) }
+
+    val pendingCount = rows.count { !it.settled }
+    val settledCount = rows.count { it.settled }
+    val hits = rows.count { it.hit == true }
+    val graded = rows.count { it.settled }
+    val visible = rows.filter { showSettled || !it.settled }
 
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
 
-    // Header with title and count
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -50,12 +64,9 @@ fun DecisionsLedgerSection(
             .background(BrandSurface)
             .border(1.dp, BrandBorder, RoundedCornerShape(10.dp))
     ) {
-        // Top Toolbar: title + count + clear button
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)
-        ) {
+        // Two-line header, formatted like the price and pattern ledgers: title + counters,
+        // then the actions line.
+        Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -85,8 +96,15 @@ fun DecisionsLedgerSection(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "${decisions.size} RECORDED",
+                        text = "Pend: $pendingCount",
                         color = BrandAmber,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Settled: $settledCount",
+                        color = BrandBullish,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
@@ -94,48 +112,62 @@ fun DecisionsLedgerSection(
                 }
             }
 
-            // Clear Ledger Button (full width, replaces old inline clear)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(BrandCard)
-                    .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 3.dp, bottom = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                Text(
+                    text = if (graded == 0) "Graded: -- (0/0)" else
+                        "Graded: ${String.format(Locale.US, "%.1f", hits * 100.0 / graded)}% ($hits/$graded)",
+                    color = if (graded == 0) TextTertiary else BrandBullish,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+
+                LedgerSettledToggle(showSettled = showSettled, onToggle = { showSettled = !showSettled })
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(BrandCard)
+                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
+                        .clickable(onClick = onClearClick)
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Clear Decisions Ledger",
-                        tint = BrandBearish,
-                        modifier = Modifier.size(11.dp)
-                    )
-                    Text(
-                        text = "CLEAR LEDGER",
-                        color = BrandBearish,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Clear Decisions Ledger",
+                            tint = BrandBearish,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = "CLEAR LEDGER",
+                            color = BrandBearish,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
 
         HorizontalDivider(color = BrandBorder)
 
-        // Table Header & Rows in horizontal scroll
         val scrollState = rememberScrollState()
-        val timeFmt2 = SimpleDateFormat("HH:mm:ss", Locale.US)
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(scrollState)
         ) {
-            // Header Row
             Row(
                 modifier = Modifier
                     .background(BrandCard)
@@ -148,27 +180,40 @@ fun DecisionsLedgerSection(
                 Text("CONFIDENCE", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(60.dp))
                 Text("SOURCE", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(80.dp))
                 Text("REASON", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(180.dp))
+                Text("RESULT", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(90.dp))
+                Text("REALIZED", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(90.dp))
                 Text("TIME", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(70.dp))
             }
 
             HorizontalDivider(color = BrandBorder)
 
-            if (decisions.isEmpty()) {
+            if (rows.isEmpty()) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No decisions recorded yet for this asset.",
+                        text = DecisionLogText.EMPTY,
+                        color = TextTertiary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            } else if (visible.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No pending verdicts. $settledCount settled row(s) hidden — SHOW SETTLED to review them.",
                         color = TextTertiary,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
                     )
                 }
             } else {
-                decisions.forEach { record ->
+                visible.forEach { row ->
+                    val record = row.record
                     Row(
                         modifier = Modifier
                             .padding(horizontal = 12.dp, vertical = 7.dp),
@@ -204,20 +249,56 @@ fun DecisionsLedgerSection(
                             color = if (DecisionLogText.answeredOnDevice(record.source)) BrandBullish else BrandAmber,
                             fontSize = 8.sp,
                             fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.width(80.dp)
                         )
                         Text(
                             text = DecisionLogText.reasonLabel(record.reason),
                             color = TextSecondary,
                             fontSize = 8.sp,
                             fontFamily = FontFamily.Monospace,
-                            maxLines = 1
+                            maxLines = 1,
+                            modifier = Modifier.width(180.dp)
+                        )
+                        Box(modifier = Modifier.width(90.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(
+                                        when (row.hit) {
+                                            true -> GreenGlow
+                                            false -> RedGlow
+                                            null -> BrandCard
+                                        }
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = DecisionLogText.resultLabel(row),
+                                    color = when (row.hit) {
+                                        true -> BrandBullish
+                                        false -> BrandBearish
+                                        null -> BrandAmber
+                                    },
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Text(
+                            text = row.realizedPrice?.let { Formatters.formatPrice5Dec(it) } ?: "--",
+                            color = TextPrimary,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.width(90.dp)
                         )
                         Text(
-                            text = timeFmt2.format(Date(record.issuedTimestamp)),
+                            text = timeFmt.format(Date(record.issuedTimestamp)),
                             color = TextTertiary,
                             fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.width(70.dp)
                         )
                     }
 
@@ -244,6 +325,13 @@ internal object DecisionLogText {
     }
 
     fun answeredOnDevice(source: String): Boolean = source == "NEEDLE3"
+
+    /** The graded outcome: the verdict's own hit, or the fact that it is still waiting. */
+    fun resultLabel(row: DecisionLedgerRow): String = when (row.hit) {
+        true -> "✓ HIT"
+        false -> "✗ MISS"
+        null -> "PENDING"
+    }
 
     fun countLabel(total: Int, shown: Int): String =
         if (total == 0) "NONE RECORDED" else "NEWEST $shown OF $total"

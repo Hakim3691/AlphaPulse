@@ -161,6 +161,57 @@ when integrity, preflight, build and the model-artifact contract all succeed.
 
 ---
 
+## v1.0.18 (`4039b28`) — the integrity gate, not the build
+
+Commit `4039b28`, run
+[44288682849](https://github.com/Hakim3691/AlphaPulse/actions/runs/44288682849).
+
+| Job | Result |
+| :--- | :--- |
+| Repository Integrity | **failure** in seconds |
+| Unit Tests (API 34 / API 33) | **failure** in both legs |
+| Model Artifact Sources | **failure** at *Verify pinned artifact sources* |
+| Assemble APK | skipped |
+| Publish GitHub Release | failure at the release guard |
+
+This is the earliest failure of the group and it has the same shape as the two
+after it: the tree did not satisfy the repository's own contract, so every leg
+that reads the tree failed, the build was skipped for lack of success, and the
+release guard refused to publish an artifact that was never produced. The lesson
+is the one the preflight job encodes: run the cheap, tree-reading gates first so
+the failure is attributed in a minute rather than after a full matrix.
+
+**Now caught first by:** `scripts/check_integrity.py` in the integrity job and in
+preflight, which cross-checks the contract table, guard specs, pinned digests and
+required CI steps before compiling anything.
+
+---
+
+## `a00c0aa` — the failure that passed on `main`
+
+Commit `a00c0aa` ran twice with opposite results:
+[44247094287](https://github.com/Hakim3691/AlphaPulse/actions/runs/44247094287) on
+`main` **succeeded**, and
+[44247109010](https://github.com/Hakim3691/AlphaPulse/actions/runs/44247109010) on
+the `v1.0.18` branch **failed**. Both runs hit the same R8 failure on OkHttp's
+optional TLS providers; only the branch run reported it.
+
+Why the difference: the build step piped Gradle into `tee` without `pipefail`, so
+the step's exit status came from `tee` and the failing `:app:minifyReleaseWithR8`
+looked successful. On `main` that was invisible because branch pushes publish
+nothing, so the missing release APK was never needed and the release-APK upload
+self-skipped via `hashFiles`. On the tag run the release job expected the APK and
+failed.
+
+**Now caught first by:** three separate changes — `pipefail` on the build step, a
+post-build assertion that every requested variant exists, an upload that cannot
+self-skip (`if-no-files-found: error`, gated on the requested build type), and a
+preflight `:app:minifyReleaseWithR8` pass with a throwaway keystore. The R8 cause
+itself is fixed in `app/proguard-rules.pro` (`-dontwarn` for the optional TLS
+providers; they are not on the runtime classpath, so nothing needs keeping).
+
+---
+
 ## What a healthy tag run looks like
 
 `integrity → preflight → test (API 33/34) → build → model-artifacts → release`,

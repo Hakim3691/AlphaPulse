@@ -7,6 +7,53 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [14.8] — 2026-11-18
+
+One decisions table instead of two, ledgers that show what is still open, a forecast
+cycle that stops re-downloading what has not changed, and verdicts that finally get
+graded. Plus the CI forensics behind the four failed commits.
+
+### Changed
+
+- **The five decision rows are gone from the price ledger.** They duplicated the
+  standalone Decisions Ledger a few centimetres below, so the price ledger is now only
+  price predictions and `DecisionHistorySection` no longer exists.
+- **The Pattern Prediction Ledger header matches the price ledger.** Same uppercase
+  title, same check-circle mark, `Pend:`/`Settled:` counters on the first line and the
+  hit rate beside the ledger buttons on the second, instead of a title-case label and a
+  hit rate wedged into the counters.
+- **All three ledgers hide settled rows by default.** Price, pattern and decisions
+  ledgers share one `SHOW SETTLED` / `HIDE SETTLED` control (`LedgerSettledToggle`),
+  and say how many settled rows are hidden when the pending list is empty.
+
+### Fixed
+
+- **Decisions never settled.** A verdict had no settlement of its own, so every row sat
+  at "recorded" forever. `DecisionLedgerJoin` now grades each `DecisionRecordEntity`
+  against the price prediction for the same symbol and reference horizon whose window
+  contains the verdict, and the ledger shows `✓ HIT` / `✗ MISS` / `PENDING` with the
+  realized price. No covering settled forecast means no credit (C-29).
+- **Strategies stuck on FLAT.** The §3 library is daily-scale — Turtle's 20-bar high,
+  Triple Screen's EMA20/50, Connors RSI's 10/90, CMF's ±0.05 — and it was being fed 500
+  **1m** bars, eight hours of noise in which those thresholds cannot fire. The board now
+  reads 500 **1h** bars (~21 days), so Triple Screen, CMF, Connors RSI and ORB have a bar
+  long enough to carry the structure their rules describe.
+- **~300 MB of data per hour.** The ten-second evaluation cycle re-downloaded data that
+  only changes once a minute or once every few minutes (C-30): 1m klines are reused for
+  60 s, the 240-minute liquidation heatmap for 5 minutes, the strategy series for the
+  length of its bar, `aggTrades?limit=500` is no longer fetched on top of the live
+  `aggTrade` stream that already carries the tape, and REST depth is only requested when
+  no WebSocket book is up. A failed fetch is never cached, and a symbol never reuses
+  another symbol's payload.
+
+### CI
+
+- Forensics for `4039b28`, `05fab5e`, `280198a` and `a00c0aa` are recorded in
+  [`docs/ci-incidents.md`](docs/ci-incidents.md): three failed in gates that already
+  existed (repository integrity, both test legs, pinned model sources), and `a00c0aa`
+  shows the silent shape — the same R8 failure passed on `main` because the build step
+  piped Gradle into `tee` without `pipefail` and nothing on `main` published an APK.
+
 ## [14.7] — 2026-11-18
 
 The release that was not published: v1.0.20 built and verified its APKs, and the

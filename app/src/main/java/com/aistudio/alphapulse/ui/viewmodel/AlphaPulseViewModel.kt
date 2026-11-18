@@ -30,6 +30,8 @@ import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.ui.model.AppMode
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
+import com.aistudio.alphapulse.data.repository.DecisionLedgerJoin
+import com.aistudio.alphapulse.data.repository.DecisionLedgerRow
 import com.aistudio.alphapulse.di.ServiceLocator
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
 import com.aistudio.alphapulse.domain.strategy.ScreenerSignal
@@ -95,6 +97,16 @@ data class AlphaPulseUiState(
      * a CSV row attribute their decision to the same record.
      */
     val decisionHistory: List<DecisionRecordEntity> = emptyList(),
+
+    /**
+     * The same verdicts, graded against the price ledger's settlement (C-29).
+     *
+     * A verdict has no settlement of its own: it is a call about the horizon it
+     * references, and the price ledger already settles that call. This list is what the
+     * decisions ledger renders, so a row can show PENDING / HIT / MISS instead of
+     * staying "recorded" forever.
+     */
+    val decisionLedger: List<DecisionLedgerRow> = emptyList(),
     val sessionElapsedSeconds: Long = 0L,
     val isLTFReady: Boolean = false,
     val isMTFReady: Boolean = false,
@@ -304,7 +316,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                     val isMTF = (count15m >= 2 && count30m >= 1) || passesHitGate(mtfRate, mtfN)
                     val isHTF = (count30m >= 2 && count1h >= 1) || passesHitGate(htfRate, htfN)
 
-                    state.copy(
+                    val next = state.copy(
                         predictions = coinList,
                         totalSettledForCoin = settled.size,
                         coneHitRateForCoin = hitRate,
@@ -314,6 +326,11 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                         isLTFReady = isLTF,
                         isMTFReady = isMTF,
                         isHTFReady = isHTF
+                    )
+                    // A settlement in the price ledger is what settles the verdicts that
+                    // rode on that forecast, so regrade whenever either list changes.
+                    next.copy(
+                        decisionLedger = DecisionLedgerJoin.settle(next.decisionHistory, next.predictions)
                     )
                 }
             }
@@ -338,7 +355,12 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                         return@collectLatest
                     }
                     repository.getDecisionHistoryFlow(symbol).collect { records ->
-                        _uiState.update { it.copy(decisionHistory = records) }
+                        _uiState.update { state ->
+                            val next = state.copy(decisionHistory = records)
+                            next.copy(
+                                decisionLedger = DecisionLedgerJoin.settle(next.decisionHistory, next.predictions)
+                            )
+                        }
                     }
                 }
         }

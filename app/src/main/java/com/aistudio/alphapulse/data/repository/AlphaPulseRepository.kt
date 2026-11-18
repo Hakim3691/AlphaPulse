@@ -98,7 +98,7 @@ private const val PATTERN_LEDGER_RETENTION = 500
 private const val PATTERN_KLINE_LIMIT = 60
 
 /**
- * 1m bars requested for the §74 screener / strategy board.
+ * Bars requested for the §74 screener / strategy board.
  *
  * Sixty is MACD's minimum and Triple Screen needs fifty-two; the board was previously fed
  * the 40-bar forecast snapshot, so those models could only ever answer "Needs N bars".
@@ -106,6 +106,30 @@ private const val PATTERN_KLINE_LIMIT = 60
  * one Binance klines response.
  */
 private const val STRATEGY_KLINE_LIMIT = 500
+
+/**
+ * The timeframe the §3 reference library is defined on.
+ *
+ * These nine models are daily/session systems: Turtle's 20-bar high, Triple Screen's
+ * EMA20/EMA50 trend, Connors RSI's 10/90 extremes and CMF's ±0.05 accumulation threshold
+ * are all calibrated to a bar that spans hours, not one minute. Fed 500 1m bars (eight
+ * hours of noise), Triple Screen's EMA50 never carries a trend through and CMF/CRSI sat
+ * out every cycle as FLAT — the models were honest, the input timeframe was wrong. One
+ * hourly bar is a compromise that keeps 500 bars (~21 days of history) in a single
+ * response while giving each rule a bar long enough for its threshold to mean something.
+ * The hourly candle is final once an hour, so this is also sixty times less traffic than
+ * re-downloading 500 1m bars every minute.
+ */
+private const val STRATEGY_INTERVAL = "1h"
+
+/** The strategy bar is final once per hour, so it is refetched once per hour. */
+private const val STRATEGY_TTL_MS = 60L * 60L * 1000L
+
+/** 1m klines are reused for a minute; the intra-minute price comes from the stream. */
+private const val KLINES_TTL_MS = 60L * 1000L
+
+/** The 240-minute liquidation heatmap does not change every ten seconds. */
+private const val HEATMAP_TTL_MS = 5L * 60L * 1000L
 
 /** Klines per calibration request; Binance Futures allows at most 1500. */
 private const val CALIBRATION_PAGE_SIZE = 1000
@@ -151,7 +175,7 @@ class AlphaPulseRepository(
 
     private val patternSeriesCache = HashMap<String, CachedPatternSeries>()
 
-    /** The §74 board's shared bar series: one symbol at a time, refreshed once per minute. */
+    /** The §74 board's shared bar series: one symbol at a time, refreshed once per bar. */
     private data class CachedStrategySeries(
         val symbol: String,
         val fetchedAt: Long,
@@ -160,6 +184,16 @@ class AlphaPulseRepository(
 
     @Volatile
     private var strategySeriesCache: CachedStrategySeries? = null
+
+    /**
+     * Bars the ten-second cycle does not need to re-download.
+     *
+     * A 1m candle is final once a minute and the heatmap it reads spans 240 minutes, so
+     * refetching either on every ten-second cycle multiplied the measured ~300 MB/hour
+     * data use for identical bytes. A failed fetch is retried next cycle.
+     */
+    private val klinesThrottle = FetchThrottle<List<KlineData>>(KLINES_TTL_MS)
+    private val heatmapThrottle = FetchThrottle<Pair<Double, Double>>(HEATMAP_TTL_MS)
 
     val allPredictionsFlow: Flow<List<PredictionEntity>> = database.predictionDao().getAllPredictionsFlow()
     fun getPredictionsBySymbolFlow(symbol: String): Flow<List<PredictionEntity>> =
@@ -750,15 +784,11 @@ class AlphaPulseRepository(
             low24h = tickerObj.getDouble("lowPrice")
         } catch (_: Exception) {}
 
-        // Agg trades empirical shock
+        // Empirical shock (the 95th-percentile trade size) comes from the live
+        // @aggTrade stream the manager already holds. The REST `aggTrades?limit=500`
+        // call that used to run here downloaded the same tape every ten seconds for one
+        // percentile, and was then overwritten by the stream a few lines below.
         var empiricalShock = 0.0
-        try {
-            val trades = client.fetchAggTrades(symbol, 500)
-            if (trades.isNotEmpty()) {
-                val idx95 = (trades.size * 0.95).toInt().coerceIn(0, trades.size - 1)
-                empiricalShock = trades[idx95]
-            }
-        } catch (_: Exception) {}
 
         // Depth snapshot & Liquidity pain path
         var depthSnapshot: DepthSnapshot? = null
@@ -767,8 +797,15 @@ class AlphaPulseRepository(
         var bidRatioPct = 50.0
 
         try {
-            depthSnapshot = client.fetchDepth(symbol, 50)
-            if (depthSnapshot.bids.isNotEmpty() && depthSnapshot.asks.isNotEmpty()) {
+            // The combined stream already carries depth20@250ms. Fetching the same book
+            // over REST every cycle doubled the traffic and the live snapshot overwrote
+            // it moments later, so REST is the fallback for when no stream is up.
+            val streamedBook = wsManager.telemetryFlow.value?.takeIf {
+                it.symbol.equals(symbol, ignoreCase = true) &&
+                    it.bids.isNotEmpty() && it.asks.isNotEmpty()
+            }
+            depthSnapshot = if (streamedBook == null) client.fetchDepth(symbol, 50) else null
+            if (depthSnapshot != null) {
                 val tiers = min(20, min(depthSnapshot.bids.size, depthSnapshot.asks.size))
                 var bidNotional = 0.0
                 var askNotional = 0.0
@@ -799,8 +836,12 @@ class AlphaPulseRepository(
                 )
             }
 
-            // Primary route: Liquidation Heatmap API (SmartMoney public no-key endpoint)
-            val heatmapPair = client.fetchLiquidityHeatmap(symbol, currentSpot)
+            // Primary route: Liquidation Heatmap API (SmartMoney public no-key endpoint).
+            // The payload spans 240 minutes and 100 price buckets, so it is reused for
+            // HEATMAP_TTL_MS instead of being downloaded on all 360 cycles of an hour.
+            val heatmapPair = heatmapThrottle.value(symbol, System.currentTimeMillis()) {
+                client.fetchLiquidityHeatmap(symbol, currentSpot)
+            }
             if (heatmapPair != null) {
                 ltfPathData = LiquidityPainPathResult(heatmapPair.first, heatmapPair.second, "API")
             }
@@ -834,26 +875,31 @@ class AlphaPulseRepository(
             }
         }
 
-        // 40 1-minute Klines
-        val klines = mutableListOf<KlineData>()
-        try {
-            val klinesArr = client.getJsonArray("/fapi/v1/klines?symbol=$symbol&interval=1m&limit=40")
-            for (i in 0 until klinesArr.length()) {
-                val k = klinesArr.getJSONArray(i)
-                klines.add(
-                    KlineData(
-                        openTime = k.getLong(0),
-                        open = k.getDouble(1),
-                        high = k.getDouble(2),
-                        low = k.getDouble(3),
-                        close = k.getDouble(4),
-                        volume = k.getDouble(5),
-                        quoteVolume = k.getDouble(7),
-                        takerBuyQuoteVolume = k.getDouble(10)
+        // 40 1-minute Klines. The newest 1m bar only becomes final once a minute and the
+        // intra-minute price comes from the WebSocket, so the parsed series is reused for
+        // KLINES_TTL_MS rather than re-downloaded on every ten-second cycle.
+        val klines: List<KlineData> = klinesThrottle.value(symbol, System.currentTimeMillis()) {
+            val parsed = mutableListOf<KlineData>()
+            try {
+                val klinesArr = client.getJsonArray("/fapi/v1/klines?symbol=$symbol&interval=1m&limit=40")
+                for (i in 0 until klinesArr.length()) {
+                    val k = klinesArr.getJSONArray(i)
+                    parsed.add(
+                        KlineData(
+                            openTime = k.getLong(0),
+                            open = k.getDouble(1),
+                            high = k.getDouble(2),
+                            low = k.getDouble(3),
+                            close = k.getDouble(4),
+                            volume = k.getDouble(5),
+                            quoteVolume = k.getDouble(7),
+                            takerBuyQuoteVolume = k.getDouble(10)
+                        )
                     )
-                )
-            }
-        } catch (_: Exception) {}
+                }
+            } catch (_: Exception) {}
+            if (parsed.isEmpty()) null else parsed
+        } ?: emptyList()
 
         if (klines.isNotEmpty() && currentSpot <= 0.0) {
             currentSpot = klines.last().close
@@ -1534,11 +1580,11 @@ class AlphaPulseRepository(
         fallback: List<KlineData>
     ): List<StrategyCandle> {
         val cached = strategySeriesCache?.takeIf { it.symbol == symbol }
-        if (cached != null && now - cached.fetchedAt < 60_000L) return cached.candles
+        if (cached != null && now - cached.fetchedAt < STRATEGY_TTL_MS) return cached.candles
 
         val fetched = try {
             val array = client.getJsonArray(
-                "/fapi/v1/klines?symbol=$symbol&interval=1m&limit=$STRATEGY_KLINE_LIMIT"
+                "/fapi/v1/klines?symbol=$symbol&interval=$STRATEGY_INTERVAL&limit=$STRATEGY_KLINE_LIMIT"
             )
             (0 until array.length()).map { index ->
                 val bar = array.getJSONArray(index)

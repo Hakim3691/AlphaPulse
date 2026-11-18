@@ -31,7 +31,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.aistudio.alphapulse.data.db.DecisionRecordEntity
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.ui.theme.*
 import com.aistudio.alphapulse.core.Formatters
@@ -50,9 +49,11 @@ fun PredictionLedgerSection(
     onClearClick: () -> Unit,
     onExportClick: () -> Unit,
     onExportUniverseClick: () -> Unit = {},
-    /** Recorded §29 verdicts for the selected asset, newest first (§21). */
-    decisionHistory: List<DecisionRecordEntity> = emptyList()
+    /** Settled rows are hidden by default; the toggle reveals them. */
+    initiallyShowSettled: Boolean = false
 ) {
+    var showSettled by remember { mutableStateOf(initiallyShowSettled) }
+
     val pendingCount = predictions.count { !it.settled }
     val settledCount = predictions.count { it.settled }
 
@@ -61,6 +62,9 @@ fun PredictionLedgerSection(
     } else {
         predictions.filter { it.horizonId == horizonFilter }
     }
+    // The ledger is a working list: a settled row has already been graded, so it only
+    // appears when the user asks for it.
+    val visibleList = filteredList.filter { showSettled || !it.settled }
 
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -149,6 +153,8 @@ fun PredictionLedgerSection(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
                 )
+
+                LedgerSettledToggle(showSettled = showSettled, onToggle = { showSettled = !showSettled })
 
                 // 4-Tab Universe CSV Button
                 Box(
@@ -270,13 +276,6 @@ fun PredictionLedgerSection(
 
         HorizontalDivider(color = BrandBorder.copy(alpha = 0.6f))
 
-        // What the engine concluded before the current frame. The verdicts are per
-        // snapshot, not per horizon, so they are shown above the horizon filter's
-        // table rather than inside it.
-        DecisionHistorySection(history = decisionHistory)
-
-        HorizontalDivider(color = BrandBorder.copy(alpha = 0.6f))
-
         // Table Header & Rows in horizontal scroll
         val scrollState = rememberScrollState()
         val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.US)
@@ -320,8 +319,23 @@ fun PredictionLedgerSection(
                         fontFamily = FontFamily.Monospace
                     )
                 }
+            } else if (visibleList.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No pending predictions for this filter. " +
+                            "$settledCount settled row(s) hidden — SHOW SETTLED to review them.",
+                        color = TextTertiary,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
             } else {
-                filteredList.forEach { item ->
+                visibleList.forEach { item ->
                     val diff = max(0L, item.targetTimestamp - currentTime)
                     val m = (diff / 60000).toString().padStart(2, '0')
                     val s = ((diff % 60000) / 1000).toString().padStart(2, '0')

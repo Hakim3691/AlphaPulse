@@ -80,6 +80,9 @@ class PatternLedgerBddSpec {
                 horizonFilter = "ALL",
                 onFilterChange = { _ -> },
                 onExportClick = {},
+                // This scenario is about rendering every row, so it opens the settled
+                // rows the ledger hides by default (C-29).
+                initiallyShowSettled = true
             )
         }
         
