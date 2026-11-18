@@ -9,6 +9,32 @@ own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
 ## [14.6] — 2026-11-18
 
+The dual-ledger release: the price, pattern and decisions ledgers are all on the board,
+the pattern ledger exports CSV with a hit rate, and the background engine actually holds
+its wake lock, so locking the device no longer restarts the pipeline.
+
+### Added
+
+- **Decisions ledger.** Every recorded §29 verdict is listed in its own section instead
+  of being capped at the newest five.
+- **Pattern ledger export and hit rate.** The section header reports
+  `Hit: <rate>% (<hits>/<rows>)` for the current horizon filter, and the export writes
+  `timestamp,symbol,horizon,predictedPattern,realizedPattern,fitLoss,inCone`.
+
+### Fixed
+
+- **Background continuity (§24).** `AlphaPulseService` created its partial wake lock but
+  never acquired it. It is now acquired and released only when the service is destroyed,
+  and `START_STICKY` keeps the pipeline alive across a background or lock transition.
+- **Pattern hit rate.** The rate read an `inCone` flag that nothing persisted, so it
+  always showed 0%. A hit is now a settled row whose realized pattern matched its
+  prediction — both values the row already stores.
+- **Pattern ledger CSV export.** The export read the price-prediction flow (a plain
+  `Flow` of a different table, with no `.value` to read) and used a C-style ternary, so
+  the module did not compile. It now exports the pattern ledger the screen renders.
+- **Ledger names and version banner.** The boards read "Price Prediction Ledger" and
+  "Pattern Prediction Ledger", and the Pro Quant version string is gone from the header.
+
 ## [14.5] — 2026-11-17
 
 Zero-bloat release: R8 minification enabled, all Firebase/Retrofit/moshi/logging
