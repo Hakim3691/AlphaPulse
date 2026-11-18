@@ -76,10 +76,10 @@ class PatternLedgerBddSpec {
         
         compose.setContent {
             PatternLedgerSection(
-                entries = entries,
+                entries = entries.map { it.toEntry() },
                 horizonFilter = "ALL",
                 onFilterChange = { _ -> },
-                onClearClick = {}
+                onExportClick = {},
             )
         }
         
@@ -87,7 +87,7 @@ class PatternLedgerBddSpec {
         compose.onNodeWithText("BTCUSDT").assertExists()
         compose.onNodeWithText("ETHUSDT").assertExists()
         // Should show hit rate
-        compose.onNodeWithText("Hit").assertExists()
+        compose.onNodeWithText("Hit", substring = true).assertExists()
     }
 
     @Test
@@ -135,14 +135,14 @@ class PatternLedgerBddSpec {
         
         compose.setContent {
             PatternLedgerSection(
-                entries = entries,
+                entries = entries.map { it.toEntry() },
                 horizonFilter = "ALL",
                 onFilterChange = { _ -> },
-                onClearClick = {}
+                onExportClick = {},
             )
         }
         
         // Both are settled, should show hit rate
-        compose.onNodeWithText("Hit: 100.0%").assertExists()
+        compose.onNodeWithText("Hit: 100.0%", substring = true).assertExists()
     }
 }

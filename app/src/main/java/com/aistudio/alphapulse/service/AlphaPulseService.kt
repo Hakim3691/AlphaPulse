@@ -99,6 +99,9 @@ class AlphaPulseService : Service() {
             setReferenceCounted(false)
             // No artificial timeout; the lock persists for the app session lifetime.
             // Release only when the service is destroyed (user closes the app).
+            // Creating the lock alone holds nothing: it must be acquired, or the CPU
+            // is free to suspend the pipeline the moment the screen goes off.
+            acquire()
         }
 
         startForegroundWithNotification()

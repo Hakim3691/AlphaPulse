@@ -665,7 +665,8 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                     val predPattern = entry.predictedPatternName
                     val rezPattern = entry.realizedPattern ?: ""
                     val fitLoss = entry.fitLoss?.let { String.format(Locale.US, "%.2f", it) } ?: ""
-                    val inCone = if (entry.settled && entry.inCone) "true" else ""
+                    // Same rule the screen counts: a settled row that matched its prediction.
+                    val inCone = if (entry.settled && entry.realizedPattern == entry.predictedPatternName) "true" else ""
                     sb.append("$ts,$sym,$horz,$predPattern,$rezPattern,$fitLoss,$inCone\n")
                 }
 

@@ -57,7 +57,9 @@ fun PatternLedgerSection(
     }
     val pendingCount = filteredList.count { !it.settled }
     val settledCount = filteredList.count { it.settled }
-    val hitCount = filteredList.count { it.settled && it.inCone == true }
+    // A hit is a settled row whose realized geometry matched the prediction. The
+    // ledger's `inCone` flag is not persisted, so reading it here reported 0% forever.
+    val hitCount = filteredList.count { it.settled && it.realizedPattern == it.predictedPatternName }
     val hitRateText = if (filteredList.isEmpty())
         "Hit: -- (0/0)"
     else {
