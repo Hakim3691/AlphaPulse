@@ -7,6 +7,31 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [14.9] — 2026-11-18
+
+The data fix from 14.8 is now measured rather than argued: one simulated hour of the
+ten-second cycle runs through the real caches and counts every REST request.
+
+### Added
+
+- **`CycleNetworkBudget`** — the cycle's intervals and payload assumptions in one
+  place, with the hourly request count derived from them instead of hard-coded next
+  to them. The repository consumes these constants, so a TTL edit cannot leave the
+  budget behind.
+- **`CycleNetworkBudgetBddSpec`** — walks 360 real `executeAssetEvaluation` calls over
+  a fake clock (the new `clock` seam), records every request with a counting client,
+  and asserts the hourly totals against the published table. It fails on a shortened
+  TTL, a duplicate endpoint inside one cycle, the return of the REST `aggTrades` tape,
+  or a payload over budget.
+- **The budget:** 512 REST requests and ≈2.35 MiB per hour with the streamed book;
+  872 requests and ≈4.52 MiB with the REST depth fallback. Ceilings are 520/900
+  requests and 4.0/8.0 MiB. Mechanism, assumptions and the honest scope are in
+  [`docs/ci-incidents.md`](docs/ci-incidents.md#data-budget-proven-offline--2026-11-18).
+
+C-31 pins the budget and the guard spec; on-device traffic remains unmeasured here
+(no device, and Binance geo-blocks this workspace), and the WebSocket streams are
+deliberately outside the REST budget.
+
 ## [14.8] — 2026-11-18
 
 One decisions table instead of two, ledgers that show what is still open, a forecast

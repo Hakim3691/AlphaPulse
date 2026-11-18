@@ -224,3 +224,76 @@ where **release** requires:
 
 If a release is missing an asset, read the **build** job first: the release job
 only reports the consequence.
+
+---
+
+## Data budget, proven offline — 2026-11-18
+
+The device reported ~300 MB in an hour. The cause was the ten-second evaluation
+cycle re-downloading data that had not changed: 1m klines, a 240-minute
+liquidation heatmap, an `aggTrades?limit=500` tape the WebSocket already carried,
+and a REST depth book the stream also carried. The fix is C-30 — `FetchThrottle`,
+the dropped aggTrades call and stream-gated depth — but a fix with no measurement
+can regress silently, so the hourly budget is now an executable test.
+
+### Mechanism
+
+`CycleNetworkBudgetBddSpec` walks **one simulated hour** of the real
+`AlphaPulseRepository.executeAssetEvaluation` — 360 cycles at the ten-second
+period — through the real caches and throttle. Three pieces make that possible
+without a device or a network:
+
+1. **`CycleNetworkBudget`** (`data/network/`) holds the intervals and payload
+   assumptions the cycle uses, and derives the expected hourly counts from them:
+   `1 + floor(3590 s / TTL)` fetches for a cached source, one request per horizon
+   interval for the §73 pattern series. The repository consumes these constants,
+   so the test and the code cannot disagree about a TTL.
+2. **The repository's `clock` seam** (`() -> Long`, wall clock in production)
+   lets the test advance 10 s per cycle; without it every TTL would still look
+   fresh inside a fast test and an hour could never be simulated.
+3. **`CountingClient`**, a `ResilientBinanceClient` whose exchange is JSON
+   literals, records the path of every request; `BookedStreamManager` presents the
+   book a live socket would have provided, `SilentStreamManager` presents none.
+
+The test asserts the measured counts against a literal published table, asserts
+that table against the derived constants (so shortening a TTL fails the build),
+fails on any duplicate endpoint inside one cycle, fails if `aggTrades` returns
+over REST, and bounds the estimated payload.
+
+### The budget
+
+| Source | Interval / TTL | Requests per hour | Bytes/request (assumed) |
+| :--- | :--- | ---: | ---: |
+| `ticker/24hr` | every cycle (10 s) | 360 | 600 B |
+| `klines` 1m, limit 40 | 60 s reuse | 60 | 9,000 B |
+| liquidation heatmap | 5 min reuse | 12 | 35,000 B |
+| strategy `klines` 1h, limit 500 | 60 min reuse | 1 | 110,000 B |
+| pattern `klines` (5 horizons) | once per horizon interval (1m…1h) | 79 | 13,000 B |
+| `depth` limit 50 | only with no streamed book | 0 / 360 | 6,000 B |
+| HTTP overhead | every request | — | 300 B |
+
+Measured, one simulated hour:
+
+- **With the streamed book: 512 requests, ≈2.35 MiB REST.**
+- **Depth fallback (no WebSocket): 872 requests, ≈4.52 MiB REST.**
+
+Published ceilings: 520 requests / 4.0 MiB with a stream, 900 requests / 8.0 MiB
+without. The ceilings sit just above the measurement so a regression fails while
+ordinary formatting changes do not.
+
+### What this does and does not prove
+
+- **Proven offline:** the REST request count and payload one hour of cycles
+  issues through the real caching code, on the exact intervals the code uses.
+- **Not measured here:** the WebSocket streams (`depth20@250ms`, `aggTrade`,
+  `forceOrder`, `openInterest`). Their volume is socket traffic and depends on
+  market activity, so modelling it would mean inventing numbers; it is outside
+  this budget. The figures above are the REST floor, not the device's total.
+- **Not measured on-device:** there is no phone attached to this workspace, and
+  `fapi.binance.com` geo-blocks this VM, so `Data usage` in Android settings
+  remains the only way to observe the total. Re-read it after installing a build
+  that contains C-30: the REST component should be single-digit MiB per hour.
+
+A failure means one of: a TTL was shortened or removed, the depth REST call lost
+its stream gate, the `aggTrades` tape came back, a second series was added to the
+cycle, or the payload assumptions changed. The assertion message names the bucket.

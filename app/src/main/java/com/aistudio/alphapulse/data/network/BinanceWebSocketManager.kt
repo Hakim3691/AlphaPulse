@@ -83,7 +83,13 @@ open class BinanceWebSocketManager(
     private var coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val _telemetryFlow = MutableStateFlow<LiveStreamTelemetry?>(null)
-    val telemetryFlow: StateFlow<LiveStreamTelemetry?> = _telemetryFlow.asStateFlow()
+
+    /**
+     * The live book and tape the cycle reads. Open so the §52 network-budget spec can
+     * present a streamed book without a socket: with a book present the cycle must not
+     * also fetch `/fapi/v1/depth` over REST (C-30).
+     */
+    open val telemetryFlow: StateFlow<LiveStreamTelemetry?> = _telemetryFlow.asStateFlow()
 
     // Rolling 30-minute window of forced-closure events for the local liquidation heat
     private data class LiquidationEvent(val price: Double, val notional: Double, val timestamp: Long)

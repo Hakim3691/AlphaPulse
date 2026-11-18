@@ -31,6 +31,7 @@ import com.aistudio.alphapulse.domain.ml.onnx.OnnxTsfmForecaster
 import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecast
 import com.aistudio.alphapulse.domain.ml.onnx.TsfmForecaster
 import com.aistudio.alphapulse.data.network.BinanceWebSocketManager
+import com.aistudio.alphapulse.data.network.CycleNetworkBudget
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.domain.quant.KlineData
 import com.aistudio.alphapulse.domain.quant.PredictionStateMachine
@@ -94,43 +95,6 @@ private const val DECISION_HISTORY_LIMIT = 50
 /** Pattern rows kept per asset; five horizons issue continuously, so the table needs a bound. */
 private const val PATTERN_LEDGER_RETENTION = 500
 
-/** Bars requested per horizon for pattern classification (enough for hourly structure). */
-private const val PATTERN_KLINE_LIMIT = 60
-
-/**
- * Bars requested for the §74 screener / strategy board.
- *
- * Sixty is MACD's minimum and Triple Screen needs fifty-two; the board was previously fed
- * the 40-bar forecast snapshot, so those models could only ever answer "Needs N bars".
- * Five hundred bars covers every rule's own lookback (the longest is 60) and still fits in
- * one Binance klines response.
- */
-private const val STRATEGY_KLINE_LIMIT = 500
-
-/**
- * The timeframe the §3 reference library is defined on.
- *
- * These nine models are daily/session systems: Turtle's 20-bar high, Triple Screen's
- * EMA20/EMA50 trend, Connors RSI's 10/90 extremes and CMF's ±0.05 accumulation threshold
- * are all calibrated to a bar that spans hours, not one minute. Fed 500 1m bars (eight
- * hours of noise), Triple Screen's EMA50 never carries a trend through and CMF/CRSI sat
- * out every cycle as FLAT — the models were honest, the input timeframe was wrong. One
- * hourly bar is a compromise that keeps 500 bars (~21 days of history) in a single
- * response while giving each rule a bar long enough for its threshold to mean something.
- * The hourly candle is final once an hour, so this is also sixty times less traffic than
- * re-downloading 500 1m bars every minute.
- */
-private const val STRATEGY_INTERVAL = "1h"
-
-/** The strategy bar is final once per hour, so it is refetched once per hour. */
-private const val STRATEGY_TTL_MS = 60L * 60L * 1000L
-
-/** 1m klines are reused for a minute; the intra-minute price comes from the stream. */
-private const val KLINES_TTL_MS = 60L * 1000L
-
-/** The 240-minute liquidation heatmap does not change every ten seconds. */
-private const val HEATMAP_TTL_MS = 5L * 60L * 1000L
-
 /** Klines per calibration request; Binance Futures allows at most 1500. */
 private const val CALIBRATION_PAGE_SIZE = 1000
 
@@ -168,7 +132,16 @@ class AlphaPulseRepository(
      * unchanged; the seam lets the calibration spec drive the plan with a
      * scripted engine instead of a 35 MB checkpoint.
      */
-    private val calibrationOrchestrator: CoinCalibrationOrchestrator = CoinCalibrationOrchestrator()
+    private val calibrationOrchestrator: CoinCalibrationOrchestrator = CoinCalibrationOrchestrator(),
+    /**
+     * The clock the evaluation cycle reads.
+     *
+     * Production is the wall clock, unchanged. The seam exists so `CycleNetworkBudgetBddSpec`
+     * can walk a simulated hour through the real caches and count the requests the cycle
+     * would issue; without it a fast test would see every TTL as still fresh and could
+     * never prove the hourly budget.
+     */
+    private val clock: () -> Long = System::currentTimeMillis
 ) {
     /** One horizon's cached bars, refreshed at most once per bar (§73). */
     private data class CachedPatternSeries(val fetchedAt: Long, val candles: List<PatternCandle>)
@@ -192,8 +165,9 @@ class AlphaPulseRepository(
      * refetching either on every ten-second cycle multiplied the measured ~300 MB/hour
      * data use for identical bytes. A failed fetch is retried next cycle.
      */
-    private val klinesThrottle = FetchThrottle<List<KlineData>>(KLINES_TTL_MS)
-    private val heatmapThrottle = FetchThrottle<Pair<Double, Double>>(HEATMAP_TTL_MS)
+    private val klinesThrottle = FetchThrottle<List<KlineData>>(CycleNetworkBudget.KLINES_TTL_MS)
+    private val heatmapThrottle =
+        FetchThrottle<Pair<Double, Double>>(CycleNetworkBudget.HEATMAP_TTL_MS)
 
     val allPredictionsFlow: Flow<List<PredictionEntity>> = database.predictionDao().getAllPredictionsFlow()
     fun getPredictionsBySymbolFlow(symbol: String): Flow<List<PredictionEntity>> =
@@ -768,6 +742,10 @@ class AlphaPulseRepository(
             initializedWeightsForSymbol = symbol
         }
 
+        // The cycle stamps everything it issues with one reading of the clock, so the
+        // caches, the ledger rows and the forecast windows cannot disagree.
+        val now = clock()
+
         // Connect WebSocket depth and aggTrade streams
         wsManager.startStreaming(symbol)
 
@@ -818,7 +796,6 @@ class AlphaPulseRepository(
                 bidRatioPct = if (totalDepth > 0) (bidNotional / totalDepth) * 100.0 else 50.0
 
                 // Adaptive lambda turnover
-                val now = System.currentTimeMillis()
                 if (prevDepthTotal > 0 && now > prevDepthTimestamp) {
                     val dtMinutes = max(0.05, (now - prevDepthTimestamp) / 60000.0)
                     val turnover = abs(totalDepth - prevDepthTotal) / prevDepthTotal
@@ -839,7 +816,7 @@ class AlphaPulseRepository(
             // Primary route: Liquidation Heatmap API (SmartMoney public no-key endpoint).
             // The payload spans 240 minutes and 100 price buckets, so it is reused for
             // HEATMAP_TTL_MS instead of being downloaded on all 360 cycles of an hour.
-            val heatmapPair = heatmapThrottle.value(symbol, System.currentTimeMillis()) {
+            val heatmapPair = heatmapThrottle.value(symbol, now) {
                 client.fetchLiquidityHeatmap(symbol, currentSpot)
             }
             if (heatmapPair != null) {
@@ -878,7 +855,7 @@ class AlphaPulseRepository(
         // 40 1-minute Klines. The newest 1m bar only becomes final once a minute and the
         // intra-minute price comes from the WebSocket, so the parsed series is reused for
         // KLINES_TTL_MS rather than re-downloaded on every ten-second cycle.
-        val klines: List<KlineData> = klinesThrottle.value(symbol, System.currentTimeMillis()) {
+        val klines: List<KlineData> = klinesThrottle.value(symbol, now) {
             val parsed = mutableListOf<KlineData>()
             try {
                 val klinesArr = client.getJsonArray("/fapi/v1/klines?symbol=$symbol&interval=1m&limit=40")
@@ -934,7 +911,6 @@ class AlphaPulseRepository(
         val vp = QuantMath.computeVolumeProfileAndVWAP(klines, currentSpot, mtfMetrics.regime.contains("Burst"))
 
         // Generate forecasts for 5 horizons with discrete horizon pain paths & candle boundary phase-locking
-        val now = System.currentTimeMillis()
         val ensembleCount = EnsembleWeighting.activeModelCount(activeExtraModels)
         val mountedExtras = EnsembleWeighting.mountedExtraIds(activeExtraModels)
 
@@ -1545,7 +1521,8 @@ class AlphaPulseRepository(
 
         val fetched = try {
             val array = client.getJsonArray(
-                "/fapi/v1/klines?symbol=$symbol&interval=${horizon.id}&limit=$PATTERN_KLINE_LIMIT"
+                "/fapi/v1/klines?symbol=$symbol&interval=${horizon.id}" +
+                    "&limit=${CycleNetworkBudget.PATTERN_BARS}"
             )
             (0 until array.length()).map { index ->
                 val bar = array.getJSONArray(index)
@@ -1580,11 +1557,15 @@ class AlphaPulseRepository(
         fallback: List<KlineData>
     ): List<StrategyCandle> {
         val cached = strategySeriesCache?.takeIf { it.symbol == symbol }
-        if (cached != null && now - cached.fetchedAt < STRATEGY_TTL_MS) return cached.candles
+        if (cached != null && now - cached.fetchedAt < CycleNetworkBudget.STRATEGY_TTL_MS) {
+            return cached.candles
+        }
 
         val fetched = try {
             val array = client.getJsonArray(
-                "/fapi/v1/klines?symbol=$symbol&interval=$STRATEGY_INTERVAL&limit=$STRATEGY_KLINE_LIMIT"
+                "/fapi/v1/klines?symbol=$symbol" +
+                    "&interval=${CycleNetworkBudget.STRATEGY_INTERVAL}" +
+                    "&limit=${CycleNetworkBudget.STRATEGY_BARS}"
             )
             (0 until array.length()).map { index ->
                 val bar = array.getJSONArray(index)
