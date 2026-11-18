@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import java.util.Locale
 import kotlinx.coroutines.launch
 import java.io.File
 

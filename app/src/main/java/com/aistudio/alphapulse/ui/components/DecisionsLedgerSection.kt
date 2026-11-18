@@ -19,13 +19,16 @@ import com.aistudio.alphapulse.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
+import androidx.compose.ui.graphics.Color
 
 @Composable
 fun DecisionsLedgerSection(
     decisions: List<DecisionRecordEntity>,
     onClearClick: () -> Unit
 ) {
-    val currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
+    var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (isActive) {
             delay(1000)
