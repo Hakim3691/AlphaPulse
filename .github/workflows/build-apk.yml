@@ -777,22 +777,16 @@ jobs:
           yes | sdkmanager --licenses || true
 
       - name: Verify pinned artifact sources
-        env:
-          VERIFY_ARTIFACT_NETWORK: "true"
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest \
+          ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=33 -DverifyArtifactNetwork=true --stacktrace \
             --tests "com.aistudio.alphapulse.data.model.ModelArtifactSourceContractTest" \
             --stacktrace
 
       - name: Execute published ONNX graphs (real inference)
-        env:
-          VERIFY_ARTIFACT_NETWORK: "true"
-          # Downloads the 250 MB TimesFM artifact as well as Chronos.
-          VERIFY_LARGE_MODEL: "true"
         run: |
           chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest \
+          ./gradlew :app:testDebugUnitTest --continue -Ptest.api.level=33 -DverifyArtifactNetwork=true -DverifyLargeModel=true --stacktrace \
             --tests "com.aistudio.alphapulse.domain.ml.onnx.OnnxModelParityTest" \
             --stacktrace
 

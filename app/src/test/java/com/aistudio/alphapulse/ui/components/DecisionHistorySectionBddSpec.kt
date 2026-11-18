@@ -8,6 +8,7 @@ import com.aistudio.alphapulse.data.db.DecisionRecordEntity
 import com.aistudio.alphapulse.ui.theme.BrandAmber
 import com.aistudio.alphapulse.ui.theme.BrandBearish
 import com.aistudio.alphapulse.ui.theme.BrandBullish
+import com.aistudio.alphapulse.ui.components.DecisionLogText
 import com.aistudio.alphapulse.ui.theme.TextTertiary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

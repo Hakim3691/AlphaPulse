@@ -89,21 +89,6 @@ fun HeaderBar(
                             fontSize = 17.sp,
                             letterSpacing = (-0.3).sp
                         )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(BrandAccent.copy(alpha = 0.15f))
-                                .border(1.dp, BrandAccent.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "PRO QUANT V14.4",
-                                color = BrandAccent,
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
                     }
                 }
             }

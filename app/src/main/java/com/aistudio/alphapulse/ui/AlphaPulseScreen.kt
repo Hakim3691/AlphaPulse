@@ -145,7 +145,14 @@ fun AlphaPulseScreen(
                     entries = uiState.patternLedger,
                     horizonFilter = uiState.horizonFilter,
                     onFilterChange = { viewModel.setHorizonFilter(it) },
+                    onExportClick = { viewModel.exportPatternLedgerCsv() },
                     onClearClick = { viewModel.clearPatternLedger() }
+                )
+
+                // Decisions Ledger - shows ALL recorded §29 verdicts, not limited to 5
+                DecisionsLedgerSection(
+                    decisions = uiState.decisionHistory,
+                    onClearClick = { viewModel.clearLedger() }
                 )
 
                 // §74 Auxiliary Confluence Screeners & Quant Models. Evaluated on the same

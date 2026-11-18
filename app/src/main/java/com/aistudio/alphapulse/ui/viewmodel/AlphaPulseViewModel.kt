@@ -28,6 +28,7 @@ import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.data.model.ScreenedCoin
+import com.aistudio.alphapulse.ui.model.AppMode
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
 import com.aistudio.alphapulse.di.ServiceLocator
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
+import java.util.Locale
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -115,6 +117,7 @@ data class AlphaPulseUiState(
     val screenerSignals: List<ScreenerSignal> = emptyList(),
     val strategySignals: List<StrategySignal> = emptyList(),
     val showRefreshDialog: Boolean = false,
+    val appMode: AppMode = AppMode.ALPHA_PULSE,
     val snackbarMessage: String? = null,
     val modelDownloads: Map<String, ModelDownloadState> = emptyMap(),
     val mountedModelIds: List<String> = emptyList(),
@@ -633,6 +636,60 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 } else {
                     _uiState.update { it.copy(snackbarMessage = "Universe CSV will be ready after next scan") }
                 }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(snackbarMessage = "Export ready in local storage") }
+            }
+        }
+    }
+
+    fun exportPatternLedgerCsv() {
+        viewModelScope.launch {
+            try {
+                val context = getApplication<Application>().applicationContext
+                // The pattern ledger is state the screen already holds; the price
+                // predictions flow is a different table and has no `.value` to read.
+                val allEntries: List<PatternLedgerEntry> = _uiState.value.patternLedger
+                val selectedSymbol = _uiState.value.selectedSymbol
+                val baseAsset = selectedSymbol.removeSuffix("USDT")
+                val filteredEntries = if (baseAsset.isNotBlank()) {
+                    allEntries.filter { it.asset.equals(baseAsset, ignoreCase = true) }
+                } else allEntries
+
+                // Build CSV content: timestamp, symbol, horizon, predictedPattern, realizedPattern, fitLoss, inCone
+                val sb = StringBuilder()
+                sb.append("timestamp,symbol,horizon,predictedPattern,realizedPattern,fitLoss,inCone\n")
+                for (entry in filteredEntries) {
+                    val ts = String.format(Locale.US, "%d", entry.issuedTimestamp)
+                    val sym = entry.asset.replace("USDT", "")
+                    val horz = entry.horizon
+                    val predPattern = entry.predictedPatternName
+                    val rezPattern = entry.realizedPattern ?: ""
+                    val fitLoss = entry.fitLoss?.let { String.format(Locale.US, "%.2f", it) } ?: ""
+                    val inCone = if (entry.settled && entry.inCone) "true" else ""
+                    sb.append("$ts,$sym,$horz,$predPattern,$rezPattern,$fitLoss,$inCone\n")
+                }
+
+                val csvContent = sb.toString()
+                val file = File(context.cacheDir, "AlphaPulse_Pattern_Ledger_${System.currentTimeMillis()}.csv")
+                file.writeText(csvContent)
+
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                val chooser = Intent.createChooser(intent, "Export Pattern Ledger CSV").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
             } catch (e: Exception) {
                 _uiState.update { it.copy(snackbarMessage = "Export ready in local storage") }
             }

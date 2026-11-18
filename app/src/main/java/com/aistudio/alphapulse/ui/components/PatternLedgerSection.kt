@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -46,7 +47,8 @@ fun PatternLedgerSection(
     entries: List<PatternLedgerEntry>,
     horizonFilter: String,
     onFilterChange: (String) -> Unit,
-    onClearClick: () -> Unit
+    onExportClick: () -> Unit,
+    onClearClick: () -> Unit = {}
 ) {
     val filteredList = if (horizonFilter == "ALL") {
         entries
@@ -55,6 +57,13 @@ fun PatternLedgerSection(
     }
     val pendingCount = filteredList.count { !it.settled }
     val settledCount = filteredList.count { it.settled }
+    val hitCount = filteredList.count { it.settled && it.inCone == true }
+    val hitRateText = if (filteredList.isEmpty())
+        "Hit: -- (0/0)"
+    else {
+        val rate = (hitCount.toDouble() / filteredList.size) * 100.0
+        "Hit: ${String.format(Locale.US, "%.1f", rate)}% ($hitCount/${filteredList.size})"
+    }
 
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
@@ -74,11 +83,8 @@ fun PatternLedgerSection(
             .background(BrandSurface)
             .border(1.dp, BrandBorder, RoundedCornerShape(10.dp))
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 6.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)
-        ) {
+        // Top Toolbar (two-line header: title + counters, then filter-scoped hit rate)
+        Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -95,7 +101,7 @@ fun PatternLedgerSection(
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "PATTERN PREDICTION & LEARNING LEDGER",
+                        text = "Pattern Prediction Ledger",
                         color = TextPrimary,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
@@ -121,74 +127,126 @@ fun PatternLedgerSection(
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(BrandCard)
-                            .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
-                            .clickable { onClearClick() }
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Clear Pattern Ledger",
-                            tint = BrandBearish,
-                            modifier = Modifier.size(11.dp)
-                        )
-                    }
+                    Text(
+                        text = hitRateText,
+                        color = if (filteredList.isEmpty()) TextTertiary else if (
+                            (hitCount.toDouble() / filteredList.size) >= 0.6
+                        ) BrandBullish else BrandAmber,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
 
-            // The same filter as the price ledger above: one selection drives both clocks.
+            // Action buttons row (second toolbar line of the two-line header)
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth().padding(top = 3.dp, bottom = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "HORIZON FILTER (SYNCED):",
-                    color = TextTertiary,
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf("ALL", "1m", "5m", "15m", "30m", "1h").forEach { horizon ->
-                        val isSelected = horizonFilter == horizon
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(if (isSelected) BrandNeural.copy(alpha = 0.2f) else BrandCard)
-                                .border(
-                                    1.dp,
-                                    if (isSelected) BrandNeural else BrandBorder,
-                                    RoundedCornerShape(4.dp)
-                                )
-                                .clickable { onFilterChange(horizon) }
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = horizon,
-                                color = if (isSelected) BrandNeural else TextSecondary,
-                                fontSize = 9.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                // Export Pattern Ledger CSV Button
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(BrandCard)
+                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
+                        .clickable { onExportClick() }
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Export Pattern Ledger CSV",
+                            tint = BrandAccent,
+                            modifier = Modifier.size(11.dp)
+                        )
+                        Text(
+                            text = "LEDGER",
+                            color = BrandAccent,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
+                }
+
+                // Clear Pattern Ledger Button (carried over from the pre-merge screen)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(BrandCard)
+                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
+                        .clickable { onClearClick() }
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Clear Pattern Ledger",
+                        tint = BrandBearish,
+                        modifier = Modifier.size(11.dp)
+                    )
                 }
             }
         }
 
         HorizontalDivider(color = BrandBorder)
 
+        // Horizon Filter row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "HORIZON FILTER:",
+                color = TextTertiary,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("ALL", "1m", "5m", "15m", "30m", "1h").forEach { h ->
+                    val isSelected = horizonFilter == h
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isSelected) BrandNeural.copy(alpha = 0.2f) else BrandCard)
+                            .border(1.dp, if (isSelected) BrandNeural else BrandBorder, RoundedCornerShape(4.dp))
+                            .clickable { onFilterChange(h) }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = h,
+                            color = if (isSelected) BrandNeural else TextSecondary,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(color = BrandBorder.copy(alpha = 0.6f))
+
+        // What the engine concluded before the current frame. The verdicts are per
+        // snapshot, so they are shown above the horizon filter's
+        // table rather than inside it.
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(scrollState)
         ) {
+            // Header Row
             Row(
                 modifier = Modifier
                     .background(BrandCard)
