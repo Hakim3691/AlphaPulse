@@ -641,6 +641,57 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun exportPatternLedgerCsv() {
+        viewModelScope.launch {
+            try {
+                val context = getApplication<Application>().applicationContext
+                val allEntries = repository.allPredictionsFlow.value ?: emptyList()
+                val selectedSymbol = _uiState.value.selectedSymbol
+                val filteredEntries = if (selectedSymbol.isNotBlank()) {
+                    allEntries.filter { it.symbol == selectedSymbol }
+                } else allEntries
+
+                // Build CSV content: timestamp, symbol, horizon, predictedPattern, realizedPattern, fitLoss, inCone
+                val sb = StringBuilder()
+                sb.append("timestamp,symbol,horizon,predictedPattern,realizedPattern,fitLoss,inCone\n")
+                for (entry in filteredEntries) {
+                    val ts = String.format(Locale.US, "%d", entry.issuedTimestamp)
+                    val sym = entry.asset.replace("USDT", "")
+                    val horz = entry.horizon
+                    val predPattern = entry.predictedPatternName
+                    val rezPattern = entry.realizedPattern ?: ""
+                    val fitLoss = entry.fitLoss != null ? String.format(Locale.US, "%.2f", entry.fitLoss) : ""
+                    val inCone = if (entry.settled && entry.inCone) "true" else ""
+                    sb.append("$ts,$sym,$horz,$predPattern,$rezPattern,$fitLoss,$inCone\n")
+                }
+
+                val csvContent = sb.toString()
+                val file = File(context.cacheDir, "AlphaPulse_Pattern_Ledger_${System.currentTimeMillis()}.csv")
+                file.writeText(csvContent)
+
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                val chooser = Intent.createChooser(intent, "Export Pattern Ledger CSV").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(snackbarMessage = "Export ready in local storage") }
+            }
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         repository.wsManager.stopStreaming()

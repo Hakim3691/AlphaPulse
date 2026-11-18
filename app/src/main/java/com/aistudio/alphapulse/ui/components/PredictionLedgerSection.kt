@@ -95,7 +95,7 @@ fun PredictionLedgerSection(
                         modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "PREDICTION AUDIT LEDGER",
+                        text = "PRICE PREDICTION LEDGER",
                         color = TextPrimary,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,

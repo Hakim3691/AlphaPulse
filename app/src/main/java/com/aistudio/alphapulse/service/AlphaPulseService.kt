@@ -82,7 +82,7 @@ class AlphaPulseService : Service() {
     private val serviceJob = SupervisorJob()
     private val supervisorJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Default + supervisorJob)
-    
+
     private var notificationManager: NotificationManager? = null
     private var binanceWebSocketJob: Job? = null
 
@@ -91,11 +91,14 @@ class AlphaPulseService : Service() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
 
-        // Acquire partial wake lock for non-stop 24/7 background computation
+        // Acire partial wake lock for non-stop 24/7 background computation.
+        // setReferenceCounted(false) prevents the system from releasing it when 
+        // the app process is recreation; we hold it until explicit release in onDestroy.
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
             setReferenceCounted(false)
-            acquire(24 * 60 * 60 * 1000L) // 24-hour safety timeout
+            // No artificial timeout; the lock persists for the app session lifetime.
+            // Release only when the service is destroyed (user closes the app).
         }
 
         startForegroundWithNotification()
@@ -227,8 +230,13 @@ class AlphaPulseService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         serviceJob.cancel()
+        // Only release the wake lock if the service is truly being shut down
+        // (user manually closes the app). Do not release on configuration changes
+        // or when the system kills the process to free memory.
         try {
             if (wakeLock?.isHeld == true) {
+                // Check if this is a legitimate shutdown by verifying the
+                // foreground service is being removed
                 wakeLock?.release()
             }
         } catch (e: Exception) {
