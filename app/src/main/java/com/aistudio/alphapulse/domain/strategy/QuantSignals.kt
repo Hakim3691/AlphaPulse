@@ -64,7 +64,11 @@ data class StrategySignal(
     /** Price whose breach voids the setup (the rule's stop). */
     val invalidation: Double?,
     /** The rule text and measured values, recorded verbatim. */
-    val detail: String
+    val detail: String,
+    /** §3 zone metadata: distance from last price to the zone centre, in ATR units. */
+    val distanceAtr: Double? = null,
+    /** §3 zone metadata: how many times the shelf has already been tested. */
+    val zoneTouches: Int = 0
 ) {
     val isActive: Boolean get() = direction != SignalDirection.NEUTRAL
 }

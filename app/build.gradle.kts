@@ -207,6 +207,9 @@ dependencies {
   // implementation(libs.googleid)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
+  // Phase 1 D4: the shared dynamic-trader contract. The base app depends on the
+  // contract, never on the feature module's classes.
+  implementation(project(":core_contract"))
   implementation(libs.androidx.biometric)
   // The credential store encrypts API keys with EncryptedSharedPreferences. It used to
   // arrive transitively from the Firebase BOM; it is now declared because it is used.

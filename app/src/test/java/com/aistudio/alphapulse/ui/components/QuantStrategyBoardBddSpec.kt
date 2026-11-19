@@ -81,10 +81,11 @@ class QuantStrategyBoardBddSpec {
     }
 
     @Test
-    fun `given a model without levels when the board renders then it never prints a fake zero level`() {
+    fun `given a model without levels when the board renders then it says staging suspended instead of empty dashes`() {
         compose.setContent { QuantStrategyBoardSection(emptyList(), listOf(connors)) }
 
-        compose.onNodeWithText("EXIT —", substring = true).assertExists()
+        // Phase 1 §3: an unavailable setup publishes a status, not "ENTRY — EXIT —".
+        compose.onNodeWithText("STATUS: Staging Suspended (Awaiting Trigger)", substring = true).assertExists()
         compose.onNodeWithText("ENTRY 0.0000", substring = true).assertDoesNotExist()
     }
 }

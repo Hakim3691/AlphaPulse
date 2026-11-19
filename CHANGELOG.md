@@ -7,6 +7,50 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [15.0] — 2026-11-19
+
+Phase 1 of the Comprehensive Specification: the defect audit is fixed, the trade
+ideas catalogue is executable, and the auto-trader's entitlement/download lifecycle is
+modelled behind a module contract.
+
+### Added
+
+- **Tokenized decision rows (D1)** — `TokenizedReason` renders a verdict as
+  `[N3: Long @ 0.50 < 0.70] Fallback: Rules`. Model, action, score, gate and fallback
+  fit the 180dp REASON column, so nothing clips at 360dp and no number is pushed
+  off-screen.
+- **Neutral root-cause attribution (D2)** — a flat `DecisionCard` now explains
+  itself: a confidence gate unmet, a directional conflict across the strategy board,
+  or a quorum failure. "NEUTRAL" is never left unexplained.
+- **Strategy conflict tags (D3)** — `StrategyConflicts` elects one dominant direction;
+  opposing cards keep their place but carry an amber `[WATCH: CONFLICT]` badge and
+  the note naming the drift they trade against.
+- **§3 structural metadata** — cards print `Dist: 0.3 ATR · Zone: Fresh (Touch 1/3)`,
+  a suspended setup reads `STATUS: Staging Suspended (Awaiting Trigger)` instead of
+  empty dashes, and the price ledger's horizon filter is captioned by Tactical vs.
+  Strategic intent.
+- **SGD action tags** — `SGD Step: - w_penalty (Loss: 1.10)` is presented as
+  `[PENALTY: Loss 1.10] Hanging Man confirmed`; reinforcement reads `[PRESERVED]`.
+- **Trade Ideas Catalog (D7)** — `TradeIdeasCatalog` carries 44 setups across
+  candlestick reversals, macro formations, indicator combinations and quant rules,
+  each with its published win-rate/return baseline and permitted Markov regimes.
+  `CatalogueWeights` is the learnable half: impulse within three candles reinforces,
+  a false alarm decays, bounded so a setup is never retired.
+- **Dynamic-trader contract (D4/D5)** — `:core_contract` publishes
+  `DynamicTraderContract`/`ModuleInstallState`, and `SimulatedTraderManager` persists
+  entitlement, reports honest 0→100% progress, separates INSTALLING from DOWNLOADING
+  and refuses to launch the dashboard before installation.
+
+### Known gaps
+
+- `:proactive_trader` is **not** shipped as a dynamic feature in this release: the
+  module's resource processing fails against the base app's `arm64-v8a` ABI split in
+  AGP 9.1.1 (`Cannot find PROCESSED_RES output`). The contract and the simulated
+  lifecycle are in place, so re-enabling the module is a packaging change, not a
+  redesign. D6's pixel-diff harness therefore has nothing to compare yet.
+- Catalogue rows are in-memory, not a Room table: the schema is pinned at v9 by
+  C-22/C-23 and a new table needs its own migration + contract row.
+
 ## [14.9] — 2026-11-18
 
 The data fix from 14.8 is now measured rather than argued: one simulated hour of the

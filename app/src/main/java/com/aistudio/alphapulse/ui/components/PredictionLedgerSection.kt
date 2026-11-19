@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aistudio.alphapulse.data.db.PredictionEntity
+import com.aistudio.alphapulse.domain.presentation.HorizonGroups
 import com.aistudio.alphapulse.ui.theme.*
 import com.aistudio.alphapulse.core.Formatters
 import kotlinx.coroutines.delay
@@ -271,6 +272,25 @@ fun PredictionLedgerSection(
                         )
                     }
                 }
+            }
+        }
+
+        // §3 addition: name what the two horizon camps are for, so the filter is
+        // not a row of unexplained numbers.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            listOf("TACTICAL", "STRATEGIC").forEach { group ->
+                Text(
+                    text = HorizonGroups.captionOf(group),
+                    color = TextTertiary,
+                    fontSize = 7.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 

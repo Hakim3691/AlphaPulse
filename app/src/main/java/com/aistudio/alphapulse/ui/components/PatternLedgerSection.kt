@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEngine
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
+import com.aistudio.alphapulse.domain.presentation.SgdActionTag
 import com.aistudio.alphapulse.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -382,10 +383,11 @@ fun PatternLedgerSection(
                             modifier = Modifier.width(90.dp)
                         )
                         Text(
-                            text = entry.sgdAction,
+                            // D1/§3: operational tags instead of raw debug prose.
+                            text = SgdActionTag.of(entry.sgdAction, entry.realizedPattern),
                             color = when {
                                 entry.sgdAction.contains("+w_reinforce") -> BrandBullish
-                                entry.sgdAction.contains("- w_penalty") -> BrandBearish
+                                entry.sgdAction.contains("w_penalty") -> BrandBearish
                                 else -> TextTertiary
                             },
                             fontSize = 9.sp,

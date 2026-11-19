@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aistudio.alphapulse.core.Formatters
 import com.aistudio.alphapulse.data.repository.DecisionLedgerRow
+import com.aistudio.alphapulse.domain.presentation.TokenizedReason
 import com.aistudio.alphapulse.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -252,12 +253,16 @@ fun DecisionsLedgerSection(
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.width(80.dp)
                         )
+                        // D1: one fixed-width token instead of the router's raw
+                        // sentence, so model, action, score, gate and fallback
+                        // cannot clip at 360dp.
                         Text(
-                            text = DecisionLogText.reasonLabel(record.reason),
+                            text = TokenizedReason.of(record.source, record.state, record.confidence),
                             color = TextSecondary,
                             fontSize = 8.sp,
                             fontFamily = FontFamily.Monospace,
                             maxLines = 1,
+                            softWrap = false,
                             modifier = Modifier.width(180.dp)
                         )
                         Box(modifier = Modifier.width(90.dp)) {

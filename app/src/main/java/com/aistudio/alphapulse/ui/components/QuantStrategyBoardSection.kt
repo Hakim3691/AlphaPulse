@@ -31,6 +31,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aistudio.alphapulse.domain.presentation.StrategyConflicts
+import com.aistudio.alphapulse.domain.presentation.StrategyLevels
+import com.aistudio.alphapulse.domain.presentation.ZoneMetadata
 import com.aistudio.alphapulse.domain.strategy.ScreenerSignal
 import com.aistudio.alphapulse.domain.strategy.SignalDirection
 import com.aistudio.alphapulse.domain.strategy.StrategySignal
@@ -127,14 +130,19 @@ fun QuantStrategyBoardSection(
 
         HorizontalDivider(color = BrandBorder)
 
+        // D3: one direction leads; opposing setups are retained but tagged.
+        val dominant = StrategyConflicts.dominantDirection(strategySignals)
         strategySignals.forEach { strategy ->
-            StrategyRow(strategy)
+            StrategyRow(strategy, dominant)
         }
     }
 }
 
 @Composable
-private fun StrategyRow(strategy: StrategySignal) {
+private fun StrategyRow(strategy: StrategySignal, dominant: SignalDirection?) {
+    val conflictTag = StrategyConflicts.tagOf(strategy, dominant)
+    val conflictNote = StrategyConflicts.noteOf(strategy, dominant)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -145,12 +153,33 @@ private fun StrategyRow(strategy: StrategySignal) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = strategy.name,
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = strategy.name,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                conflictTag?.let { tag ->
+                    val isConflict = tag.contains("CONFLICT")
+                    Text(
+                        text = tag,
+                        color = if (isConflict) BrandAmber else BrandBullish,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(
+                                if (isConflict) BrandAmber.copy(alpha = 0.15f)
+                                else BrandBullish.copy(alpha = 0.15f)
+                            )
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
+            }
             Text(
                 text = directionLabel(strategy.direction),
                 color = directionColor(strategy.direction),
@@ -158,15 +187,42 @@ private fun StrategyRow(strategy: StrategySignal) {
                 fontWeight = FontWeight.Bold
             )
         }
+
+        // §3 addition: a card with no trigger publishes no fake levels.
+        val hasLevels = strategy.entry != null || strategy.exit != null || strategy.invalidation != null
         Text(
-            text = "ENTRY ${level(strategy.entry)}   EXIT ${level(strategy.exit)}   INVALID ${level(strategy.invalidation)}",
+            text = if (hasLevels) {
+                "ENTRY ${level(strategy.entry)}   EXIT ${level(strategy.exit)}   " +
+                    "INVALID ${strategy.invalidation?.let { String.format(Locale.US, "%.4f", it) } ?: "--"}"
+            } else {
+                StrategyLevels.unavailableStatus()
+            },
             color = Color(0xFF94A3B8),
             fontSize = 9.sp,
             fontFamily = FontFamily.Monospace
         )
+
+        if (hasLevels) {
+            Text(
+                text = StrategyLevels.invalidationLabel(strategy.invalidation),
+                color = Color(0xFF64748B),
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
+        // §3 addition: structural metadata — how far the shelf is and whether it
+        // has been tested already.
         Text(
-            text = strategy.detail,
+            text = ZoneMetadata.format(strategy.distanceAtr, strategy.zoneTouches),
             color = Color(0xFF64748B),
+            fontSize = 8.sp,
+            fontFamily = FontFamily.Monospace
+        )
+
+        Text(
+            text = conflictNote ?: strategy.detail,
+            color = if (conflictNote != null) BrandAmber else Color(0xFF64748B),
             fontSize = 9.sp
         )
     }

@@ -25,3 +25,7 @@ dependencyResolutionManagement {
 rootProject.name = "AlphaPulse"
 
 include(":app")
+// Phase 1 D4: the auto-trader is an on-demand dynamic feature. Its public contract
+// lives in :core_contract so :app can drive it without a compile-time dependency
+// on the feature module itself.
+include(":core_contract")

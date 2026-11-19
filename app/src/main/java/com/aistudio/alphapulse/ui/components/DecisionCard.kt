@@ -61,6 +61,8 @@ const val DECISION_CARD_TAG: String = "decisionCard"
 @Composable
 fun DecisionCard(
     decision: DecisionReport?,
+    /** D2: why the engine is flat, when it is. Null while directional. */
+    attribution: String? = null,
     modifier: Modifier = Modifier
 ) {
     val tint = DecisionCardText.tintOf(decision)
@@ -116,6 +118,20 @@ fun DecisionCard(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
+
+            // D2: a NEUTRAL badge is not self-explanatory. The root cause is
+            // rendered beneath it so "flat" can never be mistaken for "no data".
+            attribution?.let { explanation ->
+                Text(
+                    text = "Attribution: $explanation",
+                    color = BrandAmber,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }

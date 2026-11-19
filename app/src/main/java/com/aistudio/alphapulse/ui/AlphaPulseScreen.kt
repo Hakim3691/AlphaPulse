@@ -107,7 +107,8 @@ fun AlphaPulseScreen(
                     totalSettled = uiState.totalSettledForCoin,
                     coneHitRate = uiState.coneHitRateForCoin,
                     mountedModelIds = uiState.mountedModelIds,
-                    decision = uiState.decision
+                    decision = uiState.decision,
+                    strategySignals = uiState.strategySignals
                 )
 
                 // Collapsible Accordions (Risk Adjusted, Technical Microstructure, Institutional Filters, Forecasts, Canvas Chart, Cognitive Brief)

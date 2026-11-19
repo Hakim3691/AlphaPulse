@@ -31,6 +31,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aistudio.alphapulse.domain.decision.DecisionReport
+import com.aistudio.alphapulse.domain.presentation.NeutralAttribution
+import com.aistudio.alphapulse.domain.presentation.StrategyConflicts
+import com.aistudio.alphapulse.domain.strategy.SignalDirection
+import com.aistudio.alphapulse.domain.strategy.StrategySignal
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.data.model.ScreenedCoin
@@ -53,7 +57,8 @@ fun TopWorkspaceCards(
     totalSettled: Int,
     coneHitRate: Double?,
     mountedModelIds: List<String> = emptyList(),
-    decision: DecisionReport? = null
+    decision: DecisionReport? = null,
+    strategySignals: List<StrategySignal> = emptyList()
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -91,7 +96,15 @@ fun TopWorkspaceCards(
         )
 
         // Row 3: the verdict those weights actually produced, with its reason.
-        DecisionCard(decision = decision)
+        // D2: when the verdict is flat, the card also explains which gate failed.
+        DecisionCard(
+            decision = decision,
+            attribution = NeutralAttribution.of(
+                decision = decision,
+                longCount = strategySignals.count { it.direction == SignalDirection.BULLISH },
+                shortCount = strategySignals.count { it.direction == SignalDirection.BEARISH }
+            )
+        )
     }
 }
 
