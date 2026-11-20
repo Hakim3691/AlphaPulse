@@ -80,6 +80,60 @@ class BuildContractBddSpec {
     }
 
     @Test
+    fun `given a developer build with no CI run number when read then its version outranks every CI build`() {
+        // Why this exists: a local `assembleDebug` used to compute 10_000 + 0, which is
+        // lower than every CI build, so installing it over a released APK failed with
+        // INSTALL_FAILED_VERSION_DOWNGRADE. The two channels cannot share one counting
+        // source, so local builds live in a documented band above the CI band and
+        // still grow with the commit count.
+        assertTrue(
+            "The version must come from the commit count as well as the run number",
+            Regex("""val\s+gitCommitCount\s*:\s*Provider<Int>""").containsMatchIn(moduleBuild)
+        )
+        assertTrue(
+            "An external process at configuration time breaks the configuration cache",
+            !moduleBuild.contains("ProcessBuilder(")
+        )
+        assertTrue(
+            "A CI build must take the higher of its run number and the commit count",
+            Regex("""maxOf\(\s*buildNumber\s*,\s*commitCount\s*\)""").containsMatchIn(moduleBuild)
+        )
+
+        val band = Regex("""val localVersionBand\s*=\s*([0-9_]+)""")
+            .find(moduleBuild)?.groupValues?.get(1)?.replace("_", "")?.toInt()
+            ?: failWith("No localVersionBand was found in app/build.gradle.kts")
+
+        assertTrue(
+            "The local band ($band) must sit above any plausible CI run number",
+            band >= 1_000_000
+        )
+        assertTrue(
+            "A developer build must add the band to the commit count",
+            Regex("""localVersionBand\s*\+\s*commitCount""").containsMatchIn(moduleBuild)
+        )
+    }
+
+    @Test
+    fun `given a rebuild that reuses a run number when the commit moved on then the code still grows`() {
+        val offset = versionCodeOffset()
+        // A workflow re-run keeps GITHUB_RUN_NUMBER but is a different commit; the
+        // commit count is what keeps the second build installable over the first.
+        val runNumber = 142
+        val firstCommitCount = 300
+        val secondCommitCount = 301
+
+        assertEquals(
+            "With a newer commit count the run number is no longer the floor",
+            offset + secondCommitCount,
+            offset + maxOf(runNumber, secondCommitCount)
+        )
+        assertTrue(
+            "The commit count must break the tie when the run number is reused",
+            offset + maxOf(runNumber, secondCommitCount) > offset + maxOf(runNumber, firstCommitCount)
+        )
+    }
+
+    @Test
     fun `given an explicit VERSION_CODE when the build runs then it still overrides the computed code`() {
         assertTrue(
             "The override must be read first",

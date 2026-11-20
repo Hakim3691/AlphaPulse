@@ -7,6 +7,38 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [16.0] — 2026-11-20
+
+Milestone 1 of the Phase 2 work: an APK now updates in place, and an update no
+longer costs the user their ledger or their 270 MB of TSFM weights.
+
+### Fixed
+
+- **Local builds were a version downgrade.** `versionCode` was `10_000 + run number`,
+  which is `10_000` for every build made outside CI — lower than any published APK,
+  so installing one failed with `INSTALL_FAILED_VERSION_DOWNGRADE`. Developer builds
+  now live in a band above the CI band and both channels add the git commit count, so
+  a rebuild of a newer commit is always newer. The count is read through
+  `providers.exec`, which the configuration cache accepts.
+- **A cold signing cache silently changed the app's identity.** Both keystores came
+  from an Actions cache; on a miss the workflow generated a new certificate and only
+  warned, so the next install failed with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. The
+  debug certificate is now committed (`debug.keystore.base64`) and pinned in
+  `signing-fingerprints.txt`; the build job compares the keystore it is about to sign
+  with to that pin and fails with `::error::` on a mismatch. The release key stays a
+  secret and is pinned through the optional `RELEASE_CERT_SHA256` secret.
+- **Model weights could land in a cache directory and be trusted when corrupt.** The
+  locator fell back to `cacheDir` when external storage was unavailable, and mount
+  state was restored for any non-empty file. Weights now fall back to the persistent
+  `filesDir`, and `init` re-verifies the pinned size and SHA-256, deleting a bad file
+  so it is re-downloaded instead of mounted. An unchanged file is recognised by a
+  `length:lastModified` token, so TimesFM's 261 MB is not re-hashed on every launch.
+
+### Verification
+
+- BDD specs: `SigningIdentityBddSpec`, `ModelPersistenceBddSpec`, and two new
+  scenarios in `BuildContractBddSpec`; recorded as contract C-36.
+
 ## [15.1] — 2026-11-20
 
 Completes the Phase 1 blueprint: the on-demand feature module is real, the catalogue

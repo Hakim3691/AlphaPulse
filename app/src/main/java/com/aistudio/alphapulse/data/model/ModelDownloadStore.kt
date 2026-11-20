@@ -34,6 +34,9 @@ object ModelDownloadStore {
     private const val PREFS_NAME = "alphapulse_model_downloads"
     private const val KEY_READY = "ready_models"
 
+    /** `modelId=length:lastModified` for files whose digest was already verified. */
+    private const val KEY_VERIFIED = "verified_files"
+
     /** Test seams: specs point these at a local HTTP server and temp storage. */
     internal var sources: List<ModelArtifactSource> = ModelArtifacts.ALL
     internal var client: OkHttpClient = OkHttpClient()
@@ -52,7 +55,31 @@ object ModelDownloadStore {
         prefs = preferences
 
         val persisted = preferences.getStringSet(KEY_READY, emptySet()).orEmpty()
-        val installed = persisted.filterTo(mutableSetOf()) { installedFile(it)?.isNonEmpty() == true }
+        // A mount is only restored when the bytes on disk are still the pinned
+        // artifact: right length, and a digest that matches (or was already checked
+        // for this exact file state). Anything else is deleted, because a truncated
+        // or rewritten checkpoint must be re-downloaded, never mounted.
+        val installed = persisted.filterTo(mutableSetOf()) { modelId ->
+            val source = sources.firstOrNull { it.modelId.equals(modelId, ignoreCase = true) }
+                ?: return@filterTo false
+            val file = installedFile(modelId) ?: return@filterTo false
+            when {
+                !file.isFile -> false
+                file.length() != source.sizeBytes -> {
+                    file.delete()
+                    false
+                }
+                verifiedTokens()[modelId] == ModelArtifactsVerifier.token(file) -> true
+                ModelArtifactsVerifier.matches(source, file) -> {
+                    rememberVerified(modelId, file)
+                    true
+                }
+                else -> {
+                    file.delete()
+                    false
+                }
+            }
+        }
 
         // A checkpoint shipped inside the APK is mounted from those bytes, once,
         // with no network. The engine needs a path it can memory-map, so the
@@ -108,9 +135,27 @@ object ModelDownloadStore {
 
     private fun markReady(modelId: String) {
         update(modelId, ModelLoadStatus.READY, 1f)
+        installedFile(modelId)?.let { rememberVerified(modelId, it) }
         val ready = readyModelIds().toSet()
         prefs?.edit()?.putStringSet(KEY_READY, ready)?.apply()
     }
+
+    /** Records that [file]'s digest matched, so the next launch can skip the hash. */
+    private fun rememberVerified(modelId: String, file: File) {
+        val tokens = verifiedTokens() + (modelId to ModelArtifactsVerifier.token(file))
+        prefs?.edit()
+            ?.putStringSet(KEY_VERIFIED, tokens.map { (id, token) -> "$id=$token" }.toSet())
+            ?.apply()
+    }
+
+    private fun verifiedTokens(): Map<String, String> =
+        prefs?.getStringSet(KEY_VERIFIED, emptySet()).orEmpty()
+            .mapNotNull { entry ->
+                val separator = entry.indexOf('=')
+                if (separator <= 0) null
+                else entry.substring(0, separator) to entry.substring(separator + 1)
+            }
+            .toMap()
 
     private fun update(modelId: String, status: ModelLoadStatus, progress: Float) {
         _states.update { current ->
@@ -124,8 +169,6 @@ object ModelDownloadStore {
         val source = sources.firstOrNull { it.modelId.equals(modelId, ignoreCase = true) } ?: return null
         return File(ModelFileLocator.getModelDirectory(source.modelId, ctx), source.fileName)
     }
-
-    private fun File.isNonEmpty(): Boolean = isFile && length() > 0
 
     private fun initialStates(ready: Set<String>): Map<String, ModelDownloadState> =
         sources.associate { source ->

@@ -267,9 +267,7 @@ object ModelManager {
 object ModelFileLocator {
 
     fun locate(modelId: String, context: Context): File? {
-        val baseDir = context.getExternalFilesDir(null)
-        if (baseDir == null) return null
-        val dir = File(baseDir, "models/$modelId")
+        val dir = modelDirectory(modelId, context)
         val files = dir.listFiles()
         return if (dir.exists() && dir.isDirectory && files != null && files.isNotEmpty()) {
             files.lastOrNull()
@@ -277,9 +275,22 @@ object ModelFileLocator {
     }
 
     fun getModelDirectory(modelId: String, context: Context): File {
-        val baseDir = context.getExternalFilesDir(null)
-        val dir = File(baseDir ?: context.cacheDir, "models/$modelId")
+        val dir = modelDirectory(modelId, context)
         dir.mkdirs()
         return dir
     }
+
+    /**
+     * Where model weights are rooted: external app storage when it is mounted, the
+     * persistent internal files directory otherwise.
+     *
+     * Never `cacheDir`: the OS reclaims it under storage pressure, and a released
+     * model would then be re-downloaded (261 MB for TimesFM) for no reason. The
+     * weights have to survive an APK update, and an update is exactly when a cache
+     * sweep is most likely.
+     */
+    fun baseDirectory(external: File?, files: File): File = external ?: files
+
+    private fun modelDirectory(modelId: String, context: Context): File =
+        File(baseDirectory(context.getExternalFilesDir(null), context.filesDir), "models/$modelId")
 }

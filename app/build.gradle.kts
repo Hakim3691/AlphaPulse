@@ -22,6 +22,33 @@ plugins {
  */
 val versionCodeOffset = 10_000
 
+/**
+ * The band developer builds live in, above every CI build.
+ *
+ * CI and a laptop cannot share one counter: without a run number the code used to
+ * collapse to `versionCodeOffset`, which is lower than every published CI build, so
+ * installing a local APK over a released one failed with
+ * INSTALL_FAILED_VERSION_DOWNGRADE and forced an uninstall (wiping the ledger and
+ * the downloaded weights). Both bands add the commit count, so each channel is
+ * monotonic and no two commits ever share a code.
+ */
+val localVersionBand = 1_000_000
+
+/**
+ * Number of commits reachable from HEAD; 0 when git is unavailable.
+ *
+ * This is the monotonic tie-breaker a detached CI checkout still has: a workflow
+ * re-run keeps its run number but moves to a newer commit, and only the commit count
+ * makes that build strictly newer than the one it replaces.
+ *
+ * Read through `providers.exec` rather than `ProcessBuilder`: a raw external process
+ * at configuration time is rejected by Gradle's configuration cache, while this form
+ * is recorded and replayed.
+ */
+val gitCommitCount: Provider<Int> = providers.exec {
+  commandLine("git", "rev-list", "--count", "HEAD")
+}.standardOutput.asText.map { it.trim().toIntOrNull() ?: 0 }
+
 android {
   namespace = "com.aistudio.alphapulse"
 
@@ -49,8 +76,15 @@ android {
     // installer to treat a new APK as an update, which the offset guarantees;
     // VERSION_CODE is an explicit override for a one-off rollback.
     val buildNumber = System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 0
-    versionCode = System.getenv("VERSION_CODE")?.toIntOrNull()
-      ?: (versionCodeOffset + buildNumber)
+    val commitCount = gitCommitCount.get()
+    // CI ranks by its run number, a developer build by the band above CI; both add
+    // the commit count so a rebuild of a newer commit always outranks the old APK.
+    val computedVersionCode = if (buildNumber > 0) {
+      versionCodeOffset + maxOf(buildNumber, commitCount)
+    } else {
+      versionCodeOffset + localVersionBand + commitCount
+    }
+    versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: computedVersionCode
     val buildSha = System.getenv("GIT_SHA") ?: "dev"
     versionName = "1.0.$versionCode+$buildSha"
 

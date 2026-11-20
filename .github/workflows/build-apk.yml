@@ -549,28 +549,54 @@ jobs:
               -dname "CN=Android Debug, O=Android, C=US"
           fi
 
-      - name: Report the signing certificate
-        # The SHA-256 printed here must be identical on every build. If it changes,
-        # installed APKs can no longer be updated in place, and this summary says so
-        # before anyone tries to install over an existing app.
+      - name: Verify the signing identity against its pin
+        # A build signed by a different certificate cannot be installed over the
+        # previous one; Android reports INSTALL_FAILED_UPDATE_INCOMPATIBLE and the only
+        # fix is uninstall + reinstall, which wipes the ledger and the downloaded
+        # weights. The debug identity is pinned in the repository; the release
+        # identity is pinned by the RELEASE_CERT_SHA256 secret (it can never be
+        # committed). A mismatch fails the build here, before anything is published,
+        # instead of at install time on a user's phone.
         env:
           RELEASE_STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          RELEASE_CERT_SHA256: ${{ secrets.RELEASE_CERT_SHA256 }}
         run: |
+          set -euo pipefail
           STORE_PASS="${RELEASE_STORE_PASSWORD:-android}"
+
+          fingerprint() {
+            keytool -list -v -keystore "$1" -storepass "$2" 2>/dev/null \
+              | awk '/SHA256:/{print $2; exit}' | tr -d ':' | tr 'A-F' 'a-f'
+          }
+          expected_debug=$(grep -E '^debug=' signing-fingerprints.txt | cut -d= -f2 | tr -d ':' | tr 'A-F' 'a-f')
+          actual_debug=$(fingerprint debug.keystore android)
+          actual_release=$(fingerprint my-upload-key.jks "$STORE_PASS")
+
           {
             echo ""
             echo "### Signing identity"
             echo ""
-            echo "These certificate fingerprints must not change between builds; a change breaks in-place updates."
-            echo ""
             echo '```'
-            for keystore in my-upload-key.jks debug.keystore; do
-              echo "== $keystore =="
-              keytool -list -v -keystore "$keystore" -storepass "$STORE_PASS" 2>/dev/null \
-                | grep -E "Alias name|SHA256:" || true
-            done
+            echo "debug   expected $expected_debug"
+            echo "debug   actual   $actual_debug"
+            echo "release actual   $actual_release"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+          if [ "$actual_debug" != "$expected_debug" ]; then
+            echo "::error::The debug signing certificate does not match signing-fingerprints.txt. Installed debug builds could not be updated in place. Restore debug.keystore.base64 instead of generating a new key."
+            exit 1
+          fi
+
+          if [ -n "${RELEASE_CERT_SHA256:-}" ]; then
+            expected_release=$(echo "$RELEASE_CERT_SHA256" | tr -d ':' | tr 'A-F' 'a-f')
+            if [ "$actual_release" != "$expected_release" ]; then
+              echo "::error::The release signing certificate changed. Publishing this APK would break in-place updates (INSTALL_FAILED_UPDATE_INCOMPATIBLE). Restore the KEYSTORE_BASE64 secret."
+              exit 1
+            fi
+          else
+            echo "::warning::RELEASE_CERT_SHA256 is not set, so the release certificate cannot be checked. Add it (same value as the KEYSTORE_BASE64 certificate) to make an identity change fail the build."
+          fi
 
       - name: Pre-bundle the Needle 3 weights
         # The checkpoint is static and published, so it is fetched and verified at

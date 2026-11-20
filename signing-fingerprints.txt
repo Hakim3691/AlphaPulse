@@ -1,0 +1,16 @@
+# Pinned signing identities for in-place APK updates.
+#
+# Android refuses to install an APK signed by a different certificate, and the only
+# recovery is uninstall + reinstall — which wipes the ledger, the catalogue and the
+# downloaded TSFM weights. These are SHA-256 certificate fingerprints (lowercase, no
+# colons) of the key each channel signs with.
+#
+# debug: the committed debug keystore (debug.keystore.base64). A debug key is not a
+# secret by convention, and committing it is the only way a local build and a CI build
+# share one identity. CI fails when the keystore it restored does not match this line.
+debug=9b0e2c76ba29a9e77544e268fa7adcd4681331eb9ccceb6745e1d26fabeb5bd9
+#
+# release: never committed and never pinned here. The release key lives in the
+# KEYSTORE_BASE64 secret (or the constant-key Actions cache). Set the
+# RELEASE_CERT_SHA256 secret to this same fingerprint so CI fails, instead of shipping
+# an uninstallable APK, if the release certificate ever changes.
