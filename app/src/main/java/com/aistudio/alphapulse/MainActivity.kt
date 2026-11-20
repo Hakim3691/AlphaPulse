@@ -20,15 +20,28 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.alphapulse.billing.SimulatedTraderManager
+import com.alphapulse.contract.ModuleInstallState
 import com.aistudio.alphapulse.service.AlphaPulseService
 import com.aistudio.alphapulse.ui.AlphaPulseScreen
+import com.aistudio.alphapulse.ui.AppShell
 import com.aistudio.alphapulse.ui.theme.MyApplicationTheme
 import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: AlphaPulseViewModel by viewModels()
+
+    /**
+     * Phase 1 D5: the offline Play Billing / SplitInstall emulation.
+     *
+     * One manager per activity, so the entitlement it restores is the same one the
+     * shell renders and the tab injection reads.
+     */
+    private val traderManager by lazy { SimulatedTraderManager(applicationContext) }
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -54,7 +67,31 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
-                AlphaPulseScreen(viewModel = viewModel)
+                val installState by traderManager.installState.collectAsStateWithLifecycle()
+                val downloadProgress by traderManager.downloadProgress.collectAsStateWithLifecycle()
+
+                AppShell(
+                    installState = installState,
+                    downloadProgress = downloadProgress,
+                    onUnlockTrader = {
+                        if (installState == ModuleInstallState.NOT_INSTALLED ||
+                            installState == ModuleInstallState.ENTITLEMENT_REQUIRED
+                        ) {
+                            // The simulated Play sheet persists the entitlement and
+                            // starts the download progression.
+                            traderManager.requestPurchaseSimulation(this@MainActivity) { }
+                        } else {
+                            traderManager.startDynamicDownloadSimulation()
+                        }
+                    },
+                    onTraderTab = {
+                        // A WAITING tab is inert: launching before INSTALLED is a
+                        // no-op, never a crash or a half-installed dashboard.
+                        traderManager.launchTraderDashboard(this@MainActivity)
+                    }
+                ) {
+                    AlphaPulseScreen(viewModel = viewModel)
+                }
             }
         }
     }

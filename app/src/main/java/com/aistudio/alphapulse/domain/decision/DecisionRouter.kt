@@ -57,7 +57,15 @@ data class DecisionInputs(
     val modelDisagreement: Double, // Disagreement between models [0.0, 1.0]
     val dataFreshness: Double, // Normalized freshness [0.0, 1.0], 1.0 = latest
     val coneBreaches: Int = 0, // Number of recent cone breaches
-    val recentErrors: Double = 0.0 // Mean absolute error of recent predictions
+    val recentErrors: Double = 0.0, // Mean absolute error of recent predictions
+    /**
+     * D7: catalogue setups the active regime permits, strongest empirical edge first.
+     *
+     * Empty when the catalogue is unavailable or the regime is unknown; the router
+     * then decides on the snapshot alone instead of being told a candidate it cannot
+     * check.
+     */
+    val catalogueCandidates: List<String> = emptyList()
 )
 
 /**
@@ -111,7 +119,8 @@ internal fun decisionInputsFor(
     regimeConfidence: Double,
     coneBreaches: Int,
     recentErrorPct: Double,
-    dataAvailable: Boolean
+    dataAvailable: Boolean,
+    catalogueCandidates: List<String> = emptyList()
 ): DecisionInputs {
     val bookBalance = abs(bidRatioPct.coerceIn(0.0, 100.0) - 50.0) / 50.0
     val sameDirection = (kinematicPct > 0.0 && tsfmPct > 0.0) ||
@@ -128,7 +137,8 @@ internal fun decisionInputsFor(
         // Stale or missing data cannot be traded on, and the router says NO_TRADE for it.
         dataFreshness = if (dataAvailable) 1.0 else 0.0,
         coneBreaches = coneBreaches,
-        recentErrors = recentErrorPct
+        recentErrors = recentErrorPct,
+        catalogueCandidates = catalogueCandidates
     )
 }
 

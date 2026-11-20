@@ -257,160 +257,133 @@ fun PatternLedgerSection(
         // snapshot, so they are shown above the horizon filter's
         // table rather than inside it.
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(scrollState)
-        ) {
-            // Header Row
-            Row(
-                modifier = Modifier
-                    .background(BrandCard)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                header("ASSET", 55.dp)
-                header("HORIZON", 65.dp)
-                header("TARGET TIME", 75.dp)
-                header("PREDICTED PATTERN", 160.dp)
-                header("REALIZED PATTERN", 150.dp)
-                header("FIT / LOSS", 75.dp)
-                header("STATUS", 90.dp)
-                header("SGD LEARNING ACTION", 175.dp)
-                header("TSFM ENSEMBLE", 150.dp)
-            }
-
-            HorizontalDivider(color = BrandBorder)
-
-            if (filteredList.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
+        // Responsive table: ASSET and HORIZON stay pinned, the measurement and
+        // learning columns scroll together, so headers cannot clip at 360dp.
+        val tableRows = visibleList.map { entry ->
+            LedgerPinnedRow(
+                pinned = {
                     Text(
-                        text = "No pattern predictions logged yet. Rows settle at the horizon " +
-                            "boundary and train the online SGD head.",
-                        color = TextTertiary,
+                        text = entry.asset,
+                        color = TextPrimary,
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(55.dp)
+                    )
+                    Text(
+                        text = entry.horizon,
+                        color = BrandNeural,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(65.dp)
+                    )
+                },
+                scroll = {
+                    Text(
+                        text = timeFmt.format(Date(entry.targetTime)),
+                        color = TextSecondary,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(75.dp)
+                    )
+                    Text(
+                        text = "${entry.predictedPatternName} " +
+                            "(${String.format(Locale.US, "%.0f", entry.confidence * 100)}%)",
+                        color = categoryColor(entry.predictedCategory),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(160.dp)
+                    )
+                    Text(
+                        text = entry.realizedPattern ?: "Pending",
+                        color = if (entry.settled) TextPrimary else TextTertiary,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(150.dp)
+                    )
+                    Text(
+                        text = entry.fitLoss?.let { String.format(Locale.US, "%.2f", it) } ?: "--",
+                        color = when {
+                            entry.fitLoss == null -> TextTertiary
+                            (entry.fitLoss ?: 0.0) <= 0.70 -> BrandBullish
+                            else -> BrandBearish
+                        },
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(75.dp)
+                    )
+                    Text(
+                        text = PatternLedgerEngine.statusLabel(entry, currentTime),
+                        color = when {
+                            entry.settled -> BrandBullish
+                            currentTime >= entry.targetTime -> BrandNeural
+                            else -> BrandAmber
+                        },
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(90.dp)
+                    )
+                    Text(
+                        // D1/§3: operational tags instead of raw debug prose.
+                        text = SgdActionTag.of(entry.sgdAction, entry.realizedPattern),
+                        color = when {
+                            entry.sgdAction.contains("+w_reinforce") -> BrandBullish
+                            entry.sgdAction.contains("w_penalty") -> BrandBearish
+                            else -> TextTertiary
+                        },
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(175.dp)
+                    )
+                    Text(
+                        text = forecastText(entry),
+                        color = when (entry.tsfmAligned) {
+                            true -> BrandBullish
+                            false -> BrandBearish
+                            null -> TextTertiary
+                        },
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(150.dp)
                     )
                 }
-            } else if (visibleList.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "No pending pattern rows for this filter. $settledCount settled " +
-                            "row(s) hidden — SHOW SETTLED to review them.",
-                        color = TextTertiary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            } else {
-                visibleList.forEach { entry ->
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = entry.asset,
-                            color = TextPrimary,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(55.dp)
-                        )
-                        Text(
-                            text = entry.horizon,
-                            color = BrandNeural,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(65.dp)
-                        )
-                        Text(
-                            text = timeFmt.format(Date(entry.targetTime)),
-                            color = TextSecondary,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(75.dp)
-                        )
-                        Text(
-                            text = "${entry.predictedPatternName} " +
-                                "(${String.format(Locale.US, "%.0f", entry.confidence * 100)}%)",
-                            color = categoryColor(entry.predictedCategory),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(160.dp)
-                        )
-                        Text(
-                            text = entry.realizedPattern ?: "Pending",
-                            color = if (entry.settled) TextPrimary else TextTertiary,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(150.dp)
-                        )
-                        Text(
-                            text = entry.fitLoss?.let { String.format(Locale.US, "%.2f", it) } ?: "--",
-                            color = when {
-                                entry.fitLoss == null -> TextTertiary
-                                (entry.fitLoss ?: 0.0) <= 0.70 -> BrandBullish
-                                else -> BrandBearish
-                            },
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(75.dp)
-                        )
-                        Text(
-                            text = PatternLedgerEngine.statusLabel(entry, currentTime),
-                            color = when {
-                                entry.settled -> BrandBullish
-                                currentTime >= entry.targetTime -> BrandNeural
-                                else -> BrandAmber
-                            },
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(90.dp)
-                        )
-                        Text(
-                            // D1/§3: operational tags instead of raw debug prose.
-                            text = SgdActionTag.of(entry.sgdAction, entry.realizedPattern),
-                            color = when {
-                                entry.sgdAction.contains("+w_reinforce") -> BrandBullish
-                                entry.sgdAction.contains("w_penalty") -> BrandBearish
-                                else -> TextTertiary
-                            },
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(175.dp)
-                        )
-                        Text(
-                            text = forecastText(entry),
-                            color = when (entry.tsfmAligned) {
-                                true -> BrandBullish
-                                false -> BrandBearish
-                                null -> TextTertiary
-                            },
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(150.dp)
-                        )
-                    }
-
-                    HorizontalDivider(color = BrandBorder.copy(alpha = 0.3f))
-                }
-            }
+            )
         }
+
+        PinnedLedgerTable(
+            pinnedWidth = 148.dp,
+            pinnedHeader = {
+                LedgerHeaderCell("ASSET", 55.dp)
+                LedgerHeaderCell("HORIZON", 65.dp)
+            },
+            scrollHeader = {
+                LedgerHeaderCell("TARGET TIME", 75.dp)
+                LedgerHeaderCell("PREDICTED PATTERN", 160.dp)
+                LedgerHeaderCell("REALIZED PATTERN", 150.dp)
+                LedgerHeaderCell("FIT / LOSS", 75.dp)
+                LedgerHeaderCell("STATUS", 90.dp)
+                LedgerHeaderCell("SGD LEARNING ACTION", 175.dp)
+                LedgerHeaderCell("TSFM ENSEMBLE", 150.dp)
+            },
+            rows = tableRows,
+            emptyContent = {
+                Text(
+                    text = if (filteredList.isEmpty()) {
+                        "No pattern predictions logged yet. Rows settle at the horizon " +
+                            "boundary and train the online SGD head."
+                    } else {
+                        "No pending pattern rows for this filter. $settledCount settled " +
+                            "row(s) hidden \u2014 SHOW SETTLED to review them."
+                    },
+                    color = TextTertiary,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        )
     }
 }
 

@@ -7,6 +7,52 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [15.1] — 2026-11-20
+
+Completes the Phase 1 blueprint: the on-demand feature module is real, the catalogue
+lives in Room and is queried by the decision engine, the ledgers are readable at phone
+widths, and the core view is provably unmoved by installing the module.
+
+### Added
+
+- **On-demand `:proactive_trader` module (D4/§5)** — the Gradle project now splits into
+  `:app`, `:core_contract` and `:proactive_trader`. The feature is declared with
+  `dynamicFeatures`, depends on the base only in that direction, ships no native code
+  or resources, exposes `dist:onDemand`, and hosts the six ProactiveMS tabs in
+  `TraderHostActivity`. CI compiles it in preflight and proves the built `.aab`
+  contains the `proactive_trader` module.
+- **Verified dynamic tab injection (§7)** — `TraderNavigation` derives the tab from the
+  entitlement lifecycle: absent before purchase, `Trader 40%` during download,
+  `Installing` during install, inert until `INSTALLED`, then launched by component
+  name. The unlock action is a single simulated Play billing sheet.
+- **Room-backed Trade Ideas Catalog (D7)** — schema version 10 adds `trade_ideas`
+  with every published baseline, seeded on fresh install and by the production 9 -> 10
+  migration. `CatalogueRepository` maps the live Markov regime to a `Regime` and hands
+  Needle 3 up to eight permitted candidates; an unavailable catalogue means no
+  candidates, never a guessed taxonomy.
+- **Pain path prior (§3)** — the spot card now publishes
+  `Pain Path: Ascending Sweep to $23.84995 Overhead Stop Cluster (Pain Score: 61/100)`,
+  derived from the order-book path drift and confluence confidence.
+- **Pinned ledger columns (§2)** — the price and pattern ledgers pin ASSET/HORIZON and
+  scroll the remaining columns on one shared state, so no header clips at 320-411dp.
+- **Zero-regression proof (D6)** — a Compose layout spec asserts the core analysis
+  surface and its content keep identical bounds before and after the trader tab is
+  injected, and a structural spec asserts the core screen receives no trader state.
+
+### Changed
+
+- **ABI splits replaced by an explicit filter** — APK ABI splits and dynamic feature
+  modules cannot coexist in AGP 9 (`Cannot find PROCESSED_RES output`), so the base
+  module now packages arm64-only through `ndk.abiFilters` and names its APK
+  `app-arm64-v8a-{debug,release}.apk` explicitly. The shipped artifact, its name, CI
+  paths and the rollback workflow are unchanged; C-03 records the new mechanism.
+
+### Verification
+
+- BDD specs added: `DynamicFeatureContractBddSpec`, `TraderTabInjectionBddSpec`,
+  `TraderZeroRegressionBddSpec`, `CataloguePersistenceBddSpec`, `PainPathPriorBddSpec`.
+- Finalized contracts C-32 to C-35 record the four new decisions with their guards.
+
 ## [15.0] — 2026-11-19
 
 Phase 1 of the Comprehensive Specification: the defect audit is fixed, the trade

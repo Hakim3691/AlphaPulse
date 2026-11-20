@@ -141,11 +141,13 @@ jobs:
       - name: Bundle the Needle 3 weights
         run: ./gradlew :app:bundleNeedle3Weights --console=plain
 
-      - name: Compile both Kotlin source sets
+      - name: Compile both Kotlin source sets and the dynamic feature
         # The red that started the v1.0.18 release cycle was a single unresolved
         # reference in a view model; it surfaced after the test matrix. Both source
-        # sets compile here, so a compilation error fails in minutes.
-        run: ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin --console=plain
+        # sets compile here, so a compilation error fails in minutes. The on-demand
+        # :proactive_trader module is compiled too: it is not on :app's compile
+        # classpath, so nothing else in this job would notice it rotting.
+        run: ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin :proactive_trader:compileDebugKotlin --console=plain
 
       - name: Minify the release variant (R8 gate)
         # `assembleRelease` never succeeded in v1.0.20 because of this task. Running
@@ -715,6 +717,39 @@ jobs:
         # actually downloads. It fails on a missing entry, a compressed entry
         # (which cannot be mapped), a wrong size or a wrong digest.
         run: ./gradlew :app:verifyPackagedWeights --console=plain
+
+      - name: Bundle the app with its on-demand feature
+        # D4: the dynamic feature must package into the app bundle, not only compile.
+        # A compile-only check would stay green if the module were silently fused into
+        # the base or dropped from the distribution, so the produced .aab is opened and
+        # its module set asserted.
+        run: |
+          set -o pipefail
+          ./gradlew :app:bundleDebug --console=plain 2>&1 | tee bundle-output.log
+
+          python3 - << 'EOF'
+          import sys, zipfile
+
+          path = "app/build/outputs/bundle/debug/app-debug.aab"
+          try:
+              bundle = zipfile.ZipFile(path)
+          except Exception as error:
+              sys.exit(f"::error::No app bundle at {path}: {error}")
+
+          names = bundle.namelist()
+          modules = {name.split("/")[0] for name in names if "/" in name}
+          print("Bundle modules:", sorted(modules))
+
+          if "base" not in modules:
+              sys.exit("::error::The app bundle has no base module")
+          if "proactive_trader" not in modules:
+              sys.exit("::error::The app bundle has no proactive_trader module, so the "
+                       "auto-trader would not be deliverable on demand")
+          if not any(name.startswith("proactive_trader/manifest/") for name in names):
+              sys.exit("::error::The proactive_trader module has no manifest in the bundle")
+
+          print(f"Dynamic feature packaged: {path} ({len(names)} entries)")
+          EOF
 
       # Artifact storage is metered per billing cycle and can refuse an upload even
       # when the repo holds nothing (GitHub accrues GB-hours; deleting never refunds

@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aistudio.alphapulse.domain.catalogue.TradeIdeasCatalog
 import com.aistudio.alphapulse.domain.decision.Needle3Engine
 import com.aistudio.alphapulse.ui.components.*
 import com.aistudio.alphapulse.ui.theme.BrandDark
@@ -108,7 +109,8 @@ fun AlphaPulseScreen(
                     coneHitRate = uiState.coneHitRateForCoin,
                     mountedModelIds = uiState.mountedModelIds,
                     decision = uiState.decision,
-                    strategySignals = uiState.strategySignals
+                    strategySignals = uiState.strategySignals,
+                    painPathPrior = uiState.painPathPrior
                 )
 
                 // Collapsible Accordions (Risk Adjusted, Technical Microstructure, Institutional Filters, Forecasts, Canvas Chart, Cognitive Brief)
@@ -163,6 +165,10 @@ fun AlphaPulseScreen(
                     screenerSignals = uiState.screenerSignals,
                     strategySignals = uiState.strategySignals
                 )
+
+                // §3.1: the taxonomy the engine selects from, browsable by its four
+                // categories with a persisted Favorites tab.
+                TradeIdeasCatalogSection(ideas = TradeIdeasCatalog.all)
 
                 Spacer(modifier = Modifier.height(16.dp))
 

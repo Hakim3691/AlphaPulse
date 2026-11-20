@@ -128,6 +128,12 @@ data class AlphaPulseUiState(
      */
     val screenerSignals: List<ScreenerSignal> = emptyList(),
     val strategySignals: List<StrategySignal> = emptyList(),
+
+    /**
+     * §3: the liquidity magnet the order-book path points at, rendered under the
+     * spot price. Null when the path has no measurable direction.
+     */
+    val painPathPrior: String? = null,
     val showRefreshDialog: Boolean = false,
     val appMode: AppMode = AppMode.ALPHA_PULSE,
     val snackbarMessage: String? = null,
@@ -564,6 +570,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                                 decision = result.decision,
                                 screenerSignals = result.screenerSignals,
                                 strategySignals = result.strategySignals,
+                                painPathPrior = result.painPathPrior,
                                 modelState = currentModel.copy()
                             )
                         }

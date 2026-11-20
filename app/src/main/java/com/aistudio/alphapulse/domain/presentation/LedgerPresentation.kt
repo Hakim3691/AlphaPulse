@@ -5,6 +5,9 @@ import com.aistudio.alphapulse.domain.decision.DecisionState
 import com.aistudio.alphapulse.domain.strategy.SignalDirection
 import com.aistudio.alphapulse.domain.strategy.StrategySignal
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.roundToInt
 
 /**
  * Phase 1 string tokenization (D1).
@@ -27,10 +30,27 @@ object TokenizedReason {
     /** §29's calibrated-confidence gate; the ledger prints the number it compared. */
     const val GATE_THRESHOLD: Double = 0.70
 
+    /**
+     * Longest token the REASON column must render, measured from the rendered
+     * grammar: `[N3: Strong Short @ 0.70 < 0.70] Fallback: Needle 3` is 51 chars.
+     * `DecisionsLedgerSection`'s reason cell is 240dp at 8sp monospace, which covers
+     * the whole grammar with no clipping; the table still scrolls horizontally at
+     * 320-360dp, so nothing is hidden.
+     */
+    const val MAX_TOKEN_CHARS: Int = 51
+
+    /**
+     * The token's model slot.
+     *
+     * Only two routers exist, so the known names are abbreviated and anything else
+     * is compacted to four characters. An unrecognised source used to be printed in
+     * full, which could push the score and gate outside the column - the exact defect
+     * D1 exists to remove.
+     */
     fun modelOf(source: String): String = when (source) {
         "NEEDLE3" -> "N3"
         "DETERMINISTIC" -> "RULES"
-        else -> source.ifBlank { "N3" }
+        else -> source.trim().take(4).uppercase(Locale.US).ifBlank { "N3" }
     }
 
     fun actionOf(state: String): String = when (state) {
@@ -203,6 +223,43 @@ object HorizonGroups {
         "TACTICAL" -> "Tactical Horizons: scalp pathing, order-book absorption, local wick rejections"
         "STRATEGIC" -> "Strategic Horizons: macro trend drift, funding squeeze, HTF value-area alignment"
         else -> ""
+    }
+}
+
+/**
+ * Phase 1 §3 addition: the one-line liquidity magnet under the spot price.
+ *
+ * The headline used to be the spot price alone, so a trader could see where price
+ * was but not where it was most likely to be pulled. The prior names the route, the
+ * magnet price and a bounded 0-100 pain score derived from the same order-book /
+ * liquidation path the forecast consumes - no new data source, no invented level.
+ *
+ * `Pain Path: Ascending Sweep to $23.85000 Overhead Stop Cluster (Pain Score: 78/100)`
+ */
+object PainPathPrior {
+
+    fun of(spotPrice: Double, muPath: Double, confidence: Double): String? {
+        if (!spotPrice.isFinite() || spotPrice <= 0.0) return null
+        if (!muPath.isFinite() || muPath == 0.0) return null
+        val magnet = spotPrice * exp(muPath)
+        if (!magnet.isFinite() || magnet <= 0.0) return null
+
+        val ascending = muPath > 0.0
+        val route = if (ascending) "Ascending Sweep" else "Descending Flush"
+        val cluster = if (ascending) "Overhead Stop Cluster" else "Support Stop Cluster"
+        return "Pain Path: $route to $" +
+            String.format(Locale.US, "%.5f", magnet) + " $cluster " +
+            "(Pain Score: ${painScore(muPath, confidence)}/100)"
+    }
+
+    /**
+     * Bounded 0-100 pain score: how far the path can reach plus how convinced the
+     * confluence engine is. Documented arithmetic rather than a tuned constant.
+     */
+    fun painScore(muPath: Double, confidence: Double): Int {
+        val reach = (abs(muPath) * 10_000.0).coerceIn(0.0, 60.0)
+        val conviction = confidence.coerceIn(0.0, 1.0) * 40.0
+        return (reach + conviction).roundToInt().coerceIn(0, 100)
     }
 }
 

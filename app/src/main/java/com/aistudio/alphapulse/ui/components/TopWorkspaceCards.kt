@@ -58,7 +58,8 @@ fun TopWorkspaceCards(
     coneHitRate: Double?,
     mountedModelIds: List<String> = emptyList(),
     decision: DecisionReport? = null,
-    strategySignals: List<StrategySignal> = emptyList()
+    strategySignals: List<StrategySignal> = emptyList(),
+    painPathPrior: String? = null
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -83,7 +84,8 @@ fun TopWorkspaceCards(
                 spotPrice = spotPrice,
                 spotChange = spotChange,
                 high24h = high24h,
-                low24h = low24h
+                low24h = low24h,
+                painPathPrior = painPathPrior
             )
         }
 
@@ -262,7 +264,8 @@ fun SpotPriceCard(
     spotPrice: Double,
     spotChange: Double,
     high24h: Double,
-    low24h: Double
+    low24h: Double,
+    painPathPrior: String? = null
 ) {
     val isBull = spotChange >= 0
     val changeColor = if (isBull) BrandBullish else BrandBearish
@@ -325,6 +328,17 @@ fun SpotPriceCard(
                     Text("Low", color = TextTertiary, fontSize = 9.sp)
                     Text(formatPrice(low24h), color = TextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                 }
+            }
+
+            // §3: the primary liquidity magnet, directly under the spot print.
+            painPathPrior?.let { prior ->
+                Text(
+                    text = prior,
+                    color = BrandNeural,
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 11.sp
+                )
             }
         }
     }

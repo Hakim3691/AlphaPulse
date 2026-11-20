@@ -29,3 +29,5 @@ include(":app")
 // lives in :core_contract so :app can drive it without a compile-time dependency
 // on the feature module itself.
 include(":core_contract")
+// Phase 1 §5: the auto-trader ships as an on-demand Play Feature Delivery module.
+include(":proactive_trader")

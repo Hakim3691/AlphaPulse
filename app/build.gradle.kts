@@ -24,6 +24,10 @@ val versionCodeOffset = 10_000
 
 android {
   namespace = "com.aistudio.alphapulse"
+
+  // Phase 1 D4/§5: the auto-trader is delivered on demand, not compiled into the
+  // base APK. The base module only knows the :core_contract interface.
+  dynamicFeatures += setOf(":proactive_trader")
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
@@ -56,6 +60,14 @@ android {
     // builds a small JNI bridge with the NDK. The version is pinned so a build
     // cannot silently switch toolchains.
     ndkVersion = "27.0.12077973"
+
+    // C-03: only arm64-v8a native code is ever packaged. Declared on the default
+    // config (not only on the CMake block) so jniLibs from dependencies are filtered
+    // too, and kept independent of APK splits - ABI splits and dynamic feature
+    // modules cannot coexist in AGP, so the artifact name is set explicitly below.
+    ndk {
+      abiFilters += listOf("arm64-v8a")
+    }
 
     externalNativeBuild {
       cmake {
@@ -118,17 +130,16 @@ android {
     }
   }
   // ONNX Runtime and the Cactus engine bundle native libraries per architecture.
-  // Only arm64-v8a is shipped, so a single per-ABI APK is emitted and no universal
-  // APK is built: one artifact, no wasted bandwidth, and a name the CI workflow can
-  // upload on its own (`app-arm64-v8a-{debug,release}.apk`).
-  splits {
-    abi {
-      isEnable = true
-      reset()
-      include("arm64-v8a")
-      isUniversalApk = false
-    }
-  }
+  // Only arm64-v8a is shipped, so a single base APK is emitted and no universal APK
+  // exists: one artifact, no wasted bandwidth, and the name the CI workflow uploads
+  // (`app-arm64-v8a-{debug,release}.apk`).
+  //
+  // APK ABI splits are deliberately not used. AGP cannot resolve a dynamic feature
+  // module's resource output when the base module splits by ABI
+  // (`Cannot find PROCESSED_RES output for SerializedForm`), and Phase 1 D4 requires
+  // :proactive_trader to be a real dynamic feature. The ABI filter above keeps the
+  // native contents arm64-only; the block below keeps the artifact name stable so
+  // every release, CI path and rollback contract is unchanged.
 
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -160,6 +171,22 @@ android {
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
+  }
+}
+
+// Phase 1 D4: name every base APK after the single ABI it carries, replacing what
+// ABI splits used to provide. Splits and dynamic features are mutually exclusive in
+// AGP, so the file name is set here instead of by the split machinery.
+androidComponents {
+  onVariants { variant ->
+    variant.outputs.forEach { output ->
+      // AGP exposes the file name on its output implementation rather than on the
+      // public VariantOutput interface; this is the documented way to keep a stable
+      // artifact name without the split machinery.
+      (output as com.android.build.api.variant.impl.VariantOutputImpl)
+        .outputFileName
+        .set("app-arm64-v8a-${variant.name}.apk")
+    }
   }
 }
 
@@ -210,6 +237,9 @@ dependencies {
   // Phase 1 D4: the shared dynamic-trader contract. The base app depends on the
   // contract, never on the feature module's classes.
   implementation(project(":core_contract"))
+  // The real Play Feature Delivery client the simulated SplitInstall lifecycle
+  // emulates; kept in the base module because that is where the request originates.
+  implementation(libs.play.feature.delivery)
   implementation(libs.androidx.biometric)
   // The credential store encrypts API keys with EncryptedSharedPreferences. It used to
   // arrive transitively from the Firebase BOM; it is now declared because it is used.

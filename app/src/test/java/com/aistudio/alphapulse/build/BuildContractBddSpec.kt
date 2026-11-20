@@ -96,7 +96,7 @@ class BuildContractBddSpec {
     // ------------------------------------------------------------------ ABIs
 
     @Test
-    fun `given the native and split configuration when read then only arm64-v8a can be packaged`() {
+    fun `given the native configuration when read then only arm64-v8a can be packaged`() {
         val filterList = Regex("""abiFilters \+= listOf\(([^)]*)\)""")
             .find(moduleBuild)?.groupValues?.get(1)
             ?: failWith("No abiFilters declaration was found")
@@ -107,22 +107,20 @@ class BuildContractBddSpec {
             quotedValues(filterList)
         )
 
-        val splits = moduleBuild.substringAfter("splits {").substringBefore("compileOptions")
-        val includes = Regex("""include\(([^)]*)\)""").find(splits)?.groupValues?.get(1)
-            ?: failWith("No split include(...) was found")
-
-        assertEquals(
-            "The APK split must include exactly arm64-v8a",
-            setOf("arm64-v8a"),
-            quotedValues(includes)
+        // D4 replaced ABI splits with an explicit ABI filter: AGP cannot package a
+        // dynamic feature when the base module splits by ABI. The contract that
+        // matters - one arm64-only APK with a stable name - is asserted instead.
+        assertFalse(
+            "APK ABI splits cannot coexist with the on-demand feature module",
+            Regex("""splits\s*\{""").containsMatchIn(moduleBuild)
         )
         assertTrue(
-            "A universal APK would ship native libraries for ABIs that are not built",
-            splits.contains("isUniversalApk = false")
+            "The base APK must keep its arm64-v8a artifact name without splits",
+            moduleBuild.contains("app-arm64-v8a-\${variant.name}.apk")
         )
         assertFalse(
             "An emulator build would reintroduce an ABI the engine cannot run",
-            includes.contains("x86")
+            moduleBuild.contains("include(\"x86\")")
         )
     }
 

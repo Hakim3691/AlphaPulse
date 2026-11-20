@@ -23,8 +23,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LiquidationHeatmapEntity::class, VolumeProfileSnapshotEntity::class,
         ModelRegistryEntity::class, SessionEntity::class, DecisionRecordEntity::class,
         EnsembleWeightsEntity::class, ProactiveAuditLedgerEntity::class,
-        PatternLedgerEntity::class, PatternSgdWeightsEntity::class],
-    version = 9,
+        PatternLedgerEntity::class, PatternSgdWeightsEntity::class,
+        TradeIdeaEntity::class],
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -40,6 +41,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun ensembleWeightsDao(): EnsembleWeightsDao
     abstract fun proactiveAuditLedgerDao(): ProactiveAuditLedgerDao
     abstract fun patternLedgerDao(): PatternLedgerDao
+
+    /** D7: the persisted Trade Ideas Catalog the decision engine queries. */
+    abstract fun tradeIdeaDao(): TradeIdeaDao
 
     companion object {
         @Volatile
@@ -128,6 +132,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * D7: adds the Trade Ideas Catalog and seeds its published rows.
+         *
+         * The seed is part of the migration because the catalogue is reference data:
+         * an upgraded install must be able to query it on the very next evaluation,
+         * not only after some later refresh wrote rows.
+         */
+        internal val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(CatalogueSchema.DDL)
+                CatalogueSchema.seedStatements().forEach { db.execSQL(it) }
+            }
+        }
+
+        /**
+         * A fresh install creates the catalogue table empty, so the published rows
+         * are inserted here. Both paths share [CatalogueSchema.seedStatements], so a
+         * fresh install and an upgrade can never hold different catalogues.
+         */
+        private val CATALOGUE_SEED = object : RoomDatabase.Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                CatalogueSchema.seedStatements().forEach { db.execSQL(it) }
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -136,8 +165,9 @@ abstract class AppDatabase : RoomDatabase() {
                     "alphapulse_db"
                 ).addMigrations(
                     MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                    MIGRATION_8_9
+                    MIGRATION_8_9, MIGRATION_9_10
                 )
+                    .addCallback(CATALOGUE_SEED)
                     .fallbackToDestructiveMigration().build()
                 INSTANCE = instance
                 instance

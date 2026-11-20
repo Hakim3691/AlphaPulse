@@ -17,6 +17,8 @@ import com.aistudio.alphapulse.domain.quant.ConfluenceAlphaResult
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.domain.agent.MarketStateAgent
 import com.aistudio.alphapulse.domain.agent.MarketStateInput
+import com.aistudio.alphapulse.domain.catalogue.TradeIdea
+import com.aistudio.alphapulse.domain.presentation.PainPathPrior
 import com.aistudio.alphapulse.domain.decision.CoinCalibrationOrchestrator
 import com.aistudio.alphapulse.domain.decision.DecisionReport
 import com.aistudio.alphapulse.domain.decision.DecisionRouter
@@ -108,6 +110,14 @@ private const val CALIBRATION_PAGE_SIZE = 1000
 private const val CALIBRATION_MAX_PAGES = 8
 
 private const val DAY_MS = 24L * 60L * 60L * 1000L
+
+/**
+ * D7: catalogue candidates handed to the router per evaluation.
+ *
+ * Bounded because the prompt is a fixed-size grounding document; the catalogue is
+ * ranked by empirical edge, so the head of the list is the part that matters.
+ */
+private const val CATALOGUE_CANDIDATE_LIMIT = 8
 
 class AlphaPulseRepository(
     private val client: ResilientBinanceClient,
@@ -1228,6 +1238,10 @@ class AlphaPulseRepository(
             )
         )?.regimeConfidence ?: 0.5
 
+        // D7: the catalogue is queried, not hardcoded. The active Markov regime picks
+        // which setups Needle 3 is allowed to consider for this snapshot.
+        val catalogueCandidates = catalogueCandidatesFor(mtfMetrics.regime)
+
         val decisionInputs = decisionInputsFor(
             kinematicPct = legDrifts[DECISION_REFERENCE_HORIZON]?.kinematicPct ?: 0.0,
             tsfmPct = legDrifts[DECISION_REFERENCE_HORIZON]?.tsfmPct ?: 0.0,
@@ -1239,7 +1253,8 @@ class AlphaPulseRepository(
                 .mapNotNull { item -> item.errorPct?.let { abs(it) } }
                 .average()
                 .let { if (it.isNaN()) 0.0 else it },
-            dataAvailable = currentSpot > 0.0 && klines.isNotEmpty()
+            dataAvailable = currentSpot > 0.0 && klines.isNotEmpty(),
+            catalogueCandidates = catalogueCandidates.map { it.name }
         )
         val decision = DecisionReport(
             state = decisionRouter.router(decisionInputs),
@@ -1290,9 +1305,29 @@ class AlphaPulseRepository(
             executiveBrief = executiveBrief,
             decision = decision,
             screenerSignals = TechnicalScreeners.evaluateAll(strategyCandles),
-            strategySignals = QuantStrategyEngine.evaluateAll(strategyCandles)
+            strategySignals = QuantStrategyEngine.evaluateAll(strategyCandles),
+            catalogueCandidates = catalogueCandidates,
+            painPathPrior = PainPathPrior.of(
+                spotPrice = currentSpot,
+                muPath = ltfPathData.muPath,
+                confidence = alphaMetrics.confidence
+            )
         )
     }
+
+    /**
+     * D7: the catalogue rows this regime permits, strongest empirical edge first.
+     *
+     * Read from Room so the taxonomy is queryable data, not a compiled list. When the
+     * catalogue is unavailable the engine receives no candidates and decides on the
+     * snapshot alone; it never substitutes a guessed taxonomy.
+     */
+    private suspend fun catalogueCandidatesFor(regime: String): List<TradeIdea> =
+        runCatching {
+            CatalogueRepository(database.tradeIdeaDao())
+                .candidatesFor(CatalogueRepository.regimeOf(regime))
+                .take(CATALOGUE_CANDIDATE_LIMIT)
+        }.getOrDefault(emptyList())
 
     private suspend fun auditAndSelfTrain(symbol: String, currentSpot: Double, modelState: ModelState) {
         val now = System.currentTimeMillis()
@@ -1779,7 +1814,11 @@ data class AssetEvaluationResult(
     /** §74 technical confluence screeners evaluated on this snapshot's bars. */
     val screenerSignals: List<ScreenerSignal> = emptyList(),
     /** §74 quantitative strategy verdicts with their own entry / exit / invalidation levels. */
-    val strategySignals: List<StrategySignal> = emptyList()
+    val strategySignals: List<StrategySignal> = emptyList(),
+    /** D7: the catalogue ideas the active regime permitted for this evaluation. */
+    val catalogueCandidates: List<TradeIdea> = emptyList(),
+    /** §3: the one-line liquidity magnet shown beneath the spot price. */
+    val painPathPrior: String? = null
 )
 
 /** Percent move of each ensemble leg at one horizon, as the §29 router reads them. */

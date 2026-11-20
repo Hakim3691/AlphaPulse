@@ -296,172 +296,133 @@ fun PredictionLedgerSection(
 
         HorizontalDivider(color = BrandBorder.copy(alpha = 0.6f))
 
-        // Table Header & Rows in horizontal scroll
-        val scrollState = rememberScrollState()
+        // Responsive table: ASSET and HORIZON stay pinned, the remaining columns
+        // scroll together on one shared state, so no header is clipped at 360dp.
         val timeFmt = SimpleDateFormat("HH:mm:ss", Locale.US)
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(scrollState)
-        ) {
-            // Header Row
-            Row(
-                modifier = Modifier
-                    .background(BrandCard)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("ASSET", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(60.dp))
-                Text("HORIZON", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(65.dp))
-                Text("TARGET TIME", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(75.dp))
-                Text("PREDICTED", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(75.dp))
-                Text("REALIZED", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(75.dp))
-                Text("DEVIATION", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(85.dp))
-                Text("CONE STATUS", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(90.dp))
-                Text("SGD LEARNING ACTION", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(130.dp))
-            }
-
-            HorizontalDivider(color = BrandBorder)
-
-            if (filteredList.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
+        val tableRows = visibleList.map { item ->
+            val diff = max(0L, item.targetTimestamp - currentTime)
+            val m = (diff / 60000).toString().padStart(2, '0')
+            val s = ((diff % 60000) / 1000).toString().padStart(2, '0')
+            LedgerPinnedRow(
+                pinned = {
                     Text(
-                        text = "No predictions logged yet. Predictions settle automatically via online SGD.",
-                        color = TextTertiary,
+                        text = item.symbol.replace("USDT", ""),
+                        color = TextPrimary,
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(60.dp)
                     )
-                }
-            } else if (visibleList.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
                     Text(
-                        text = "No pending predictions for this filter. " +
-                            "$settledCount settled row(s) hidden — SHOW SETTLED to review them.",
-                        color = TextTertiary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
+                        text = item.horizonLabel,
+                        color = BrandNeural,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(65.dp)
                     )
-                }
-            } else {
-                visibleList.forEach { item ->
-                    val diff = max(0L, item.targetTimestamp - currentTime)
-                    val m = (diff / 60000).toString().padStart(2, '0')
-                    val s = ((diff % 60000) / 1000).toString().padStart(2, '0')
-
-                    Row(
-                        modifier = Modifier
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = item.symbol.replace("USDT", ""),
-                            color = TextPrimary,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(60.dp)
-                        )
-                        Text(
-                            text = item.horizonLabel,
-                            color = BrandNeural,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(65.dp)
-                        )
-                        Text(
-                            text = timeFmt.format(Date(item.targetTimestamp)),
-                            color = TextSecondary,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(75.dp)
-                        )
-                        Text(
-                            text = Formatters.formatPrice5Dec(item.predictedPrice),
-                            color = TextPrimary,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(75.dp)
-                        )
-                        Text(
-                            text = item.realizedPrice?.let { Formatters.formatPrice5Dec(it) } ?: "--",
-                            color = TextPrimary,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(75.dp)
-                        )
-
-                        // Deviation
-                        val devText = if (item.settled && item.errorPct != null) {
-                            val sign = if (item.errorPct >= 0) "+" else ""
-                            "$sign${String.format(Locale.US, "%.2f", item.errorPct)}%"
-                        } else "--"
-                        val devColor = if (item.settled && (item.errorPct ?: 0.0) >= 0) BrandBullish else BrandBearish
-                        Text(
-                            text = devText,
-                            color = devColor,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(85.dp)
-                        )
-
-                        // Cone Status
-                        Box(modifier = Modifier.width(90.dp)) {
-                            if (item.settled) {
-                                val hit = item.inCone == true
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(if (hit) GreenGlow else RedGlow)
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = if (hit) "✓ In Cone" else "✗ Breach",
-                                        color = if (hit) BrandBullish else BrandBearish,
-                                        fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            } else {
-                                val countdown = if (diff == 0L) "Validating..." else "In $m:$s"
+                },
+                scroll = {
+                    Text(
+                        text = timeFmt.format(Date(item.targetTimestamp)),
+                        color = TextSecondary,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(75.dp)
+                    )
+                    Text(
+                        text = Formatters.formatPrice5Dec(item.predictedPrice),
+                        color = TextPrimary,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(75.dp)
+                    )
+                    Text(
+                        text = item.realizedPrice?.let { Formatters.formatPrice5Dec(it) } ?: "--",
+                        color = TextPrimary,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(75.dp)
+                    )
+                    val devText = if (item.settled && item.errorPct != null) {
+                        val sign = if (item.errorPct >= 0) "+" else ""
+                        "$sign${String.format(Locale.US, "%.2f", item.errorPct)}%"
+                    } else "--"
+                    val devColor = if (item.settled && (item.errorPct ?: 0.0) >= 0) BrandBullish else BrandBearish
+                    Text(
+                        text = devText,
+                        color = devColor,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(85.dp)
+                    )
+                    Box(modifier = Modifier.width(90.dp)) {
+                        if (item.settled) {
+                            val hit = item.inCone == true
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(if (hit) GreenGlow else RedGlow)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
                                 Text(
-                                    text = countdown,
-                                    color = BrandAmber,
-                                    fontSize = 10.sp,
+                                    text = if (hit) "\u2713 In Cone" else "\u2717 Breach",
+                                    color = if (hit) BrandBullish else BrandBearish,
+                                    fontSize = 9.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
+                        } else {
+                            val countdown = if (diff == 0L) "Validating..." else "In $m:$s"
+                            Text(
+                                text = countdown,
+                                color = BrandAmber,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
-
-                        // Learning action
-                        Text(
-                            text = item.learningAction,
-                            color = TextTertiary,
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.width(130.dp)
-                        )
                     }
-
-                    HorizontalDivider(color = BrandBorder.copy(alpha = 0.3f))
+                    Text(
+                        text = item.learningAction,
+                        color = TextTertiary,
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(130.dp)
+                    )
                 }
-            }
+            )
         }
+
+        PinnedLedgerTable(
+            pinnedWidth = 153.dp,
+            pinnedHeader = {
+                LedgerHeaderCell("ASSET", 60.dp)
+                LedgerHeaderCell("HORIZON", 65.dp)
+            },
+            scrollHeader = {
+                LedgerHeaderCell("TARGET TIME", 75.dp)
+                LedgerHeaderCell("PREDICTED", 75.dp)
+                LedgerHeaderCell("REALIZED", 75.dp)
+                LedgerHeaderCell("DEVIATION", 85.dp)
+                LedgerHeaderCell("CONE STATUS", 90.dp)
+                LedgerHeaderCell("SGD LEARNING ACTION", 130.dp)
+            },
+            rows = tableRows,
+            emptyContent = {
+                Text(
+                    text = if (filteredList.isEmpty()) {
+                        "No predictions logged yet. Predictions settle automatically via online SGD."
+                    } else {
+                        "No pending predictions for this filter. $settledCount settled row(s) hidden \u2014 SHOW SETTLED to review them."
+                    },
+                    color = TextTertiary,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        )
     }
 }

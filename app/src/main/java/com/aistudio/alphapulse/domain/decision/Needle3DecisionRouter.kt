@@ -208,6 +208,12 @@ class Needle3DecisionRouter(
         appendLine("data_freshness: ${"%.2f".format(inputs.dataFreshness)}")
         appendLine("cone_breaches: ${inputs.coneBreaches}")
         appendLine("recent_errors: ${"%.4f".format(inputs.recentErrors)}")
+        // D7: the catalogue candidates the active Markov regime permits. They are
+        // printed verbatim so the model can ground its choice in the same list the
+        // engine selected, rather than in a hardcoded taxonomy.
+        if (inputs.catalogueCandidates.isNotEmpty()) {
+            appendLine("catalogue_candidates: ${inputs.catalogueCandidates.joinToString(", ")}")
+        }
         append("Choose the one decision tool this snapshot supports.")
     }
 

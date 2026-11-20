@@ -180,7 +180,7 @@ fun DecisionsLedgerSection(
                 Text("STATE", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(96.dp))
                 Text("CONFIDENCE", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(60.dp))
                 Text("SOURCE", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(80.dp))
-                Text("REASON", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(180.dp))
+                Text("REASON", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(240.dp))
                 Text("RESULT", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(90.dp))
                 Text("REALIZED", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(90.dp))
                 Text("TIME", color = TextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(70.dp))
@@ -263,7 +263,7 @@ fun DecisionsLedgerSection(
                             fontFamily = FontFamily.Monospace,
                             maxLines = 1,
                             softWrap = false,
-                            modifier = Modifier.width(180.dp)
+                            modifier = Modifier.width(240.dp)
                         )
                         Box(modifier = Modifier.width(90.dp)) {
                             Box(
