@@ -26,6 +26,20 @@ class UnifiedUniverseScreenerBddSpec {
         lowPrice = 98.0
     )
 
+    /** Locates a repository file from whichever directory tests run in. */
+    private fun repoFile(relativePath: String): java.io.File {
+        var directory: java.io.File? = java.io.File("").absoluteFile
+        while (directory != null) {
+            if (java.io.File(directory, "settings.gradle.kts").isFile) {
+                val file = java.io.File(directory, relativePath)
+                if (!file.exists()) throw AssertionError("Missing repository file: $relativePath")
+                return file
+            }
+            directory = directory.parentFile
+        }
+        throw AssertionError("Could not locate the repository root")
+    }
+
     private fun failingSnapshot() = DailyFilterSnapshot(
         quoteVolume24hUsdt = 2_000_000.0,
         takerBuyRatio = 0.42,
@@ -126,6 +140,34 @@ class UnifiedUniverseScreenerBddSpec {
 
         assertEquals(1, results.size)
         assertFalse(results.first().passiveStagingEligible)
+    }
+
+    @Test
+    fun `given the production screening path when it is read then it delegates to the unified gate and carries no threshold of its own`() {
+        // The repository used to re-implement the four filters inline, with its own
+        // thresholds and `daysPassedAll > 0` as the persistence rule: one historical
+        // pass admitted a coin that §65 says must pass eight of the last ten sessions.
+        // This scenario keeps the app's only screening path on the pinned gate.
+        val repository = repoFile("app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt")
+            .readText()
+
+        assertTrue(
+            "The app's universe screening must call the shared gate, not a private copy",
+            repository.contains("ScreenedUniverseFilter")
+        )
+        listOf(
+            "5000000.0" to "the $5M volume floor",
+            ">= 50.0" to "the 0.50 taker-buy ratio",
+            " >= 0.40" to "the 40% conviction displacement",
+            "daysPassedAll > 0" to "the single-day persistence shortcut",
+            "liveOiVal ?: 1.0" to "the fabricated open interest"
+        ).forEach { (literal, what) ->
+            assertFalse(
+                "AlphaPulseRepository must not keep its own copy of $what (`$literal`); " +
+                    "the threshold lives in ScreenedUniverseFilter",
+                repository.contains(literal)
+            )
+        }
     }
 
     @Test

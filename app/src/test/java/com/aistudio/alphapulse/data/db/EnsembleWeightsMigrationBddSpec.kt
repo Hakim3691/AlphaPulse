@@ -71,8 +71,8 @@ class EnsembleWeightsMigrationBddSpec {
         val raw = upgraded.openHelper.writableDatabase
 
         assertEquals(
-            "Room must record the upgraded version (schema 10 adds the Room-backed catalogue)",
-            10,
+            "Room must record the upgraded version (11 adds the screened-universe state)",
+            11,
             queryInt(raw, "PRAGMA user_version")
         )
         assertEquals(
@@ -186,9 +186,11 @@ class EnsembleWeightsMigrationBddSpec {
                 AppDatabase.MIGRATION_6_7,
                 AppDatabase.MIGRATION_7_8,
                 AppDatabase.MIGRATION_8_9,
-                // D7 adds the catalogue at version 10; an upgraded install must walk
-                // the whole production path, including this step.
-                AppDatabase.MIGRATION_9_10
+                // D7 adds the catalogue at version 10 and C-37 records the screened
+                // universe's age at 11; an upgraded install must walk the whole
+                // production path, including these steps.
+                AppDatabase.MIGRATION_9_10,
+                AppDatabase.MIGRATION_10_11
             )
         }
         return builder.build()

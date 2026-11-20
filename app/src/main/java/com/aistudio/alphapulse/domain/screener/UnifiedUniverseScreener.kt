@@ -1,7 +1,5 @@
 package com.aistudio.alphapulse.domain.screener
 
-import kotlin.math.abs
-
 /**
  * §65 / Contract C-17 — the unified institutional universe gate.
  *
@@ -42,43 +40,6 @@ import kotlin.math.abs
  *
  * Spec Ref: §65 Unified Universe Screener, C-17
  */
-
-/** One day of the per-coin flow data the gate reads. */
-data class DailyFilterSnapshot(
-    val quoteVolume24hUsdt: Double,
-    val takerBuyRatio: Double,
-    val openInterestUsdt: Double,
-    val openPrice: Double,
-    val closePrice: Double,
-    val highPrice: Double,
-    val lowPrice: Double
-) {
-    /** How many times the open interest turned over today; above 1.0 is new money. */
-    val volumeToOiVelocity: Double
-        get() = if (openInterestUsdt > 0.0) quoteVolume24hUsdt / openInterestUsdt else 0.0
-
-    /** Where the close landed inside the day's range, 0.0 (at the low) to 1.0 (at the high). */
-    val convictionDisplacement: Double
-        get() {
-            val range = highPrice - lowPrice
-            return if (range > 0.0) abs(closePrice - openPrice) / range else 0.0
-        }
-
-    /** The four intraday filters of §65, all of which must hold together. */
-    fun passesFourFilterGate(): Boolean {
-        return quoteVolume24hUsdt >= MIN_DAILY_QUOTE_VOLUME_USDT &&
-            takerBuyRatio >= MIN_TAKER_BUY_RATIO &&
-            volumeToOiVelocity > MIN_VOLUME_TO_OI_VELOCITY &&
-            convictionDisplacement >= MIN_CONVICTION_DISPLACEMENT
-    }
-
-    private companion object {
-        const val MIN_DAILY_QUOTE_VOLUME_USDT = 5_000_000.0
-        const val MIN_TAKER_BUY_RATIO = 0.50
-        const val MIN_VOLUME_TO_OI_VELOCITY = 1.0
-        const val MIN_CONVICTION_DISPLACEMENT = 0.40
-    }
-}
 
 /**
  * One candidate coin: today's flow, the last ten days of it, and the yearly
@@ -149,16 +110,13 @@ class UnifiedUniverseScreener(
                 return@mapNotNull null
             }
 
-            val passesToday = candidate.todaySnapshot.passesFourFilterGate()
-            val historicalPassDays = candidate.last10DaysSnapshots.count {
-                it.passesFourFilterGate()
-            }
-            val minHistoricalDays = if (requireStrict8Of10PersistenceWhenTodayFails) {
-                PERSISTENCE_DAYS_REQUIRED
-            } else {
-                1
-            }
-            val verifiedFlow = passesToday || (historicalPassDays >= minHistoricalDays)
+            val assessment = ScreenedUniverseFilter.assess(
+                today = candidate.todaySnapshot,
+                last10Days = candidate.last10DaysSnapshots,
+                requireStrict8Of10PersistenceWhenTodayFails =
+                    requireStrict8Of10PersistenceWhenTodayFails
+            )
+            val verifiedFlow = assessment.verified
 
             val calmar = candidate.calmarRatio1Y
             val sharpe = candidate.sharpeRatio1Y(riskFreeRate)
@@ -191,9 +149,6 @@ class UnifiedUniverseScreener(
     }
 
     private companion object {
-        /** §65 persistence rule: eight of the last ten sessions. */
-        const val PERSISTENCE_DAYS_REQUIRED = 8
-
         /** A passive ladder may not stage into a spread at or above this width. */
         const val MAX_PASSIVE_STAGING_SPREAD_PCT = 0.10
 

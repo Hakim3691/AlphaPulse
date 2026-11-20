@@ -28,6 +28,8 @@ import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.data.model.ScreenedCoin
+import com.aistudio.alphapulse.domain.screener.ScreenedUniverseRevalidation
+import com.aistudio.alphapulse.domain.screener.UniverseRefreshOutcome
 import com.aistudio.alphapulse.ui.model.AppMode
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
 import com.aistudio.alphapulse.data.repository.DecisionLedgerJoin
@@ -403,15 +405,22 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun bootPipeline() {
+    /**
+     * Shows the cached universe immediately, then revalidates it.
+     *
+     * C-37: a universe younger than [ScreenedUniverseRevalidation.TTL_MILLIS] is served
+     * as-is, so resuming the app does not re-run a 250-pair scan; a manual refresh passes
+     * [forceRefresh] and always screens.
+     */
+    fun bootPipeline(forceRefresh: Boolean = false) {
         viewModelScope.launch {
-            // Instant startup from Room cache if available
-            val initialCached = repository.loadCachedScreenedCoins()
-            if (initialCached.isNotEmpty()) {
-                val firstCoin = initialCached.first()
+            // Instant startup from the Room cache, with its age.
+            val cached = repository.loadCachedScreenedUniverse()
+            if (cached != null) {
+                val firstCoin = cached.coins.first()
                 _uiState.update {
                     it.copy(
-                        screenedCoins = initialCached,
+                        screenedCoins = cached.coins,
                         selectedSymbol = firstCoin.symbol,
                         spotPrice = firstCoin.lastPrice,
                         spotChange = firstCoin.priceChangePercent,
@@ -423,6 +432,11 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 repository.wsManager.connect(firstCoin.symbol)
                 startAssetCycle()
                 calibrateSelectedCoin(firstCoin.symbol)
+
+                if (!forceRefresh && cached.isFresh(System.currentTimeMillis())) {
+                    _uiState.update { it.copy(pipelineRunning = false, pipelineProgress = 1.0f) }
+                    return@launch
+                }
             }
 
             _uiState.update {
@@ -443,7 +457,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
 
-            val screened = repository.runInstitutionalScreening { title, sub, prog ->
+            val refresh = repository.runInstitutionalScreening { title, sub, prog ->
                 _uiState.update {
                     it.copy(
                         pipelineStepTitle = title,
@@ -452,6 +466,13 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 }
             }
+            val screened = refresh.snapshot?.coins ?: emptyList()
+            val retainedNotice = if (refresh.outcome == UniverseRefreshOutcome.KEPT_PREVIOUS) {
+                "Universe refresh failed — still showing the universe from " +
+                    "${refresh.snapshot?.ageLabel(System.currentTimeMillis())}"
+            } else {
+                null
+            }
 
             countdownJob?.cancel()
             _uiState.update {
@@ -459,7 +480,8 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                     pipelineRunning = false,
                     pipelineProgress = 1.0f,
                     isReady = true,
-                    screenedCoins = screened
+                    screenedCoins = screened,
+                    snackbarMessage = retainedNotice ?: it.snackbarMessage
                 )
             }
 
@@ -607,7 +629,9 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
     fun confirmManualRefresh() {
         showRefreshDialog(false)
         exportAndShareAuditCsv()
-        bootPipeline()
+        // A manual refresh is the user asking for a new screen, so it never short-circuits
+        // on a fresh cache the way a resume does.
+        bootPipeline(forceRefresh = true)
     }
 
     fun exportAndShareAuditCsv() {

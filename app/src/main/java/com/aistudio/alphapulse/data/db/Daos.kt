@@ -12,6 +12,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -58,6 +59,32 @@ interface ScreenedCoinDao {
 
     @Query("DELETE FROM screened_coins")
     suspend fun clearAll()
+
+    /**
+     * C-37: swap the cached universe in one transaction.
+     *
+     * Clearing and then inserting as two statements meant a failed insert left an empty
+     * cache — the dropdown, the asset selector and the selected coin's fallback price
+     * all disappeared, and the next launch had nothing to show while re-screening.
+     */
+    @Transaction
+    suspend fun replaceAll(coins: List<ScreenedCoinEntity>) {
+        clearAll()
+        insertAll(coins)
+    }
+}
+
+/**
+ * C-37: the single row that states when the cached universe was fetched and how much of
+ * the venue it covered.
+ */
+@Dao
+interface ScreenedUniverseStateDao {
+    @Query("SELECT * FROM screened_universe_state WHERE id = 1")
+    suspend fun get(): ScreenedUniverseStateEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(state: ScreenedUniverseStateEntity)
 }
 
 @Dao

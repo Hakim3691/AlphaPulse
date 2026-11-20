@@ -7,6 +7,45 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [17.0] — 2026-11-20
+
+Milestone 2 of the Phase 2 work: the universe screen is one gate instead of two, and the
+list it produces survives a failed refresh and states its age.
+
+### Fixed
+
+- **The app admitted coins on one good day.** `runInstitutionalScreening` re-implemented
+  the §65 four-filter gate inline and used `daysPassedAll > 0` as its persistence rule, so
+a single historical pass admitted a coin the pinned contract requires to pass eight of
+the last ten sessions. Both paths now call `ScreenedUniverseFilter`; the guard spec fails
+the build if the repository grows its own thresholds again.
+- **A missing open interest passed the velocity leg.** The screening path substituted
+  `1.0` USDT for an open interest neither Binance nor CoinGlass returned, which every
+  coin's volume cleared many times over. Unknown open interest is now 0.0 — the leg
+  fails, because new money cannot be verified from a number the app invented.
+- **A failed insert left no universe.** The cache was cleared before the replacement rows
+  were inserted, as two statements. `ScreenedCoinDao.replaceAll` is one `@Transaction`,
+  and the coin rows plus the state that describes them are written with
+  `database.withTransaction`.
+- **The cache could not say how old it was, or that it was the cache.** Room schema 11
+  adds `screened_universe_state` (`fetchedAtMillis`, `screenedPairs`, `admittedPairs`) via
+  the production 10 -> 11 migration. A run whose ticker never answered, or that admitted
+  nothing, keeps the previous universe and reports it as cached with its age instead of
+  presenting a tiny or empty list as today's screen.
+
+### Changed
+
+- **A resume inside ten minutes reuses the cached universe.** A warm launch used to
+  re-run the 250-pair scan every time; a cache younger than `ScreenedUniverseRevalidation`
+  `.TTL_MILLIS` is served as-is. A manual refresh always screens.
+
+### Verification
+
+- BDD specs: `ScreenedUniverseFilterBddSpec` (every threshold boundary and the 8-of-10
+  rule), `ScreenedUniverseCacheBddSpec` (migration 10 -> 11, atomic swap, freshness and
+  retention), two new scenarios in `UnifiedUniverseScreenerBddSpec`, and the upgraded
+  `EnsembleWeightsMigrationBddSpec`; recorded as contract C-37.
+
 ## [16.0] — 2026-11-20
 
 Milestone 1 of the Phase 2 work: an APK now updates in place, and an update no

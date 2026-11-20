@@ -8,6 +8,7 @@ import com.aistudio.alphapulse.data.db.PatternLedgerEntity
 import com.aistudio.alphapulse.data.db.PatternSgdWeightsEntity
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.db.ScreenedCoinEntity
+import com.aistudio.alphapulse.data.db.ScreenedUniverseStateEntity
 import com.aistudio.alphapulse.data.model.*
 import com.aistudio.alphapulse.domain.quant.DepthSnapshot
 import com.aistudio.alphapulse.domain.quant.DepthTier
@@ -36,6 +37,12 @@ import com.aistudio.alphapulse.data.network.BinanceWebSocketManager
 import com.aistudio.alphapulse.data.network.CycleNetworkBudget
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.domain.quant.KlineData
+import com.aistudio.alphapulse.domain.screener.DailyFilterSnapshot
+import com.aistudio.alphapulse.domain.screener.ScreenedUniverseFilter
+import com.aistudio.alphapulse.domain.screener.ScreenedUniverseRefresh
+import com.aistudio.alphapulse.domain.screener.ScreenedUniverseRevalidation
+import com.aistudio.alphapulse.domain.screener.ScreenedUniverseSnapshot
+import com.aistudio.alphapulse.domain.screener.UniverseRefreshOutcome
 import com.aistudio.alphapulse.domain.quant.PredictionStateMachine
 import com.aistudio.alphapulse.domain.quant.TapeMetrics
 import com.aistudio.alphapulse.domain.quant.TapePrint
@@ -63,6 +70,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import androidx.room.withTransaction
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -382,9 +390,87 @@ class AlphaPulseRepository(
         HorizonConfig("1h", "1 Hour", 60, 60 * 60 * 1000L, "Tri-Factor")
     )
 
+    /**
+     * The day snapshot the §65 gate reads, built from one Binance kline row.
+     *
+     * Columns: 1 open, 2 high, 3 low, 4 close, 7 quote volume, 10 taker-buy quote
+     * volume. The taker-buy ratio is kept as a fraction (0.50, not 50.0) because the
+     * gate's threshold is a fraction; the badge converts back for display.
+     */
+    private fun JSONArray.toFilterSnapshot(openInterestQuote: Double): DailyFilterSnapshot {
+        val quoteVolume = getDouble(7)
+        val takerBuyQuote = getDouble(10)
+        return DailyFilterSnapshot(
+            quoteVolume24hUsdt = quoteVolume,
+            takerBuyRatio = if (quoteVolume > 0.0) takerBuyQuote / quoteVolume else 0.0,
+            openInterestUsdt = openInterestQuote,
+            openPrice = getDouble(1),
+            closePrice = getDouble(4),
+            highPrice = getDouble(2),
+            lowPrice = getDouble(3)
+        )
+    }
+
+    /** The cached row as the UI-facing model, so both readers cannot drift apart. */
+    private fun ScreenedCoinEntity.toScreenedCoin(): ScreenedCoin = ScreenedCoin(
+        symbol = symbol,
+        lastPrice = lastPrice,
+        highPrice = highPrice,
+        lowPrice = lowPrice,
+        openPrice = openPrice,
+        volume = volume,
+        realTakerBuyRatio = realTakerBuyRatio,
+        displacement = displacement,
+        exactOI = exactOI,
+        volToOiRatio = volToOiRatio,
+        priceChangePercent = priceChangePercent,
+        calmarRatio = calmarRatio,
+        sharpeRatio = sharpeRatio,
+        annualizedVol = annualizedVol,
+        maxDrawdown = maxDrawdown,
+        daysPassedAll = daysPassedAll,
+        passedTodayAll = passedTodayAll,
+        passed10DRule = passed10DRule,
+        filter1 = FilterBadgeData(filter1Passed, filter1Val),
+        filter2 = FilterBadgeData(filter2Passed, filter2Val),
+        filter3 = FilterBadgeData(filter3Passed, filter3Val),
+        filter4 = FilterBadgeData(filter4Passed, filter4Val)
+    )
+
+    /**
+     * The live open interest in quote terms, or 0.0 when no venue answered.
+     *
+     * 0.0 is deliberate: the gate reads it as unknown and the velocity leg fails, which
+     * is the honest outcome. Substituting a small placeholder made every coin pass that
+     * leg on an open interest the app had invented.
+     */
+    private suspend fun liveOpenInterestQuote(symbol: String, lastPrice: Double): Double {
+        try {
+            val live = client.getJsonObject("/fapi/v1/openInterest?symbol=$symbol")
+            val contracts = live.optDouble("openInterest", 0.0)
+            if (contracts > 0.0) return contracts * lastPrice
+        } catch (_: Exception) { }
+        val coinglass = client.fetchCoinglassOI(symbol)
+        return if (coinglass != null && coinglass > 0.0) coinglass * lastPrice else 0.0
+    }
+
+    /** The historical open interest of the session at [dayIndex], in quote terms. */
+    private fun historicalOiQuote(oiData: List<Double>, dayIndex: Int, lastIndex: Int): Double {
+        if (oiData.isEmpty()) return 0.0
+        val oiDayIndex = oiData.size - 1 - (lastIndex - dayIndex)
+        return if (oiDayIndex in 0 until oiData.size) oiData[oiDayIndex] else 0.0
+    }
+
+    /**
+     * Runs the §65 screen and returns the universe to show plus why it is that one.
+     *
+     * The result is never a bare list: a failed run must be distinguishable from a run
+     * that legitimately admitted nothing, or the caller cannot tell the user the dropdown
+     * is the cached one.
+     */
     suspend fun runInstitutionalScreening(
         onProgressUpdate: (stepTitle: String, subtitle: String, progress: Float) -> Unit
-    ): List<ScreenedCoin> = withContext(Dispatchers.IO) {
+    ): ScreenedUniverseRefresh = withContext(Dispatchers.IO) {
         onProgressUpdate("Step 1: Institutional 4-Filter Screen", "Retrieving global live ticker universe...", 0.05f)
 
         val tickerArr = try {
@@ -438,103 +524,49 @@ class AlphaPulseRepository(
                         val klinesArr = client.getJsonArray("/fapi/v1/klines?symbol=$sym&interval=1d&limit=10")
                         if (klinesArr.length() > 0) {
                             val oiData = client.fetchHistoricalOi(sym, 10)
+                            val liveOiQuote = liveOpenInterestQuote(sym, lastP)
+                            val lastIndex = klinesArr.length() - 1
 
-                            var liveOiVal: Double? = null
-                            try {
-                                val bLiveOi = client.getJsonObject("/fapi/v1/openInterest?symbol=$sym")
-                                val rawOi = bLiveOi.optDouble("openInterest", 0.0)
-                                if (rawOi > 0) {
-                                    liveOiVal = rawOi * lastP
-                                }
-                            } catch (_: Exception) {}
-                            if (liveOiVal == null) {
-                                val cg = client.fetchCoinglassOI(sym)
-                                if (cg != null && cg > 0) {
-                                    liveOiVal = cg * lastP
-                                }
+                            // Today's candle plus the sessions before it, both as the same
+                            // snapshot type the pinned §65 gate reads.
+                            val history = (0 until lastIndex).map { i ->
+                                klinesArr.getJSONArray(i).toFilterSnapshot(
+                                    historicalOiQuote(oiData, dayIndex = i, lastIndex = lastIndex)
+                                )
                             }
-                            val exactLiveOi = liveOiVal ?: 1.0
+                            val today = klinesArr.getJSONArray(lastIndex).toFilterSnapshot(liveOiQuote)
 
-                            var daysPassedAll = 0
+                            // The gate is the shared one: 8 of the last 10 sessions when
+                            // today fails, and never a fabricated open interest.
+                            val assessment = ScreenedUniverseFilter.assess(today, history)
 
-                            // Historical days
-                            for (i in 0 until klinesArr.length() - 1) {
-                                val k = klinesArr.getJSONArray(i)
-                                val o = k.getDouble(1)
-                                val h = k.getDouble(2)
-                                val l = k.getDouble(3)
-                                val c = k.getDouble(4)
-                                val qVol = k.getDouble(7)
-                                val takerQVol = k.getDouble(10)
-                                val takerBuyRatio = if (qVol > 0) (takerQVol / qVol) * 100.0 else 0.0
-                                val range = max(1e-6, h - l)
-                                val displacement = abs(c - o) / range
-
-                                var oiVal = 0.0
-                                if (oiData.isNotEmpty()) {
-                                    val oiDayIndex = oiData.size - 1 - (klinesArr.length() - 1 - i)
-                                    if (oiDayIndex in 0 until oiData.size) {
-                                        oiVal = oiData[oiDayIndex]
-                                    }
-                                }
-
-                                val passF1 = qVol >= 5000000.0
-                                val passF2 = takerBuyRatio >= 50.0
-                                val passF3 = if (oiVal > 0) qVol > oiVal else false
-                                val passF4 = displacement >= 0.40
-
-                                if (passF1 && passF2 && passF3 && passF4) {
-                                    daysPassedAll++
-                                }
-                            }
-
-                            // Today candle
-                            val todayK = klinesArr.getJSONArray(klinesArr.length() - 1)
-                            val todayO = todayK.getDouble(1)
-                            val todayH = todayK.getDouble(2)
-                            val todayL = todayK.getDouble(3)
-                            val todayC = todayK.getDouble(4)
-                            val todayQuoteVol = todayK.getDouble(7)
-                            val todayTakerQuoteVol = todayK.getDouble(10)
-                            val todayTakerBuyRatio = if (todayQuoteVol > 0) (todayTakerQuoteVol / todayQuoteVol) * 100.0 else 0.0
-                            val todayRange = max(1e-6, todayH - todayL)
-                            val todayDisplacement = abs(todayC - todayO) / todayRange
-                            val volToOiRatio = todayQuoteVol / exactLiveOi
-
-                            val passTodayF1 = todayQuoteVol >= 5000000.0
-                            val passTodayF2 = todayTakerBuyRatio >= 50.0
-                            val passTodayF3 = volToOiRatio > 1.0
-                            val passTodayF4 = todayDisplacement >= 0.40
-
-                            val passedTodayAll = passTodayF1 && passTodayF2 && passTodayF3 && passTodayF4
-                            if (passedTodayAll) daysPassedAll++
-
-                            val passed10DRule = daysPassedAll > 0
-
-                            if (passedTodayAll || passed10DRule) {
+                            if (assessment.verified) {
+                                val historicalWon = assessment.verifiedByPersistence
+                                val daysPassedAll = assessment.historicalPassDays +
+                                    if (assessment.todayPasses) 1 else 0
                                 ScreenedCoin(
                                     symbol = sym,
                                     lastPrice = lastP,
                                     highPrice = highP,
                                     lowPrice = lowP,
                                     openPrice = openP,
-                                    volume = todayQuoteVol,
-                                    realTakerBuyRatio = todayTakerBuyRatio,
-                                    displacement = todayDisplacement,
-                                    exactOI = exactLiveOi,
-                                    volToOiRatio = volToOiRatio,
+                                    volume = today.quoteVolume24hUsdt,
+                                    realTakerBuyRatio = today.takerBuyRatio * 100.0,
+                                    displacement = today.convictionDisplacement,
+                                    exactOI = liveOiQuote,
+                                    volToOiRatio = today.volumeToOiVelocity,
                                     priceChangePercent = changePct,
                                     calmarRatio = 0.0,
                                     sharpeRatio = 0.0,
                                     annualizedVol = 0.0,
                                     maxDrawdown = 0.0,
                                     daysPassedAll = daysPassedAll,
-                                    passedTodayAll = passedTodayAll,
-                                    passed10DRule = passed10DRule,
-                                    filter1 = FilterBadgeData(true, if (passed10DRule && !passedTodayAll) "Hist ($daysPassedAll/10)" else "$${(todayQuoteVol / 1000000).toInt()}M Vol"),
-                                    filter2 = FilterBadgeData(true, if (passed10DRule && !passedTodayAll) "10D Rule" else "${String.format(Locale.US, "%.1f", todayTakerBuyRatio)}%"),
-                                    filter3 = FilterBadgeData(true, if (passed10DRule && !passedTodayAll) "10D Rule" else "${String.format(Locale.US, "%.2f", volToOiRatio)}x"),
-                                    filter4 = FilterBadgeData(true, if (passed10DRule && !passedTodayAll) "10D Rule" else "${String.format(Locale.US, "%.1f", todayDisplacement * 100)}% Ext")
+                                    passedTodayAll = assessment.todayPasses,
+                                    passed10DRule = historicalWon,
+                                    filter1 = FilterBadgeData(true, if (historicalWon) "Hist ($daysPassedAll/10)" else "$${(today.quoteVolume24hUsdt / 1000000).toInt()}M Vol"),
+                                    filter2 = FilterBadgeData(true, if (historicalWon) "10D Rule" else "${String.format(Locale.US, "%.1f", today.takerBuyRatio * 100.0)}%"),
+                                    filter3 = FilterBadgeData(true, if (historicalWon) "10D Rule" else "${String.format(Locale.US, "%.2f", today.volumeToOiVelocity)}x"),
+                                    filter4 = FilterBadgeData(true, if (historicalWon) "10D Rule" else "${String.format(Locale.US, "%.1f", today.convictionDisplacement * 100)}% Ext")
                                 )
                             } else null
                         } else null
@@ -687,50 +719,67 @@ class AlphaPulseRepository(
                 rank = rank + 1
             )
         }
-        if (finalRankedCoins.isNotEmpty()) {
-            database.screenedCoinDao().clearAll()
-            database.screenedCoinDao().insertAll(entities)
-            finalRankedCoins
+        // C-37: the run describes itself, so a failed refresh can be recognised as one.
+        val run = ScreenedUniverseSnapshot(
+            coins = finalRankedCoins,
+            fetchedAtMillis = System.currentTimeMillis(),
+            screenedPairs = activePairs.size,
+            admittedPairs = finalRankedCoins.size
+        )
+        val previous = loadCachedScreenedUniverse()
+        val refresh = ScreenedUniverseRevalidation.decide(previous, run)
+
+        if (refresh.outcome == UniverseRefreshOutcome.REFRESHED) {
+            val state = ScreenedUniverseStateEntity(
+                fetchedAtMillis = run.fetchedAtMillis,
+                screenedPairs = run.screenedPairs,
+                admittedPairs = run.admittedPairs
+            )
+            // One transaction: the coin rows and the state that describes them can never
+            // disagree about which run they belong to.
+            database.withTransaction {
+                database.screenedCoinDao().replaceAll(entities)
+                database.screenedUniverseStateDao().upsert(state)
+            }
         } else {
-            val cached = loadCachedScreenedCoins()
-            if (cached.isNotEmpty()) {
-                Log.d("AlphaPulseRepository", "Preserved and loaded ${cached.size} cached coins from Room")
-                cached
-            } else {
-                finalRankedCoins
+            Log.d(
+                "AlphaPulseRepository",
+                "Screening produced ${finalRankedCoins.size} coins from ${activePairs.size} pairs; " +
+                    "keeping the cached universe (${refresh.outcome})"
+            )
+        }
+
+        refresh
+    }
+
+    /**
+     * C-37: the cached universe with its age, or null when nothing is cached.
+     *
+     * A cache written before this milestone has coin rows but no state row; its age is
+     * unknown, which is reported as [ScreenedUniverseSnapshot.fetchedAtMillis] = 0 — an
+     * ancient universe, not a fresh one.
+     */
+    suspend fun loadCachedScreenedUniverse(): ScreenedUniverseSnapshot? =
+        withContext(Dispatchers.IO) {
+            try {
+                val state = database.screenedUniverseStateDao().get()
+                val cached = database.screenedCoinDao().getAllScreenedCoins()
+                    .map { it.toScreenedCoin() }
+                if (cached.isEmpty()) return@withContext null
+                ScreenedUniverseSnapshot(
+                    coins = cached,
+                    fetchedAtMillis = state?.fetchedAtMillis ?: 0L,
+                    screenedPairs = state?.screenedPairs ?: 0,
+                    admittedPairs = state?.admittedPairs ?: cached.size
+                )
+            } catch (_: Exception) {
+                null
             }
         }
-    }
 
     suspend fun loadCachedScreenedCoins(): List<ScreenedCoin> = withContext(Dispatchers.IO) {
         try {
-            val cached = database.screenedCoinDao().getAllScreenedCoins()
-            cached.map { entity ->
-                ScreenedCoin(
-                    symbol = entity.symbol,
-                    lastPrice = entity.lastPrice,
-                    highPrice = entity.highPrice,
-                    lowPrice = entity.lowPrice,
-                    openPrice = entity.openPrice,
-                    volume = entity.volume,
-                    realTakerBuyRatio = entity.realTakerBuyRatio,
-                    displacement = entity.displacement,
-                    exactOI = entity.exactOI,
-                    volToOiRatio = entity.volToOiRatio,
-                    priceChangePercent = entity.priceChangePercent,
-                    calmarRatio = entity.calmarRatio,
-                    sharpeRatio = entity.sharpeRatio,
-                    annualizedVol = entity.annualizedVol,
-                    maxDrawdown = entity.maxDrawdown,
-                    daysPassedAll = entity.daysPassedAll,
-                    passedTodayAll = entity.passedTodayAll,
-                    passed10DRule = entity.passed10DRule,
-                    filter1 = FilterBadgeData(entity.filter1Passed, entity.filter1Val),
-                    filter2 = FilterBadgeData(entity.filter2Passed, entity.filter2Val),
-                    filter3 = FilterBadgeData(entity.filter3Passed, entity.filter3Val),
-                    filter4 = FilterBadgeData(entity.filter4Passed, entity.filter4Val)
-                )
-            }
+            database.screenedCoinDao().getAllScreenedCoins().map { it.toScreenedCoin() }
         } catch (_: Exception) {
             emptyList()
         }
