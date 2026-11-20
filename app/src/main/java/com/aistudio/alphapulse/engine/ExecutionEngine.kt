@@ -7,6 +7,7 @@ import com.aistudio.alphapulse.data.model.LadderSlice
 import com.aistudio.alphapulse.data.model.OrderType
 import com.aistudio.alphapulse.data.model.RiskEnvelope
 import com.aistudio.alphapulse.data.model.VenueHealth
+import com.aistudio.alphapulse.engine.proactive.PreLaunchVerdict
 
 /** 
  * Phase 4 (Spec §36, §22, §25): the execution gate between the Campaign Library and
@@ -34,9 +35,12 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
         mode: ExecutionMode,
         envelope: RiskEnvelope,
         venueHealth: VenueHealth,
-        hasActiveSession: Boolean
+        hasActiveSession: Boolean,
+        preLaunchAcceptance: PreLaunchVerdict? = null
     ): List<GatedCampaign> = campaigns.map { c ->
-        gateCampaign(c, mode, envelope, venueHealth, hasActiveSession, campaigns)
+        gateCampaign(
+            c, mode, envelope, venueHealth, hasActiveSession, campaigns, preLaunchAcceptance
+        )
     }
 
     private fun gateCampaign(
@@ -45,7 +49,8 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
         envelope: RiskEnvelope,
         venueHealth: VenueHealth,
         hasActiveSession: Boolean,
-        existing: List<Campaign>
+        existing: List<Campaign>,
+        preLaunchAcceptance: PreLaunchVerdict?
     ): GatedCampaign {
         // §22 step 7: stage only after all preconditions and account constraints pass.
         val (allowed, reason) = riskEngine.validateCampaignStaging(
@@ -90,6 +95,14 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
                     GatedCampaign(
                         campaign.copy(status = CampaignState.PLANNED),
                         "Scaled live requires an active session; board held as plan"
+                    )
+                } else if (preLaunchAcceptance?.unlocked != true) {
+                    // §38: Scaled Live stays locked until the mandatory pre-launch
+                    // evidence passes; a missing verdict is a locked gate, not a pass.
+                    GatedCampaign(
+                        campaign.copy(status = CampaignState.PLANNED),
+                        preLaunchAcceptance?.summary
+                            ?: "Scaled live locked until the §38 pre-launch acceptance gate passes"
                     )
                 } else {
                     GatedCampaign(campaign, "Scaled live: full board routed")

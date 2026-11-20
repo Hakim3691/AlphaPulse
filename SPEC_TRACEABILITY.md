@@ -146,3 +146,19 @@ them into `libalphapulse_needle.so` for the ABI being built, and
 JNI over an mmap'd checkpoint. `Needle3StatusBanner` shows the engine's state on
 the dashboard, and the mounted checkpoint path now reaches the engine from the
 same store the dock reads.
+
+## Phase 2 — Proactive Market Structure Dynamic Module (Spec §1–§38)
+
+The Phase 2 blueprint was analysed after the AlphaPulse baseline. Each section below
+names the production code that implements it and the BDD spec that proves it.
+
+| Phase 2 § | Requirement | Status | Implementation | Tests |
+| :-- | :--- | :--- | :--- | :--- |
+| P2-25 | Monitoring loop & telemetry (four cadences) | Done | `engine/proactive/MonitoringCadence.kt` (`MonitoringCadence`, `MonitoringAction`, `MonitoringScheduler`) | `engine/proactive/MonitoringCadenceBddSpec.kt` |
+| P2-26 | Board survival monitoring (degradation & promotion) | Done | `engine/proactive/BoardSurvivalMonitor.kt`, composed by `ProactiveExecutionLoop` | `engine/proactive/BoardSurvivalMonitorBddSpec.kt`, `engine/proactive/ProactiveExecutionLoopBddSpec.kt` |
+| P2-27 | Invalidation & cancellation thresholds (45/70) | Done | `engine/proactive/SideAgnosticInvalidation.kt`, `ProactiveExecutionLoop` | `engine/proactive/ProactiveExecutionLoopBddSpec.kt` |
+| P2-28 | Side-agnostic invalidation (five triggers) | Done | `engine/proactive/SideAgnosticInvalidation.kt` | `engine/proactive/SideAgnosticInvalidationBddSpec.kt` |
+| P2-29 | Capital routing rules (correlation > 0.85) | Done | `engine/proactive/CapitalRouter.kt`, composed by `ProactiveExecutionLoop` | `engine/proactive/CapitalRouterBddSpec.kt`, `engine/proactive/ProactiveExecutionLoopBddSpec.kt` |
+| P2-31 | Event-driven automation loop | Done | `engine/proactive/ProactiveExecutionLoop.kt` | `engine/proactive/ProactiveExecutionLoopBddSpec.kt` |
+| P2-34 | Production configuration parameters | Done | `engine/proactive/ProductionExecutionConfig.kt` | `engine/proactive/ProductionExecutionConfigBddSpec.kt` |
+| P2-38 | Pre-launch acceptance criteria (Scaled Live gate) | Done | `engine/proactive/PreLaunchAcceptanceGate.kt`, enforced by `ExecutionEngine.gateStaging` | `engine/proactive/PreLaunchAcceptanceGateBddSpec.kt`, `engine/proactive/ProactiveExecutionLoopBddSpec.kt` |
