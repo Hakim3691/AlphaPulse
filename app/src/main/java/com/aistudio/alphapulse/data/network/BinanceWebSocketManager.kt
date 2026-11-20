@@ -17,7 +17,6 @@ import com.aistudio.alphapulse.data.db.OrderBookDeltaEntity
 import com.aistudio.alphapulse.data.db.LiquidationHeatmapEntity
 import com.aistudio.alphapulse.domain.data.AggTradeEvent
 import com.aistudio.alphapulse.domain.data.LiquidationEvent as DomainLiquidationEvent
-import com.aistudio.alphapulse.domain.quality.MicrostructureGuard
 import com.aistudio.alphapulse.domain.quant.DepthTier
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -37,9 +36,8 @@ data class LiveStreamTelemetry(
     val spotPrice: Double,
     val bids: List<DepthTier>,
     val asks: List<DepthTier>,
-    val netImbalanceUsdt: Double,
-    /** Null when the book this event carried is not usable (C-39). */
-    val bidRatioPct: Double?,
+    // No bid share or imbalance here: the levels are published as they arrived and
+    // MicrostructureGuard is the single place that reads a balance out of them (C-39).
     val empiricalShock: Double,
     val lambdaTurnover: Double,
     val lastUpdateTimestamp: Long
@@ -297,26 +295,14 @@ open class BinanceWebSocketManager(
                                 }
                             }
 
-                            // Compute OFI, Bid Ratio, and Lambda
+                            // Lambda turnover over the quoted notional
                             val tiers = min(20, min(bids.size, asks.size))
-                            var bidNotional = 0.0
-                            var askNotional = 0.0
+                            var totalDepth = 0.0
                             for (i in 0 until tiers) {
-                                bidNotional += bids[i].price * bids[i].quantity
-                                askNotional += asks[i].price * asks[i].quantity
+                                totalDepth += bids[i].price * bids[i].quantity
+                                totalDepth += asks[i].price * asks[i].quantity
                             }
-                            val totalDepth = bidNotional + askNotional
-                            val netImbalance = bidNotional - askNotional
                             val now = System.currentTimeMillis()
-                            // C-39: a depth payload that arrives empty, crossed or too thin
-                            // publishes no share at all instead of a one-half reading.
-                            val bookReading = MicrostructureGuard.assess(
-                                bids = bids.map { it.price to it.quantity },
-                                asks = asks.map { it.price to it.quantity },
-                                bookTimestampMs = now,
-                                nowMs = now
-                            )
-                            val bidRatio = bookReading.bidRatioPct
                             if (prevDepthTotal > 0 && now > prevDepthTime) {
                                 val dtMinutes = max(0.004, (now - prevDepthTime) / 60000.0) // 250ms is ~0.00416 min
                                 val turnover = abs(totalDepth - prevDepthTotal) / prevDepthTotal
@@ -350,8 +336,6 @@ open class BinanceWebSocketManager(
                                 spotPrice = spot,
                                 bids = bids,
                                 asks = asks,
-                                netImbalanceUsdt = netImbalance,
-                                bidRatioPct = bidRatio,
                                 empiricalShock = shock,
                                 lambdaTurnover = currentLambda,
                                 lastUpdateTimestamp = now

@@ -406,8 +406,6 @@ class CycleNetworkBudgetBddSpec {
                 spotPrice = 60_000.0,
                 bids = (0 until 10).map { DepthTier(price = 59_995.0 - it * 5.0, quantity = 2.0) },
                 asks = (0 until 10).map { DepthTier(price = 60_005.0 + it * 5.0, quantity = 2.0) },
-                netImbalanceUsdt = 0.0,
-                bidRatioPct = 50.0,
                 empiricalShock = 1_000.0,
                 lambdaTurnover = 0.035,
                 lastUpdateTimestamp = START_MS

@@ -251,14 +251,32 @@ class ScreenedUniverseCacheBddSpec {
     }
 
     @Test
-    fun `given a screen that answered and admitted nothing with no cache when revalidated then there is nothing to show`() {
+    fun `given a screen that answered and admitted nothing with no cache when revalidated then it still did not fail`() {
         val refresh = ScreenedUniverseRevalidation.decide(
             null,
             snapshot(fetchedAtMillis = 2_000L, coins = emptyList(), screenedPairs = 298)
         )
 
-        assertEquals(UniverseRefreshOutcome.NO_DATA, refresh.outcome)
+        assertEquals(UniverseRefreshOutcome.NOTHING_QUALIFIED_NO_CACHE, refresh.outcome)
         assertNull(refresh.snapshot)
+    }
+
+    @Test
+    fun `given an empty universe when the notice is built then it names the reason and the missing fallback`() {
+        // Before this, both empty-with-no-cache cases were silent: the dropdown came up
+        // empty and the app said nothing at all about why.
+        val viewModel = repoFile(
+            "app/src/main/java/com/aistudio/alphapulse/ui/viewmodel/AlphaPulseViewModel.kt"
+        ).readText()
+
+        assertTrue(
+            "A ticker that never answered with no cache must say the refresh failed",
+            viewModel.contains("Universe refresh failed — no cached universe to show")
+        )
+        assertTrue(
+            "A screen that admitted nothing with no cache must not be reported as a network failure",
+            viewModel.contains("No coin passed the screen this run — nothing cached to fall back on")
+        )
     }
 
     @Test

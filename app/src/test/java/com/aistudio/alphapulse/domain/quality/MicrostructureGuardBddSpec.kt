@@ -158,6 +158,25 @@ class MicrostructureGuardBddSpec {
         )
     }
 
+    @Test
+    fun `given the live stream when its contract is read then it publishes the book and not a second verdict about it`() {
+        // The socket used to compute a bid share and an imbalance of its own on every depth
+        // frame. Both were unread once the guard judged the book, so both were a second
+        // opinion with no reader — and a second place for the two to disagree.
+        val stream = repoFile(
+            "app/src/main/java/com/aistudio/alphapulse/data/network/BinanceWebSocketManager.kt"
+        ).readText()
+
+        assertFalse(
+            "The stream must not carry a bid share; the guard is the only reader of the book",
+            stream.contains("bidRatioPct")
+        )
+        assertFalse(
+            "And no imbalance computed from the same levels for nobody to read",
+            stream.contains("netImbalanceUsdt")
+        )
+    }
+
     /** Locates a repository file from whichever directory tests run in. */
     private fun repoFile(relativePath: String): File {
         var directory: File? = File("").absoluteFile

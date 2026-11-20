@@ -7,6 +7,30 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [18.1] — 2026-11-20
+
+### Changed
+
+- **The depth stream no longer computes a second opinion about the book.** `LiveStreamTelemetry`
+  carried a bid share and an imbalance that it calculated itself on every depth frame. Both
+  lost their reader when `MicrostructureGuard` took over judging the book, so the socket now
+  publishes the levels and their timestamp and nothing else — one place reads a balance out
+  of a book, and the stream cannot disagree with it.
+
+### Fixed
+
+- **A refresh with no cached universe failed silently.** With nothing to fall back on, the
+  app showed an empty dropdown and said nothing. It now reports `NO_DATA` as a failed
+  refresh, and an empty screen whose venue answered keeps the distinction C-37 already made
+  for the retained case: `NOTHING_QUALIFIED_NO_CACHE` says no coin passed the screen, so an
+  empty list is never blamed on the network.
+
+### Verification
+
+- BDD specs: the stream-contract scenario in `MicrostructureGuardBddSpec` fails if the
+  socket carries a share or imbalance again, and `ScreenedUniverseCacheBddSpec` covers both
+  empty-with-no-cache outcomes plus the notice text for each.
+
 ## [18.0] — 2026-11-20
 
 Milestone 3 of the Phase 2 work: the coin-selection boundary is real, the order book is

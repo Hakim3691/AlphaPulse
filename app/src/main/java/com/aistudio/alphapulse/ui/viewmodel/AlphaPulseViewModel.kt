@@ -554,14 +554,19 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
             val screened = refresh.snapshot?.coins ?: emptyList()
             // C-37: a silent ticker is a failed refresh; a venue that answered and admitted
             // nothing is a screen with no qualifiers. Saying "refresh failed" for the second
-            // blamed the network for the gate's own verdict.
+            // blamed the network for the gate's own verdict — and saying nothing at all when
+            // there was no cache left an empty screen with no explanation.
             val cachedAge = refresh.snapshot?.ageLabel(System.currentTimeMillis())
             val retainedNotice = when (refresh.outcome) {
                 UniverseRefreshOutcome.KEPT_PREVIOUS ->
                     "Universe refresh failed — still showing the universe from $cachedAge"
                 UniverseRefreshOutcome.NOTHING_QUALIFIED ->
                     "No coin passed the screen this run — still showing the universe from $cachedAge"
-                else -> null
+                UniverseRefreshOutcome.NO_DATA ->
+                    "Universe refresh failed — no cached universe to show"
+                UniverseRefreshOutcome.NOTHING_QUALIFIED_NO_CACHE ->
+                    "No coin passed the screen this run — nothing cached to fall back on"
+                UniverseRefreshOutcome.REFRESHED -> null
             }
 
             countdownJob?.cancel()
