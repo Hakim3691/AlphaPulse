@@ -10,6 +10,7 @@ import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.db.ScreenedCoinEntity
 import com.aistudio.alphapulse.data.db.ScreenedUniverseStateEntity
 import com.aistudio.alphapulse.data.model.*
+import com.aistudio.alphapulse.domain.quality.MicrostructureGuard
 import com.aistudio.alphapulse.domain.quant.DepthSnapshot
 import com.aistudio.alphapulse.domain.quant.DepthTier
 import com.aistudio.alphapulse.domain.quant.LiquidityPainPathResult
@@ -830,8 +831,10 @@ class AlphaPulseRepository(
         // Depth snapshot & Liquidity pain path
         var depthSnapshot: DepthSnapshot? = null
         var ltfPathData = LiquidityPainPathResult(0.0, 1.0, "L2 Proxy")
-        var netImbalanceUsdt = 0.0
-        var bidRatioPct = 50.0
+        // §35 / C-39: the book is judged before it is quoted. Nothing here starts at a
+        // balanced 50/50 — that default read as a real reading for a coin whose depth call
+        // had failed, and it fed the regime agent, the decision router and the brief.
+        var bookReading = MicrostructureGuard.assess(emptyList(), emptyList(), 0L, now)
 
         try {
             // The combined stream already carries depth20@250ms. Fetching the same book
@@ -843,33 +846,35 @@ class AlphaPulseRepository(
             }
             depthSnapshot = if (streamedBook == null) client.fetchDepth(symbol, 50) else null
             if (depthSnapshot != null) {
-                val tiers = min(20, min(depthSnapshot.bids.size, depthSnapshot.asks.size))
-                var bidNotional = 0.0
-                var askNotional = 0.0
-                for (i in 0 until tiers) {
-                    bidNotional += depthSnapshot.bids[i].price * depthSnapshot.bids[i].quantity
-                    askNotional += depthSnapshot.asks[i].price * depthSnapshot.asks[i].quantity
-                }
-                val totalDepth = bidNotional + askNotional
-                netImbalanceUsdt = bidNotional - askNotional
-                bidRatioPct = if (totalDepth > 0) (bidNotional / totalDepth) * 100.0 else 50.0
-
-                // Adaptive lambda turnover
-                if (prevDepthTotal > 0 && now > prevDepthTimestamp) {
-                    val dtMinutes = max(0.05, (now - prevDepthTimestamp) / 60000.0)
-                    val turnover = abs(totalDepth - prevDepthTotal) / prevDepthTotal
-                    val estLambda = (turnover / dtMinutes).coerceIn(0.01, 0.15)
-                    lambdaDecay = (lambdaDecay * 0.8) + (estLambda * 0.2)
-                }
-                prevDepthTotal = totalDepth
-                prevDepthTimestamp = now
-
-                ltfPathData = QuantMath.computeLiquidityPainPath(
-                    depthSnapshot.bids,
-                    depthSnapshot.asks,
-                    currentSpot,
-                    empiricalShock
+                // A REST snapshot was fetched for this cycle, so `now` is its timestamp.
+                val reading = MicrostructureGuard.assess(
+                    bids = depthSnapshot.bids.map { it.price to it.quantity },
+                    asks = depthSnapshot.asks.map { it.price to it.quantity },
+                    bookTimestampMs = now,
+                    nowMs = now
                 )
+                bookReading = reading
+
+                if (reading.isUsable) {
+                    val totalDepth = reading.bidNotionalUsdt + reading.askNotionalUsdt
+
+                    // Adaptive lambda turnover
+                    if (prevDepthTotal > 0 && now > prevDepthTimestamp) {
+                        val dtMinutes = max(0.05, (now - prevDepthTimestamp) / 60000.0)
+                        val turnover = abs(totalDepth - prevDepthTotal) / prevDepthTotal
+                        val estLambda = (turnover / dtMinutes).coerceIn(0.01, 0.15)
+                        lambdaDecay = (lambdaDecay * 0.8) + (estLambda * 0.2)
+                    }
+                    prevDepthTotal = totalDepth
+                    prevDepthTimestamp = now
+
+                    ltfPathData = QuantMath.computeLiquidityPainPath(
+                        depthSnapshot.bids,
+                        depthSnapshot.asks,
+                        currentSpot,
+                        empiricalShock
+                    )
+                }
             }
 
             // Primary route: Liquidation Heatmap API (SmartMoney public no-key endpoint).
@@ -898,18 +903,32 @@ class AlphaPulseRepository(
             if (liveWs.spotPrice > 0.0) currentSpot = liveWs.spotPrice
             if (liveWs.bids.isNotEmpty() && liveWs.asks.isNotEmpty()) {
                 depthSnapshot = DepthSnapshot(bids = liveWs.bids, asks = liveWs.asks)
-                netImbalanceUsdt = liveWs.netImbalanceUsdt
-                bidRatioPct = liveWs.bidRatioPct
-                if (liveWs.empiricalShock > 0.0) empiricalShock = liveWs.empiricalShock
-                lambdaDecay = liveWs.lambdaTurnover
-                ltfPathData = QuantMath.computeLiquidityPainPath(
-                    depthSnapshot.bids,
-                    depthSnapshot.asks,
-                    currentSpot,
-                    empiricalShock
+                // The stream's book is judged by its own age, so a socket that went quiet
+                // without closing cannot keep quoting yesterday's imbalance.
+                val reading = MicrostructureGuard.assess(
+                    bids = liveWs.bids.map { it.price to it.quantity },
+                    asks = liveWs.asks.map { it.price to it.quantity },
+                    bookTimestampMs = liveWs.lastUpdateTimestamp,
+                    nowMs = now
                 )
+                bookReading = reading
+
+                if (reading.isUsable) {
+                    if (liveWs.empiricalShock > 0.0) empiricalShock = liveWs.empiricalShock
+                    lambdaDecay = liveWs.lambdaTurnover
+                    ltfPathData = QuantMath.computeLiquidityPainPath(
+                        depthSnapshot.bids,
+                        depthSnapshot.asks,
+                        currentSpot,
+                        empiricalShock
+                    )
+                }
             }
         }
+
+        // What the rest of the cycle is allowed to quote about the book.
+        val netImbalanceUsdt = bookReading.netImbalanceUsdt
+        val bidRatioPct: Double? = bookReading.bidRatioPct
 
         // 40 1-minute Klines. The newest 1m bar only becomes final once a minute and the
         // intra-minute price comes from the WebSocket, so the parsed series is reused for
@@ -1283,7 +1302,9 @@ class AlphaPulseRepository(
             MarketStateInput(
                 symbol = symbol,
                 priceData = mapOf("priceChangePercent" to spotChange),
-                orderBookSnapshot = mapOf("bidRatio" to bidRatioPct / 100.0)
+                orderBookSnapshot = bidRatioPct
+                    ?.let { mapOf("bidRatio" to it.coerceIn(0.0, 100.0) / 100.0) }
+                    ?: emptyMap()
             )
         )?.regimeConfidence ?: 0.5
 
@@ -1852,7 +1873,8 @@ data class AssetEvaluationResult(
     val macdSignal: String,
     val markovRegime: MarkovRegimeResult,
     val netImbalanceUsdt: Double,
-    val bidRatioPct: Double,
+    /** Bid share of quoted notional, or null when no usable book was read (C-39). */
+    val bidRatioPct: Double?,
     val heatmapSource: String,
     val forecastTargets: List<ForecastTarget>,
     val chartPoints: List<ChartPoint>,

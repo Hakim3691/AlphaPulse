@@ -48,7 +48,8 @@ fun AccordionsSection(
     macdSignal: String,
     markovRegime: MarkovRegimeResult?,
     netImbalanceUsdt: Double,
-    bidRatioPct: Double,
+    /** Null when no usable order book was read; the panel says so instead of showing a split. */
+    bidRatioPct: Double?,
     heatmapSource: String,
     forecastTargets: List<ForecastTarget>,
     alphaPoc: Double = 0.0,
@@ -148,12 +149,20 @@ fun AccordionsSection(
                         valueColor = if (markovRegime?.regime?.contains("Burst") == true) BrandBearish else BrandBullish
                     )
                     val formattedOFI = formatLargeCurrency(netImbalanceUsdt)
+                    // C-39: with no accepted book there is no split to show. The panel names
+                    // the absence rather than printing the 50.0% it used to default to.
+                    val hasBook = bidRatioPct != null
                     DiagnosticBox(
                         modifier = Modifier.weight(1f),
                         title = "L2 BOOK IMBALANCE",
-                        value = if (netImbalanceUsdt >= 0) "+$$formattedOFI" else "-$$formattedOFI",
-                        subtext = "Top-20 levels · ${String.format(Locale.US, "%.1f", bidRatioPct)}% Bid vs ${String.format(Locale.US, "%.1f", 100 - bidRatioPct)}% Ask",
-                        valueColor = if (netImbalanceUsdt >= 0) BrandBullish else BrandBearish
+                        value = if (!hasBook) "--"
+                        else if (netImbalanceUsdt >= 0) "+$$formattedOFI"
+                        else "-$$formattedOFI",
+                        subtext = if (bidRatioPct == null) "No order book — no depth reading for this snapshot"
+                        else "Top-20 levels · ${String.format(Locale.US, "%.1f", bidRatioPct)}% Bid vs ${String.format(Locale.US, "%.1f", 100 - bidRatioPct)}% Ask",
+                        valueColor = if (!hasBook) BrandBorderLight
+                        else if (netImbalanceUsdt >= 0) BrandBullish
+                        else BrandBearish
                     )
                 }
                 Row(

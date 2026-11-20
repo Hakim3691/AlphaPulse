@@ -7,6 +7,42 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [18.0] — 2026-11-20
+
+Milestone 3 of the Phase 2 work: the coin-selection boundary is real, the order book is
+judged before it is quoted, and the retained-universe notice says what actually happened.
+
+### Fixed
+
+- **An in-flight evaluation overwrote the coin the user had just selected.** The cycle read
+  `selectedSymbol`, evaluated it, and wrote the result back with `state.copy(...)`; nothing
+  checked the symbol was still selected. A BTCUSDT evaluation that finished after an
+  ETHUSDT selection replaced the new coin's price, chart, cone and verdict with the old
+  coin's. The write is now refused unless `acceptsEvaluation` says the symbol is current.
+- **Switching coins carried the previous asset's readings across.** `selectCoin` copied
+  four prices and left the chart, forecast cone, verdict, brief, liquidity magnet,
+  screeners, book readings, readiness badges and per-coin hit rates in place, so they read
+  as if they described the new coin. `withSelection` clears them at the boundary.
+- **A missing order book was evaluated as a perfectly balanced one.** The cycle and the
+  depth stream both defaulted the bid share to `50.0`, so a coin whose depth call failed
+  fed a fabricated 50/50 split into the regime agent, the router's L2 leg, the narrative
+  and the depth panel. `MicrostructureGuard` refuses an undated, stale (>30 s), crossed or
+  shallow (<10 levels) book and reports a null share; the UI prints "No order book" and the
+  brief says the L2 leg carries no directional evidence.
+- **The retained-universe snackbar blamed the network for the gate's verdict.** Keeping a
+  cache after a run that screened 298 pairs and admitted none reported "Universe refresh
+  failed". `NOTHING_QUALIFIED` now says no coin passed the screen; only a ticker that never
+  answered reports a failed refresh.
+
+### Verification
+
+- BDD specs: `AssetSelectionBddSpec` (selection clears per-asset readings, a late
+  evaluation for the previous coin is refused, and the production path keeps the guard),
+  `MicrostructureGuardBddSpec` (absent / undated / stale boundary / crossed / shallow /
+  healthy reading, and no `50.0` default left in either production path), plus the
+  `NOTHING_QUALIFIED` scenarios in `ScreenedUniverseCacheBddSpec`; recorded as contracts
+  C-38 and C-39, with C-37 amended for the two retention cases.
+
 ## [17.0] — 2026-11-20
 
 Milestone 2 of the Phase 2 work: the universe screen is one gate instead of two, and the

@@ -104,7 +104,8 @@ data class DecisionReport(
  *
  * @param kinematicPct kinematic ensemble leg (K+P+Alpha) at the reference horizon, in %
  * @param tsfmPct mounted TSFM ensemble leg (Chronos+TimesFM) at the same horizon, in %
- * @param bidRatioPct share of top-of-book notional resting on the bid, 0..100
+ * @param bidRatioPct share of top-of-book notional resting on the bid, 0..100, or null
+ *   when no usable book was read (C-39)
  * @param confluenceConfidence the engine's own confluence confidence [0,1]
  * @param regimeConfidence regime conviction [0,1] from the market-state classifier
  * @param coneBreaches settled predictions whose cone was breached recently
@@ -114,7 +115,7 @@ data class DecisionReport(
 internal fun decisionInputsFor(
     kinematicPct: Double,
     tsfmPct: Double,
-    bidRatioPct: Double,
+    bidRatioPct: Double?,
     confluenceConfidence: Double,
     regimeConfidence: Double,
     coneBreaches: Int,
@@ -122,7 +123,12 @@ internal fun decisionInputsFor(
     dataAvailable: Boolean,
     catalogueCandidates: List<String> = emptyList()
 ): DecisionInputs {
-    val bookBalance = abs(bidRatioPct.coerceIn(0.0, 100.0) - 50.0) / 50.0
+    // A book that was never read is not a balanced book: it carries no directional
+    // evidence either way, so the L2 leg contributes nothing instead of manufacturing
+    // a 50/50 reading the app did not observe.
+    val bookBalance = bidRatioPct
+        ?.let { abs(it.coerceIn(0.0, 100.0) - 50.0) / 50.0 }
+        ?: 0.0
     val sameDirection = (kinematicPct > 0.0 && tsfmPct > 0.0) ||
         (kinematicPct < 0.0 && tsfmPct < 0.0)
     val noDirection = kinematicPct == 0.0 || tsfmPct == 0.0

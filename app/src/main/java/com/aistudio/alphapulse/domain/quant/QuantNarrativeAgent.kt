@@ -23,7 +23,8 @@ object QuantNarrativeAgent {
         kurtosis: Double,
         kurtosisCutoff: Double,
         netImbalanceUsdt: Double,
-        bidRatioPct: Double,
+        /** Null when no usable book was read; the brief says so instead of narrating a split. */
+        bidRatioPct: Double?,
         vwap: Double,
         poc: Double,
         vah: Double = 0.0,
@@ -50,7 +51,11 @@ object QuantNarrativeAgent {
             "Consolidated mean-reverting regime (K=${String.format(Locale.US, "%.2f", kurtosis)} < cutoff ${String.format(Locale.US, "%.2f", kurtosisCutoff)}). POC gravitational anchor dominates."
         }
 
-        val obBias = if (netImbalanceUsdt >= 0) {
+        // §35 / C-39: with no accepted book there is no bias to report. Naming the absence
+        // is the honest alternative to narrating a 50/50 split the app never observed.
+        val obBias = if (bidRatioPct == null) {
+            "Order book unavailable — no depth reading for this snapshot, so the L2 leg contributes no directional evidence."
+        } else if (netImbalanceUsdt >= 0) {
             "Net bid-side depth absorption (${String.format(Locale.US, "%.1f", bidRatioPct)}% Bid). Resting liquidity offers buffer against downside liquidations."
         } else {
             "Ask-side skew (${String.format(Locale.US, "%.1f", 100 - bidRatioPct)}% Ask). Upward liquidity voids may trigger rapid slippage traversal."

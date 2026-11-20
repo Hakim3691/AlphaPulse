@@ -52,8 +52,18 @@ enum class UniverseRefreshOutcome {
     /** The run produced a usable universe and replaced the cache. */
     REFRESHED,
 
-    /** The run produced nothing usable; the previous universe was kept. */
+    /**
+     * The run read no ticker at all — the exchange never answered — and the previous
+     * universe was kept. This is a failed refresh and the UI may say so.
+     */
     KEPT_PREVIOUS,
+
+    /**
+     * The venue answered and every pair it returned failed the gate, so the previous
+     * universe was kept. Nothing is broken: this is a real screen with no qualifiers,
+     * and it must not be reported as a failed refresh.
+     */
+    NOTHING_QUALIFIED,
 
     /** The run produced nothing usable and there was nothing cached either. */
     NO_DATA
@@ -73,7 +83,9 @@ data class ScreenedUniverseRefresh(
  *  - a cache younger than [TTL_MILLIS] is fresh, and a warm launch may use it without
  *    paying for a full scan;
  *  - a run that read no ticker, or that admitted no coin, is *not* a universe — the
- *    previous cache is kept, so a failed refresh can never empty the dropdown;
+ *    previous cache is kept, so a failed refresh can never empty the dropdown, and the
+ *    two cases stay distinguishable: a silent ticker is a failure, a venue that answered
+ *    and admitted nothing is a screen with no qualifiers;
  *  - a run that admitted at least one coin replaces the cache outright, even if it
  *    admitted fewer coins than before: that is a real screen, and the gate is allowed to
  *    reject.
@@ -111,6 +123,13 @@ object ScreenedUniverseRevalidation {
         }
         val usablePrevious = previous?.takeIf { it.coins.isNotEmpty() }
             ?: return ScreenedUniverseRefresh(null, UniverseRefreshOutcome.NO_DATA)
-        return ScreenedUniverseRefresh(usablePrevious, UniverseRefreshOutcome.KEPT_PREVIOUS)
+        // Nothing admitted is only a failure when the venue was never read. A run that
+        // screened pairs and admitted none is a verdict on the gate, not a broken feed.
+        val outcome = if (run.screenedPairs == 0) {
+            UniverseRefreshOutcome.KEPT_PREVIOUS
+        } else {
+            UniverseRefreshOutcome.NOTHING_QUALIFIED
+        }
+        return ScreenedUniverseRefresh(usablePrevious, outcome)
     }
 }

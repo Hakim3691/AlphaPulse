@@ -26,6 +26,7 @@ import com.aistudio.alphapulse.data.model.ModelLoadStatus
 import com.aistudio.alphapulse.domain.decision.DecisionReport
 import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
+import com.aistudio.alphapulse.domain.quality.MicrostructureGuard
 import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.domain.screener.ScreenedUniverseRevalidation
@@ -77,7 +78,15 @@ data class AlphaPulseUiState(
     val macdSignal: String = "--",
     val markovRegime: MarkovRegimeResult? = null,
     val netImbalanceUsdt: Double = 0.0,
-    val bidRatioPct: Double = 50.0,
+
+    /**
+     * Share of quoted notional on the bid, or null when no book has been read.
+     *
+     * Null is the workspace's way of saying "not observed". It must never be filled with
+     * one half: a default of 50.0 showed a perfectly balanced book for a coin whose depth
+     * call had failed (C-39).
+     */
+    val bidRatioPct: Double? = null,
     val heatmapSource: String = "--",
     val alphaPoc: Double = 0.0,
     val alphaVah: Double = 0.0,
@@ -150,6 +159,70 @@ data class AlphaPulseUiState(
      */
     val needle3WeightsPath: String? = null
 )
+
+/**
+ * C-38: choosing a coin is a hard boundary in the workspace.
+ *
+ * Everything below is per-asset. Before this existed, `selectCoin` copied four prices and
+ * left the rest of the workspace in place, so the previous coin's chart, cone, verdict,
+ * readiness badges and hit rates stayed on screen under the new symbol until the next
+ * evaluation landed — and an evaluation already in flight for the previous coin landed
+ * after the switch on top of all of it.
+ */
+internal fun AlphaPulseUiState.withSelection(
+    symbol: String,
+    coin: ScreenedCoin
+): AlphaPulseUiState = copy(
+    selectedSymbol = symbol,
+    spotPrice = coin.lastPrice,
+    spotChange = coin.priceChangePercent,
+    high24h = coin.highPrice,
+    low24h = coin.lowPrice,
+    // Per-asset readings are cleared, not carried over under a new symbol.
+    rsi = 50.0,
+    macdSignal = "--",
+    markovRegime = null,
+    netImbalanceUsdt = 0.0,
+    bidRatioPct = null,
+    heatmapSource = "--",
+    alphaPoc = 0.0,
+    alphaVah = 0.0,
+    alphaVal = 0.0,
+    forecastTargets = emptyList(),
+    chartPoints = emptyList(),
+    executiveBrief = "",
+    decision = null,
+    painPathPrior = null,
+    screenerSignals = emptyList(),
+    strategySignals = emptyList(),
+    // Readiness and cone accuracy are earned per coin.
+    totalSettledForCoin = 0,
+    coneHitRateForCoin = null,
+    ltfHitRate = null,
+    mtfHitRate = null,
+    htfHitRate = null,
+    isLTFReady = false,
+    isMTFReady = false,
+    isHTFReady = false,
+    predictions = emptyList(),
+    decisionHistory = emptyList(),
+    decisionLedger = emptyList(),
+    patternLedger = emptyList(),
+    // Reset per asset, then re-establish the mounted-member split.
+    modelState = ModelState().also {
+        EnsembleWeighting.rebalanceForMountedModels(it, ModelDownloadStore.readyModelIds())
+    }
+)
+
+/**
+ * True when a completed evaluation still describes what the user has selected.
+ *
+ * The cycle reads the symbol once and writes its result back afterwards; without this
+ * check a BTCUSDT evaluation that finished after an ETHUSDT selection replaced the new
+ * coin's numbers with the old coin's.
+ */
+internal fun AlphaPulseUiState.acceptsEvaluation(evaluatedSymbol: String): Boolean =
+    evaluatedSymbol.isNotBlank() && selectedSymbol == evaluatedSymbol
 
 class AlphaPulseViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -261,11 +334,23 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             repository.wsManager.telemetryFlow.collect { live ->
                 if (live != null && live.symbol.equals(_uiState.value.selectedSymbol, ignoreCase = true)) {
+                    // The stream's own share is quoted only after §35 accepts the book it
+                    // came from; an empty, stale, crossed or shallow book reads as null.
+                    val reading = MicrostructureGuard.assess(
+                        bids = live.bids.map { it.price to it.quantity },
+                        asks = live.asks.map { it.price to it.quantity },
+                        bookTimestampMs = live.lastUpdateTimestamp,
+                        nowMs = System.currentTimeMillis()
+                    )
                     _uiState.update { state ->
-                        state.copy(
+                        // Same boundary as the evaluation cycle: a tick that was emitted for
+                        // the previous coin must not land under the new selection.
+                        if (!state.acceptsEvaluation(live.symbol)) {
+                            state
+                        } else state.copy(
                             spotPrice = if (live.spotPrice > 0.0) live.spotPrice else state.spotPrice,
-                            netImbalanceUsdt = live.netImbalanceUsdt,
-                            bidRatioPct = live.bidRatioPct
+                            netImbalanceUsdt = reading.netImbalanceUsdt,
+                            bidRatioPct = reading.bidRatioPct
                         )
                     }
                 }
@@ -467,11 +552,16 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 }
             }
             val screened = refresh.snapshot?.coins ?: emptyList()
-            val retainedNotice = if (refresh.outcome == UniverseRefreshOutcome.KEPT_PREVIOUS) {
-                "Universe refresh failed — still showing the universe from " +
-                    "${refresh.snapshot?.ageLabel(System.currentTimeMillis())}"
-            } else {
-                null
+            // C-37: a silent ticker is a failed refresh; a venue that answered and admitted
+            // nothing is a screen with no qualifiers. Saying "refresh failed" for the second
+            // blamed the network for the gate's own verdict.
+            val cachedAge = refresh.snapshot?.ageLabel(System.currentTimeMillis())
+            val retainedNotice = when (refresh.outcome) {
+                UniverseRefreshOutcome.KEPT_PREVIOUS ->
+                    "Universe refresh failed — still showing the universe from $cachedAge"
+                UniverseRefreshOutcome.NOTHING_QUALIFIED ->
+                    "No coin passed the screen this run — still showing the universe from $cachedAge"
+                else -> null
             }
 
             countdownJob?.cancel()
@@ -497,19 +587,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
 
     fun selectCoin(symbol: String) {
         val coin = _uiState.value.screenedCoins.find { it.symbol == symbol } ?: return
-        _uiState.update {
-            it.copy(
-                selectedSymbol = symbol,
-                spotPrice = coin.lastPrice,
-                spotChange = coin.priceChangePercent,
-                high24h = coin.highPrice,
-                low24h = coin.lowPrice,
-                // Reset per asset, then re-establish the mounted-member split.
-                modelState = ModelState().also {
-                    EnsembleWeighting.rebalanceForMountedModels(it, ModelDownloadStore.readyModelIds())
-                }
-            )
-        }
+        _uiState.update { it.withSelection(symbol, coin) }
         repository.wsManager.connect(symbol)
         startAssetCycle()
         calibrateSelectedCoin(symbol)
@@ -572,7 +650,12 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                             activeExtraModels = ModelDownloadStore.readyModelIds()
                         )
                         _uiState.update { state ->
-                            state.copy(
+                            // C-38: the evaluation describes the coin it was started for. If
+                            // the user has moved on, its prices and forecast are dropped
+                            // rather than written under the new selection.
+                            if (!state.acceptsEvaluation(symbol)) {
+                                state
+                            } else state.copy(
                                 spotPrice = result.spotPrice,
                                 spotChange = result.spotChange,
                                 high24h = result.high24h,

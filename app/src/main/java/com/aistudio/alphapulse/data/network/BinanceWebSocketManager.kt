@@ -17,6 +17,7 @@ import com.aistudio.alphapulse.data.db.OrderBookDeltaEntity
 import com.aistudio.alphapulse.data.db.LiquidationHeatmapEntity
 import com.aistudio.alphapulse.domain.data.AggTradeEvent
 import com.aistudio.alphapulse.domain.data.LiquidationEvent as DomainLiquidationEvent
+import com.aistudio.alphapulse.domain.quality.MicrostructureGuard
 import com.aistudio.alphapulse.domain.quant.DepthTier
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -37,7 +38,8 @@ data class LiveStreamTelemetry(
     val bids: List<DepthTier>,
     val asks: List<DepthTier>,
     val netImbalanceUsdt: Double,
-    val bidRatioPct: Double,
+    /** Null when the book this event carried is not usable (C-39). */
+    val bidRatioPct: Double?,
     val empiricalShock: Double,
     val lambdaTurnover: Double,
     val lastUpdateTimestamp: Long
@@ -305,9 +307,16 @@ open class BinanceWebSocketManager(
                             }
                             val totalDepth = bidNotional + askNotional
                             val netImbalance = bidNotional - askNotional
-                            val bidRatio = if (totalDepth > 0) (bidNotional / totalDepth) * 100.0 else 50.0
-
                             val now = System.currentTimeMillis()
+                            // C-39: a depth payload that arrives empty, crossed or too thin
+                            // publishes no share at all instead of a one-half reading.
+                            val bookReading = MicrostructureGuard.assess(
+                                bids = bids.map { it.price to it.quantity },
+                                asks = asks.map { it.price to it.quantity },
+                                bookTimestampMs = now,
+                                nowMs = now
+                            )
+                            val bidRatio = bookReading.bidRatioPct
                             if (prevDepthTotal > 0 && now > prevDepthTime) {
                                 val dtMinutes = max(0.004, (now - prevDepthTime) / 60000.0) // 250ms is ~0.00416 min
                                 val turnover = abs(totalDepth - prevDepthTotal) / prevDepthTotal

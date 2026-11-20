@@ -183,12 +183,14 @@ class IngestionAgent : BaseAgentImpl<IngestionInput, IngestionOutput>() {
         val history = inputs.priceHistory.takeLast(30).filter { it.isFinite() && it > 0.0 }
         val priceHistory = if (history.isEmpty()) listOf(lastPrice) else history
 
-        val bidRatio = ((inputs.marketData["bidRatioPct"] as? Double) ?: 50.0) / 100.0
+        // C-39: no book means no entry. Defaulting the share to 0.5 here made every
+        // evaluation of a coin whose depth call failed look like a balanced book.
+        val bidRatio = (inputs.marketData["bidRatioPct"] as? Double)?.div(100.0)
         val netImbalance = (inputs.marketData["netImbalanceUsdt"] as? Double) ?: 0.0
-        val orderBookSnapshot = mapOf(
-            "bidRatio" to bidRatio.coerceIn(0.0, 1.0),
-            "imbalance" to netImbalance / max(1.0, lastPrice)
-        )
+        val orderBookSnapshot = buildMap {
+            bidRatio?.let { put("bidRatio", it.coerceIn(0.0, 1.0)) }
+            put("imbalance", netImbalance / max(1.0, lastPrice))
+        }
 
         return IngestionOutput(
             symbol = inputs.symbol,
@@ -230,7 +232,8 @@ data class MarketStateOutput(
     val currentRegime: String,
     val regimeConfidence: Double,
     val priceChange: Double,
-    val bidRatio: Double,
+    /** Null when the snapshot carried no order book (C-39). */
+    val bidRatio: Double?,
     val imbalance: Double
 )
 
@@ -245,18 +248,19 @@ class MarketStateAgent : BaseAgentImpl<MarketStateInput, MarketStateOutput>() {
         if (inputs.symbol.isBlank()) return null
 
         val priceChange = inputs.priceData["priceChangePercent"] ?: 0.0
-        val bidRatio = (inputs.orderBookSnapshot["bidRatio"] ?: 0.5).coerceIn(0.0, 1.0)
+        // An absent book contributes no directional bias; it is not a balanced one.
+        val bidRatio = inputs.orderBookSnapshot["bidRatio"]?.coerceIn(0.0, 1.0)
         val imbalance = inputs.orderBookSnapshot["imbalance"] ?: 0.0
 
         val regime = when {
-            abs(priceChange) > 1.0 && bidRatio > 0.6 -> "State 1: Momentum Burst"
+            abs(priceChange) > 1.0 && (bidRatio ?: 0.0) > 0.6 -> "State 1: Momentum Burst"
             abs(priceChange) < 0.3 && abs(imbalance) < 1.0 -> "State 0: Mean-Reverting"
             else -> "State 1: Momentum Burst"
         }
 
         // Confidence grows with the size of the move and with order-book directional bias.
         val moveStrength = (abs(priceChange) / 2.0).coerceIn(0.0, 1.0)
-        val bookBias = abs(bidRatio - 0.5) * 2.0
+        val bookBias = bidRatio?.let { abs(it - 0.5) * 2.0 } ?: 0.0
         val regimeConfidence = (0.5 + 0.3 * moveStrength + 0.2 * bookBias).coerceIn(0.0, 1.0)
 
         return MarketStateOutput(

@@ -237,14 +237,28 @@ class ScreenedUniverseCacheBddSpec {
     }
 
     @Test
-    fun `given a run that screened the venue and admitted nothing when revalidated then the cached universe is kept too`() {
+    fun `given a run that screened the venue and admitted nothing when revalidated then the cache is kept but it is not reported as a failed refresh`() {
+        // The venue answered — 298 pairs were read — and every one of them failed the §65
+        // gate. That is a real screen with no qualifiers, not a ticker that never replied,
+        // and the two must not share a message.
         val previous = snapshot(fetchedAtMillis = 1_000L, coins = listOf("BTCUSDT"))
         val admittedNothing = snapshot(fetchedAtMillis = 2_000L, coins = emptyList(), screenedPairs = 298)
 
-        assertEquals(
-            UniverseRefreshOutcome.KEPT_PREVIOUS,
-            ScreenedUniverseRevalidation.decide(previous, admittedNothing).outcome
+        val refresh = ScreenedUniverseRevalidation.decide(previous, admittedNothing)
+
+        assertEquals(UniverseRefreshOutcome.NOTHING_QUALIFIED, refresh.outcome)
+        assertEquals(listOf("BTCUSDT"), refresh.snapshot?.coins?.map { it.symbol })
+    }
+
+    @Test
+    fun `given a screen that answered and admitted nothing with no cache when revalidated then there is nothing to show`() {
+        val refresh = ScreenedUniverseRevalidation.decide(
+            null,
+            snapshot(fetchedAtMillis = 2_000L, coins = emptyList(), screenedPairs = 298)
         )
+
+        assertEquals(UniverseRefreshOutcome.NO_DATA, refresh.outcome)
+        assertNull(refresh.snapshot)
     }
 
     @Test
