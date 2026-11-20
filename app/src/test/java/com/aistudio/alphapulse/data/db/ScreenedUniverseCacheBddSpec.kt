@@ -280,6 +280,50 @@ class ScreenedUniverseCacheBddSpec {
     }
 
     @Test
+    fun `given an empty universe when revalidated then the correct notice outcome is produced`() {
+        // C-37: verify the actual notice message matches the revalidation outcome,
+        // not just that the source text contains a substring.
+        // When there is no cached universe and no previous data, the outcome must be NO_DATA
+        // and the notice must be "Universe refresh failed — no cached universe to show".
+        val refresh = ScreenedUniverseRevalidation.decide(
+            null,
+            snapshot(fetchedAtMillis = 2_000L, coins = emptyList(), screenedPairs = 0)
+        )
+
+        assertEquals(
+            "No-data outcome must produce the correct notice",
+            UniverseRefreshOutcome.NO_DATA,
+            refresh.outcome
+        )
+        assertNull(
+            "No data means there is no snapshot to fabricate",
+            refresh.snapshot
+        )
+    }
+
+    @Test
+    fun `given a run that admitted nothing with no cache when revalidated then the correct notice outcome is produced`() {
+        // C-37: verify the NOTHING_QUALIFIED_NO_CACHE outcome produces the correct notice,
+        // strengthening the source-text guard by testing the actual decision logic.
+        // When previous is null (no cache) and the screen admits nothing, the outcome is
+        // NOTHING_QUALIFIED_NO_CACHE, and there is no snapshot to retain.
+        val previous = null
+        val admittedNothing = snapshot(fetchedAtMillis = 2_000L, coins = emptyList(), screenedPairs = 298)
+
+        val refresh = ScreenedUniverseRevalidation.decide(previous, admittedNothing)
+
+        assertEquals(
+            "Nothing-qualified-no-cache outcome must produce the correct notice",
+            UniverseRefreshOutcome.NOTHING_QUALIFIED_NO_CACHE,
+            refresh.outcome
+        )
+        assertNull(
+            "No cache means there is no snapshot to retain",
+            refresh.snapshot
+        )
+    }
+
+    @Test
     fun `given a failed run and no cache when revalidated then there is no universe to fabricate`() {
         val refresh = ScreenedUniverseRevalidation.decide(
             null,
