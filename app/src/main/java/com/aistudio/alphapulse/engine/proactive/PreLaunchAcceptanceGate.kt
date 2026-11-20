@@ -53,7 +53,9 @@ class PreLaunchAcceptanceGate {
         if (evidence.unhandledExceptions > 0) {
             failures += "unhandled exceptions ${evidence.unhandledExceptions}"
         }
-        if (evidence.cancellationLatencyMsP95 >= MAX_CANCELLATION_LATENCY_MS) {
+        if (evidence.cancellationLatencyMsP95 < 0L) {
+            failures += "no cancellation latency measured"
+        } else if (evidence.cancellationLatencyMsP95 >= MAX_CANCELLATION_LATENCY_MS) {
             failures += "cancellation latency ${evidence.cancellationLatencyMsP95}ms " +
                 "not under ${MAX_CANCELLATION_LATENCY_MS}ms"
         }

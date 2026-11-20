@@ -50,6 +50,10 @@ import com.aistudio.alphapulse.engine.OrderBookSnapshot
 import com.aistudio.alphapulse.engine.PaperPnl
 import com.aistudio.alphapulse.engine.OverrideWarning
 import com.aistudio.alphapulse.engine.PathEngine
+import com.aistudio.alphapulse.engine.proactive.ProactiveCycleRunner
+import com.aistudio.alphapulse.engine.proactive.ProactiveExecutionLoop
+import com.aistudio.alphapulse.engine.proactive.ProactiveLoopFrame
+import com.aistudio.alphapulse.engine.proactive.ProactiveLoopResult
 import com.aistudio.alphapulse.engine.ReplayEngine
 import com.aistudio.alphapulse.engine.ReplayEngine.ReplayResult
 import com.aistudio.alphapulse.engine.RiskEngine
@@ -154,6 +158,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Phase 4 (§36): execution gate + live order routing state. */
     private val executionEngine = ExecutionEngine(riskEngine)
+
+    /**
+     * §31/§38: the automation loop runs on every live delta, and the runner records the
+     * paper-trial evidence the Scaled Live gate requires.
+     */
+    private val proactiveLoop = ProactiveExecutionLoop(executionEngine = executionEngine)
+    private val proactiveCycle = ProactiveCycleRunner(loop = proactiveLoop)
 
     /** §22/§27 live path: guardrail-gated staging plus cancel and reconcile. */
     private val orderStager = OrderStager(riskEngine)
@@ -557,6 +568,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         c.entryLadder.any { slice -> slice.isFilled }
                     ) {
                         paperRealizedPnlUsd += PaperPnl.realizedPnlAtFlatten(c, flattenPrice)
+                        proactiveCycle.recordCompletedPaperTrade()
                         flattened = flattened.copy(
                             entryLadder = c.entryLadder.map { slice ->
                                 slice.copy(isFilled = false, isResting = false)
@@ -655,6 +667,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ) {
                 val realized = PaperPnl.realizedPnlAtFlatten(c, c.stopLogic.hardStopPrice)
                 paperRealizedPnlUsd += realized
+                proactiveCycle.recordCompletedPaperTrade()
                 viewModelScope.launch {
                     repository.logAction(
                         asset = c.asset,
@@ -747,12 +760,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissOrphanedOrderWarning() {
         _uiState.value = _uiState.value.copy(isOrphanedOrderWarningOpen = false)
+        // §38: an intercept that was dismissed without warning or wiping is tested,
+        // but it cannot be credited toward the pre-launch gate.
+        proactiveCycle.recordMinimizeEvent(warnedAndWiped = false)
     }
 
     fun acknowledgeOrphanedOrderWarning() {
         _uiState.value = _uiState.value.copy(isOrphanedOrderWarningOpen = false)
         // Suspension wipe: immediately wipe API keys from RAM
         sessionManager.terminateSessionAndWipeRam()
+        proactiveCycle.recordMinimizeEvent(warnedAndWiped = true)
         viewModelScope.launch {
             repository.logAction(
                 asset = _uiState.value.selectedAsset?.symbol ?: "PORTFOLIO",
@@ -783,6 +800,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             OrphanInterceptDecision.SHOW_INTERCEPT -> openOrphanedOrderWarning()
             OrphanInterceptDecision.WIPE_ONLY -> {
                 sessionManager.terminateSessionAndWipeRam()
+                // §38: RAM was wiped, but no intercept warned the operator.
+                proactiveCycle.recordMinimizeEvent(warnedAndWiped = false)
                 viewModelScope.launch {
                     repository.logAction(
                         asset = "PORTFOLIO",
@@ -907,12 +926,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // 1. Live price and micro-delta updates (real WS with simulated fallback)
         activeDeltaJob = viewModelScope.launch {
             liveProvider.activeDeltaStream(asset).collect { updatedAsset ->
+              try {
                 val previousCampaigns = _uiState.value.campaigns
                 val currentLevelMap = _uiState.value.levelMap ?: structureEngine.buildLevelMap(updatedAsset)
                 val evidence = liveProvider.buildEvidenceFrame(updatedAsset)
 
+                // §31/§25: the automation loop owns the monitoring cadences (score,
+                // survival, capital routing). The base app still plans and risk-gates
+                // its own boards, so the loop is asked not to append new campaigns.
+                val loopFrame = ProactiveLoopFrame(
+                    nowMillis = System.currentTimeMillis(),
+                    asset = updatedAsset,
+                    levelMap = currentLevelMap,
+                    paths = _uiState.value.paths,
+                    evidence = evidence,
+                    campaigns = previousCampaigns,
+                    envelope = _uiState.value.riskEnvelope,
+                    venueHealth = _uiState.value.venueHealth,
+                    mode = _uiState.value.executionMode,
+                    hasActiveSession = sessionManager.hasValidActiveSession(),
+                    oneMinuteCandleClosed = true,
+                    fiveMinuteCandleClosed = true,
+                    allowNewStaging = false
+                )
+                val loopResult = proactiveCycle.run(
+                    loopFrame,
+                    paperMode = _uiState.value.executionMode == ExecutionMode.PAPER
+                )
+                logLoopActions(previousCampaigns, loopResult)
+
                 // Run live invalidation evaluations across all staged/active campaigns
-                val updatedCampaigns = _uiState.value.campaigns.map { campaign ->
+                val updatedCampaigns = loopResult.campaigns.map { campaign ->
                     val result = invalidationEngine.evaluateCampaign(
                         campaign,
                         updatedAsset,
@@ -961,6 +1005,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ) {
                             val realized = PaperPnl.realizedPnlAtFlatten(c, c.stopLogic.hardStopPrice)
                             paperRealizedPnlUsd += realized
+                            proactiveCycle.recordCompletedPaperTrade()
                             repository.logAction(
                                 asset = c.asset,
                                 campaignId = c.id,
@@ -1066,6 +1111,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // §22/§33: push cancellations to the venue and reconcile the live position.
                 handleLiveExecution(previousCampaigns, updatedAsset)
+              } catch (cancellation: CancellationException) {
+                  // Coroutine cancellation is not a paper-trade failure.
+                  throw cancellation
+              } catch (failure: Throwable) {
+                  // §38: an unhandled cycle failure restarts the exception-free streak
+                  // instead of killing the stream silently.
+                  proactiveCycle.recordUnhandledException()
+                  repository.logAction(
+                      asset = _uiState.value.selectedAsset?.symbol ?: "PORTFOLIO",
+                      campaignId = "PROACTIVE_CYCLE",
+                      action = AuditLogAction.CAMPAIGN_STAGED,
+                      reasonCode = "CYCLE_EXCEPTION",
+                      message = "Evaluation cycle failed: ${
+                          failure.message ?: failure.javaClass.simpleName
+                      }. Paper-trade evidence streak reset."
+                  )
+              }
             }
         }
 
@@ -1089,6 +1151,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // ------------------------------------------------------------- Phase 4 execution
 
+    /** §31: records the loop's own cancellations so the audit trail names the loop. */
+    private suspend fun logLoopActions(
+        previous: List<Campaign>,
+        result: ProactiveLoopResult
+    ) {
+        result.campaigns.forEach { campaign ->
+            val prior = previous.find { it.id == campaign.id } ?: return@forEach
+            if (prior.status == CampaignState.CANCELLED ||
+                campaign.status != CampaignState.CANCELLED
+            ) {
+                return@forEach
+            }
+            val hard = campaign.invalidationScore >= campaign.stopLogic.hardThreshold
+            repository.logAction(
+                asset = campaign.asset,
+                campaignId = campaign.id,
+                action = if (hard) AuditLogAction.HARD_FLATTEN else AuditLogAction.SOFT_CANCEL,
+                reasonCode = if (hard) "PROACTIVE_LOOP_HARD" else "PROACTIVE_LOOP_SOFT",
+                message = "${campaign.family.displayName}: ${
+                    campaign.topReasons.firstOrNull()?.explanation
+                        ?: "monitoring cadence cancelled the board"
+                }"
+            )
+        }
+    }
+
     /** Runs the staging gate (risk validation + ExecutionMode + §33 rejects), logging notes. */
     private fun gateAndLog(campaigns: List<Campaign>): List<Campaign> {
         val state = _uiState.value
@@ -1097,7 +1185,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             state.executionMode,
             state.riskEnvelope,
             state.venueHealth,
-            sessionManager.hasValidActiveSession()
+            sessionManager.hasValidActiveSession(),
+            preLaunchAcceptance = proactiveCycle.preLaunchVerdict()
         )
         val feedStale = ExecutionGuardrails.staleFeedAction(state.venueHealth) ==
             ExecutionGuardrails.StaleFeedAction.SUPPRESS_AND_TRIM

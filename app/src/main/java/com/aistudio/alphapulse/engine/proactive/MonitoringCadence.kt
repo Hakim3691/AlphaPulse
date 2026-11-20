@@ -82,7 +82,9 @@ class MonitoringScheduler {
         if (intervalElapsed(MonitoringCadence.FAST_TELEMETRY, nowMillis)) {
             due += MonitoringCadence.FAST_TELEMETRY
         }
-        if (oneMinuteCandleClosed) {
+        if (oneMinuteCandleClosed &&
+            intervalElapsed(MonitoringCadence.CLOSED_1M, nowMillis)
+        ) {
             due += MonitoringCadence.CLOSED_1M
         }
         val structuralCandleClosed = fiveMinuteCandleClosed || fifteenMinuteCandleClosed

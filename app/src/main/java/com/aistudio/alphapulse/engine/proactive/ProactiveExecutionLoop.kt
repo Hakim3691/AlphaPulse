@@ -63,7 +63,8 @@ data class ProactiveLoopFrame(
     val asset: CryptoAsset,
     val levelMap: LevelMap,
     val paths: List<CandidatePath>,
-    val decision: AlphaPulseDecision,
+    /** Null when the host has no AlphaPulse decision feed; staging is then gated by the other rules. */
+    val decision: AlphaPulseDecision? = null,
     val evidence: EvidenceFrame,
     val campaigns: List<Campaign>,
     val envelope: RiskEnvelope = RiskEnvelope(),
@@ -74,7 +75,9 @@ data class ProactiveLoopFrame(
     val oneMinuteCandleClosed: Boolean = false,
     val fiveMinuteCandleClosed: Boolean = false,
     val fifteenMinuteCandleClosed: Boolean = false,
-    val preLaunch: PreLaunchVerdict? = null
+    val preLaunch: PreLaunchVerdict? = null,
+    /** The base app plans its own boards; monitoring passes set this false. */
+    val allowNewStaging: Boolean = true
 )
 
 data class ProactiveLoopTelemetry(
@@ -165,7 +168,10 @@ class ProactiveExecutionLoop(
 
         val suppressionReason = suppressionReason(frame)
         var staged: List<Campaign> = emptyList()
-        if (suppressionReason == null && MonitoringAction.EVALUATE_BOARD_PROMOTION in actions) {
+        if (suppressionReason == null &&
+            frame.allowNewStaging &&
+            MonitoringAction.EVALUATE_BOARD_PROMOTION in actions
+        ) {
             val planned = campaignEngine.planCampaigns(frame.asset, frame.levelMap, frame.paths)
             val gated = executionEngine.gateStaging(
                 planned,
@@ -396,7 +402,7 @@ class ProactiveExecutionLoop(
     // ------------------------------------------------------------- suppression
 
     private fun suppressionReason(frame: ProactiveLoopFrame): String? = when {
-        frame.decision.suppressesStaging ->
+        frame.decision?.suppressesStaging == true ->
             "AlphaPulse ${frame.decision.state} (quorum " +
                 "${"%.2f".format(frame.decision.quorum)} below " +
                 "${AlphaPulseDecision.MIN_QUORUM}) suppresses automated staging"

@@ -74,6 +74,14 @@ class PreLaunchAcceptanceGateBddSpec {
     }
 
     @Test
+    fun `given the cancellation latency was never measured when evaluated then scaled live stays locked`() {
+        val verdict = gate.evaluate(evidence(cancellationLatencyMsP95 = -1L))
+
+        assertFalse("A missing benchmark is not a pass", verdict.unlocked)
+        assertTrue(verdict.failures.any { it.contains("no cancellation latency measured") })
+    }
+
+    @Test
     fun `given the base AlphaPulse view regressed when evaluated then scaled live stays locked`() {
         val verdict = gate.evaluate(evidence(baseViewRegressionDetected = true))
 
