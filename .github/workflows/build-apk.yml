@@ -202,16 +202,20 @@ jobs:
           yes | sdkmanager --licenses || true
 
       - name: Provision Secrets & Keystores (Test Environment)
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
         run: |
           if [ ! -f .env ]; then
             [ -f .env.example ] && cp .env.example .env || touch .env
           fi
           chmod +x gradlew
 
-          if [ ! -s debug.keystore ]; then
-            if [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
-              base64 -d debug.keystore.base64 > debug.keystore
-            fi
+          # The committed debug keystore always wins over the cache: a cached copy from
+          # an older run carries a different certificate.
+          if [ -n "${DEBUG_KEYSTORE_BASE64:-}" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 -d > debug.keystore
+          elif [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
           fi
           if [ ! -s debug.keystore ]; then
             keytool -genkeypair -v \
@@ -531,10 +535,15 @@ jobs:
               -dname "CN=Alpha Pulse, OU=Engineering, O=Alpha Pulse, L=Mountain View, ST=CA, C=US"
           fi
 
-          if [ ! -s debug.keystore ]; then
-            if [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
-              base64 -d debug.keystore.base64 > debug.keystore
-            fi
+          # The committed debug keystore always wins over the cache: a cached copy from
+          # an older run carries a different certificate, and signing with it ships an
+          # APK that installed debug builds cannot update in place.
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            printf '%s' "$DEBUG_KEYSTORE_BASE64" | base64 -d > debug.keystore
+            echo "Debug keystore restored from the DEBUG_KEYSTORE_BASE64 secret."
+          elif [ -f debug.keystore.base64 ] && [ -s debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+            echo "Debug keystore restored from the committed debug.keystore.base64."
           fi
           if [ ! -s debug.keystore ]; then
             echo "::warning::No persistent debug keystore found. Generating one for this run; the signing-keystores cache keeps it for later runs."

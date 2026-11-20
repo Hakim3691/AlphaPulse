@@ -26,7 +26,10 @@ longer costs the user their ledger or their 270 MB of TSFM weights.
   debug certificate is now committed (`debug.keystore.base64`) and pinned in
   `signing-fingerprints.txt`; the build job compares the keystore it is about to sign
   with to that pin and fails with `::error::` on a mismatch. The release key stays a
-  secret and is pinned through the optional `RELEASE_CERT_SHA256` secret.
+  secret and is pinned through the optional `RELEASE_CERT_SHA256` secret. The
+  committed keystore is applied *after* the Actions cache restores an older copy —
+  CI run 44725732530 proved that otherwise the cache wins and the build signs with a
+  certificate installed debug builds reject.
 - **Model weights could land in a cache directory and be trusted when corrupt.** The
   locator fell back to `cacheDir` when external storage was unavailable, and mount
   state was restored for any non-empty file. Weights now fall back to the persistent

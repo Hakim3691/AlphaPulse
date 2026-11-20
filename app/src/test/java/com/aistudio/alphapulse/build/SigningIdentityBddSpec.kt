@@ -115,6 +115,24 @@ class SigningIdentityBddSpec {
         )
     }
 
+    @Test
+    fun `given a cached debug keystore from an older run when provisioning then the committed one wins`() {
+        // Reproduces CI run 44725732530: the actions cache restored the previous
+        // debug key, the committed base64 was only read when the file was missing, and
+        // the build then signed with a certificate the installed app could not update
+        // over. The committed identity must be applied after the cache restore.
+        assertTrue(
+            "The committed keystore must be decoded even when the cache already put a file there",
+            workflow.contains("elif [ -f debug.keystore.base64 ]")
+        )
+        assertFalse(
+            "Decoding only when the file is absent lets a stale cache win",
+            Regex(
+                """if \[ ! -s debug\.keystore \]; then\s*\n\s*if \[ -f debug\.keystore\.base64"""
+            ).containsMatchIn(workflow)
+        )
+    }
+
     private fun readPins(): Map<String, String> {
         val file = repoFile("signing-fingerprints.txt")
         assertTrue("signing-fingerprints.txt must exist", file.isFile)
