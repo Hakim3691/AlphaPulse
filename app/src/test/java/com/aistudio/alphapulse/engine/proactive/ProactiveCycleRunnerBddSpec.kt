@@ -162,6 +162,7 @@ class ProactiveCycleRunnerBddSpec {
         repeat(100) { runner.recordCompletedPaperTrade() }
         repeat(100) { runner.recordCancellationLatency(60L) }
         repeat(100) { runner.recordMinimizeEvent(warnedAndWiped = true) }
+        runner.recordBaseViewObservation(regressionDetected = false)
 
         val verdict = runner.preLaunchVerdict()
         assertTrue(verdict.unlocked)

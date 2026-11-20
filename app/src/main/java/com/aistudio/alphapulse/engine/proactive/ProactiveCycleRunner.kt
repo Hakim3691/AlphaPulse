@@ -58,8 +58,8 @@ class ProactiveCycleRunner(
     fun recordMinimizeEvent(warnedAndWiped: Boolean) =
         paperTrials.recordMinimizeEvent(warnedAndWiped)
 
-    fun recordBaseViewRegression(detected: Boolean) =
-        paperTrials.recordBaseViewRegression(detected)
+    fun recordBaseViewObservation(regressionDetected: Boolean) =
+        paperTrials.recordBaseViewObservation(regressionDetected)
 
     fun evidence(): PreLaunchEvidence = paperTrials.evidence()
 

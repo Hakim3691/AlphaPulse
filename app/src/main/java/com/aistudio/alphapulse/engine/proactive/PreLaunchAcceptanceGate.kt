@@ -21,8 +21,12 @@ data class PreLaunchEvidence(
     val consecutivePaperTrades: Int,
     val unhandledExceptions: Int,
     val cancellationLatencyMsP95: Long,
+    /** How many cancellations the p95 is based on; zero means nothing was measured. */
+    val cancellationSamples: Int = 0,
     val minimizeEventsTested: Int,
     val minimizeEventsWarnedAndWiped: Int,
+    /** False until a base-view health window was actually observed. */
+    val baseViewObserved: Boolean = false,
     val baseViewRegressionDetected: Boolean
 )
 
@@ -53,7 +57,7 @@ class PreLaunchAcceptanceGate {
         if (evidence.unhandledExceptions > 0) {
             failures += "unhandled exceptions ${evidence.unhandledExceptions}"
         }
-        if (evidence.cancellationLatencyMsP95 < 0L) {
+        if (evidence.cancellationSamples <= 0 || evidence.cancellationLatencyMsP95 < 0L) {
             failures += "no cancellation latency measured"
         } else if (evidence.cancellationLatencyMsP95 >= MAX_CANCELLATION_LATENCY_MS) {
             failures += "cancellation latency ${evidence.cancellationLatencyMsP95}ms " +
@@ -66,7 +70,11 @@ class PreLaunchAcceptanceGate {
                 "${evidence.minimizeEventsWarnedAndWiped}/${evidence.minimizeEventsTested} " +
                 "minimize events"
         }
-        if (evidence.baseViewRegressionDetected) {
+        if (!evidence.baseViewObserved) {
+            // Fail closed: no measurement is not a clean base view. The gate can never
+            // endorse Scaled Live on a dimension it never observed.
+            failures += "base view behaviour never observed"
+        } else if (evidence.baseViewRegressionDetected) {
             failures += "base AlphaPulse view regression detected"
         }
 

@@ -17,6 +17,7 @@ class PaperTrialEvidenceTrackerBddSpec {
         repeat(100) { tracker.recordCompletedPaperTrade() }
         repeat(100) { tracker.recordCancellationLatency(120L) }
         repeat(100) { tracker.recordMinimizeEvent(warnedAndWiped = true) }
+        tracker.recordBaseViewObservation(regressionDetected = false)
         return tracker
     }
 
@@ -114,9 +115,25 @@ class PaperTrialEvidenceTrackerBddSpec {
     fun `given instrumentation observed a base view regression when evaluated then scaled live stays locked`() {
         val tracker = trackerWithPassingPaperTrial()
 
-        tracker.recordBaseViewRegression(detected = true)
+        tracker.recordBaseViewObservation(regressionDetected = true)
 
         assertTrue(tracker.evidence().baseViewRegressionDetected)
         assertFalse(tracker.verdict().unlocked)
+    }
+
+    @Test
+    fun `given no base view window was ever observed when evaluated then the dimension is unmet instead of clean`() {
+        val tracker = PaperTrialEvidenceTracker()
+        repeat(100) { tracker.recordCompletedPaperTrade() }
+        repeat(100) { tracker.recordCancellationLatency(50L) }
+        repeat(100) { tracker.recordMinimizeEvent(warnedAndWiped = true) }
+
+        val evidence = tracker.evidence()
+        assertFalse(evidence.baseViewObserved)
+        assertFalse(evidence.baseViewRegressionDetected)
+        assertFalse(tracker.verdict().unlocked)
+        assertTrue(
+            tracker.verdict().failures.any { it.contains("base view behaviour never observed") }
+        )
     }
 }

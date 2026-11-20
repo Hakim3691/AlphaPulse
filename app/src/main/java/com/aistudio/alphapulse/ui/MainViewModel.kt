@@ -50,10 +50,10 @@ import com.aistudio.alphapulse.engine.OrderBookSnapshot
 import com.aistudio.alphapulse.engine.PaperPnl
 import com.aistudio.alphapulse.engine.OverrideWarning
 import com.aistudio.alphapulse.engine.PathEngine
-import com.aistudio.alphapulse.engine.proactive.ProactiveCycleRunner
-import com.aistudio.alphapulse.engine.proactive.ProactiveExecutionLoop
+import com.aistudio.alphapulse.engine.proactive.ProactiveEvidenceRuntime
 import com.aistudio.alphapulse.engine.proactive.ProactiveLoopFrame
 import com.aistudio.alphapulse.engine.proactive.ProactiveLoopResult
+import com.aistudio.alphapulse.data.local.SharedPreferencesPaperTrialEvidenceStore
 import com.aistudio.alphapulse.engine.ReplayEngine
 import com.aistudio.alphapulse.engine.ReplayEngine.ReplayResult
 import com.aistudio.alphapulse.engine.RiskEngine
@@ -160,11 +160,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val executionEngine = ExecutionEngine(riskEngine)
 
     /**
-     * §31/§38: the automation loop runs on every live delta, and the runner records the
-     * paper-trial evidence the Scaled Live gate requires.
+     * §31/§38: the automation loop runs on every live delta, and the process-wide runner
+     * records the paper-trial evidence (durably, and shared with the base-view producer
+     * in MainActivity) that the Scaled Live gate requires.
      */
-    private val proactiveLoop = ProactiveExecutionLoop(executionEngine = executionEngine)
-    private val proactiveCycle = ProactiveCycleRunner(loop = proactiveLoop)
+    private val proactiveCycle = ProactiveEvidenceRuntime.runner(
+        SharedPreferencesPaperTrialEvidenceStore(application)
+    )
 
     /** §22/§27 live path: guardrail-gated staging plus cancel and reconcile. */
     private val orderStager = OrderStager(riskEngine)

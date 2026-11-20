@@ -18,15 +18,19 @@ class PreLaunchAcceptanceGateBddSpec {
         consecutivePaperTrades: Int = 100,
         unhandledExceptions: Int = 0,
         cancellationLatencyMsP95: Long = 120L,
+        cancellationSamples: Int = 100,
         minimizeEventsTested: Int = 100,
         minimizeEventsWarnedAndWiped: Int = 100,
+        baseViewObserved: Boolean = true,
         baseViewRegressionDetected: Boolean = false
     ) = PreLaunchEvidence(
         consecutivePaperTrades = consecutivePaperTrades,
         unhandledExceptions = unhandledExceptions,
         cancellationLatencyMsP95 = cancellationLatencyMsP95,
+        cancellationSamples = cancellationSamples,
         minimizeEventsTested = minimizeEventsTested,
         minimizeEventsWarnedAndWiped = minimizeEventsWarnedAndWiped,
+        baseViewObserved = baseViewObserved,
         baseViewRegressionDetected = baseViewRegressionDetected
     )
 
@@ -75,10 +79,21 @@ class PreLaunchAcceptanceGateBddSpec {
 
     @Test
     fun `given the cancellation latency was never measured when evaluated then scaled live stays locked`() {
-        val verdict = gate.evaluate(evidence(cancellationLatencyMsP95 = -1L))
+        val verdict = gate.evaluate(
+            evidence(cancellationLatencyMsP95 = -1L, cancellationSamples = 0)
+        )
 
         assertFalse("A missing benchmark is not a pass", verdict.unlocked)
         assertTrue(verdict.failures.any { it.contains("no cancellation latency measured") })
+    }
+
+    @Test
+    fun `given the base view was never observed when evaluated then the dimension is met neither as clean nor as passing`() {
+        val verdict = gate.evaluate(evidence(baseViewObserved = false))
+
+        assertFalse("An unobserved base view must fail closed", verdict.unlocked)
+        assertTrue(verdict.failures.any { it.contains("base view behaviour never observed") })
+        assertFalse(verdict.failures.any { it.contains("regression detected") })
     }
 
     @Test
