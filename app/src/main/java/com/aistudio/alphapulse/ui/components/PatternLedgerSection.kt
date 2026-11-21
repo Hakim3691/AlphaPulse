@@ -75,6 +75,10 @@ fun PatternLedgerSection(
         "Hit: ${String.format(Locale.US, "%.1f", rate)}% ($hitCount/${filteredList.size})"
     }
 
+    val hitRateColor = if (filteredList.isEmpty()) TextTertiary else if (
+        (hitCount.toDouble() / filteredList.size) >= 0.6
+    ) BrandBullish else BrandAmber
+
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -93,122 +97,17 @@ fun PatternLedgerSection(
             .background(BrandSurface)
             .border(1.dp, BrandBorder, RoundedCornerShape(10.dp))
     ) {
-        // Top Toolbar (two-line header: title + counters, then filter-scoped hit rate)
-        Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = BrandBullish,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        // Same wording and casing as the price ledger above it: the two
-                        // tables are one instrument in two halves.
-                        text = "PATTERN PREDICTION LEDGER",
-                        color = TextPrimary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Pend: $pendingCount",
-                        color = BrandAmber,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Settled: $settledCount",
-                        color = BrandBullish,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // Action row, same layout as the price ledger: hit rate on the left, then
-            // the visibility switch and the ledger buttons on the right.
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 3.dp, bottom = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = hitRateText,
-                    color = if (filteredList.isEmpty()) TextTertiary else if (
-                        (hitCount.toDouble() / filteredList.size) >= 0.6
-                    ) BrandBullish else BrandAmber,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-
-                LedgerSettledToggle(showSettled = showSettled, onToggle = { showSettled = !showSettled })
-
-                // Export Pattern Ledger CSV Button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(BrandCard)
-                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
-                        .clickable { onExportClick() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Export Pattern Ledger CSV",
-                            tint = BrandAccent,
-                            modifier = Modifier.size(11.dp)
-                        )
-                        Text(
-                            text = "LEDGER",
-                            color = BrandAccent,
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Clear Pattern Ledger Button (carried over from the pre-merge screen)
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(BrandCard)
-                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
-                        .clickable { onClearClick() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Clear Pattern Ledger",
-                        tint = BrandBearish,
-                        modifier = Modifier.size(11.dp)
-                    )
-                }
-            }
-        }
+        LedgerHeader(
+            title = "PATTERN PREDICTION",
+            pendingCount = pendingCount,
+            settledCount = settledCount,
+            summary = hitRateText,
+            summaryColor = hitRateColor,
+            showSettled = showSettled,
+            onToggleSettled = { showSettled = !showSettled },
+            onExportClick = onExportClick,
+            onClearClick = onClearClick
+        )
 
         HorizontalDivider(color = BrandBorder)
 
@@ -376,7 +275,7 @@ fun PatternLedgerSection(
                             "boundary and train the online SGD head."
                     } else {
                         "No pending pattern rows for this filter. $settledCount settled " +
-                            "row(s) hidden \u2014 SHOW SETTLED to review them."
+                            "row(s) hidden \u2014 SHOW ALL to review them."
                     },
                     color = TextTertiary,
                     fontSize = 11.sp,

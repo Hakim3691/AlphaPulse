@@ -49,7 +49,6 @@ fun PredictionLedgerSection(
     onFilterChange: (String) -> Unit,
     onClearClick: () -> Unit,
     onExportClick: () -> Unit,
-    onExportUniverseClick: () -> Unit = {},
     /** Settled rows are hidden by default; the toggle reveals them. */
     initiallyShowSettled: Boolean = false
 ) {
@@ -67,6 +66,16 @@ fun PredictionLedgerSection(
     // appears when the user asks for it.
     val visibleList = filteredList.filter { showSettled || !it.settled }
 
+    val filteredSettled = filteredList.filter { it.settled }
+    val filteredHit = filteredList.count { it.settled && it.inCone == true }
+    val hitRateText = if (filteredSettled.isEmpty()) "Hit: -- (0/0)" else {
+        val rate = (filteredHit.toDouble() / filteredSettled.size) * 100.0
+        "Hit: ${String.format(Locale.US, "%.1f", rate)}% ($filteredHit/${filteredSettled.size})"
+    }
+    val hitRateColor = if (filteredSettled.isEmpty()) TextTertiary else if (
+        (filteredHit.toDouble() / filteredSettled.size) >= 0.6
+    ) BrandBullish else BrandAmber
+
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
         while (isActive) {
@@ -82,157 +91,17 @@ fun PredictionLedgerSection(
             .background(BrandSurface)
             .border(1.dp, BrandBorder, RoundedCornerShape(10.dp))
     ) {
-        // Top Toolbar (two-line header: title + counters, then filter-scoped cone hit rate)
-        Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 12.dp, end = 12.dp, bottom = 4.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = null,
-                        tint = BrandBullish,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Text(
-                        text = "PRICE PREDICTION LEDGER",
-                        color = TextPrimary,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Pend: $pendingCount",
-                        color = BrandAmber,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Settled: $settledCount",
-                        color = BrandBullish,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-
-            // Action buttons row (second toolbar line of the two-line header)
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 3.dp, bottom = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Filter-scoped cone hit rate (uses the active horizon filter, settled rows only)
-                val filteredSettled = filteredList.filter { it.settled }
-                val filteredHit = filteredList.count { it.settled && it.inCone == true }
-                val hitRateText = if (filteredSettled.isEmpty())
-                    "Hit: -- (0/0)"
-                else {
-                    val rate = (filteredHit.toDouble() / filteredSettled.size) * 100.0
-                    "Hit: ${String.format(Locale.US, "%.1f", rate)}% ($filteredHit/${filteredSettled.size})"
-                }
-                Text(
-                    text = hitRateText,
-                    color = if (filteredSettled.isEmpty()) TextTertiary else if (
-                        (filteredHit.toDouble() / filteredSettled.size) >= 0.6
-                    ) BrandBullish else BrandAmber,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-
-                LedgerSettledToggle(showSettled = showSettled, onToggle = { showSettled = !showSettled })
-
-                // 4-Tab Universe CSV Button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(BrandCard)
-                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
-                        .clickable { onExportUniverseClick() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Export 4-Tab Universe CSV",
-                            tint = BrandBullish,
-                            modifier = Modifier.size(11.dp)
-                        )
-                        Text(
-                            text = "UNIVERSE",
-                            color = BrandBullish,
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Prediction Audit CSV Button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(BrandCard)
-                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
-                        .clickable { onExportClick() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                        contentDescription = "Export Prediction Ledger CSV",
-                        tint = BrandAccent,
-                            modifier = Modifier.size(11.dp)
-                        )
-                        Text(
-                            text = "LEDGER",
-                            color = BrandAccent,
-                            fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // Clear Ledger Button
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(BrandCard)
-                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
-                        .clickable { onClearClick() }
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Clear Ledger",
-                        tint = BrandBearish,
-                        modifier = Modifier.size(11.dp)
-                    )
-                }
-            }
-        }
+        LedgerHeader(
+            title = "PRICE PREDICTION",
+            pendingCount = pendingCount,
+            settledCount = settledCount,
+            summary = hitRateText,
+            summaryColor = hitRateColor,
+            showSettled = showSettled,
+            onToggleSettled = { showSettled = !showSettled },
+            onExportClick = onExportClick,
+            onClearClick = onClearClick
+        )
 
         HorizontalDivider(color = BrandBorder)
 
@@ -416,7 +285,7 @@ fun PredictionLedgerSection(
                     text = if (filteredList.isEmpty()) {
                         "No predictions logged yet. Predictions settle automatically via online SGD."
                     } else {
-                        "No pending predictions for this filter. $settledCount settled row(s) hidden \u2014 SHOW SETTLED to review them."
+                        "No pending predictions for this filter. $settledCount settled row(s) hidden \u2014 SHOW ALL to review them."
                     },
                     color = TextTertiary,
                     fontSize = 11.sp,

@@ -15,12 +15,12 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Behaviour of the decisions ledger, specified Given/When/Then.
+ * Behaviour of the trade decisions ledger, specified Given/When/Then.
  *
- * Two things have to hold here. A verdict that has been graded must say so — the
- * ledger used to show every row as recorded forever — and settled rows must stay out
- * of the way until the user asks for them, exactly like the price and pattern
- * ledgers above and below it.
+ * A verdict that has been graded must say so — the ledger used to show every row as
+ * recorded forever — and settled rows must stay out of the way until the user asks,
+ * exactly like the price and pattern ledgers above and below it. The header, the
+ * horizon filter and the three actions are the shared ledger grammar (Directive §2).
  *
  * Spec Ref: §21 Prediction Audit Ledger, §29 Decision Router, C-29
  */
@@ -39,7 +39,8 @@ class DecisionsLedgerSectionBddSpec {
         settled: Boolean = false,
         hit: Boolean? = null,
         realizedPrice: Double? = null,
-        realizedPct: Double? = null
+        realizedPct: Double? = null,
+        horizon: String = "15m"
     ) = DecisionLedgerRow(
         record = DecisionRecordEntity(
             id = id,
@@ -48,7 +49,7 @@ class DecisionsLedgerSectionBddSpec {
             state = state,
             confidence = 0.81,
             source = "NEEDLE3",
-            referenceHorizon = "15m",
+            referenceHorizon = horizon,
             reason = "Needle 3: decide_long"
         ),
         settled = settled,
@@ -58,12 +59,15 @@ class DecisionsLedgerSectionBddSpec {
     )
 
     @Test
-    fun `given no verdicts when the ledger renders then it explains the silence`() {
+    fun `given no verdicts when the ledger renders then it explains the silence and shows the shared grammar`() {
         compose.setContent { DecisionsLedgerSection(rows = emptyList(), onClearClick = {}) }
 
         compose.onAllNodesWithText(DecisionLogText.EMPTY).assertCountEquals(1)
-        compose.onAllNodesWithText("DECISIONS LEDGER").assertCountEquals(1)
-        compose.onAllNodesWithText("SHOW SETTLED").assertCountEquals(1)
+        compose.onAllNodesWithText("TRADE DECISIONS").assertCountEquals(1)
+        compose.onAllNodesWithText("SHOW ALL").assertCountEquals(1)
+        compose.onAllNodesWithText("LEDGER").assertCountEquals(1)
+        compose.onAllNodesWithText("TRASH").assertCountEquals(1)
+        compose.onAllNodesWithText("HORIZON FILTER:").assertCountEquals(1)
     }
 
     @Test
@@ -87,11 +91,30 @@ class DecisionsLedgerSectionBddSpec {
         compose.setContent { DecisionsLedgerSection(rows = listOf(pending, hit, miss), onClearClick = {}) }
         compose.onAllNodesWithText("✓ HIT").assertCountEquals(0)
 
-        compose.onNodeWithText("SHOW SETTLED").performClick()
+        compose.onNodeWithText("SHOW ALL").performClick()
 
         compose.onAllNodesWithText("✓ HIT").assertCountEquals(1)
         compose.onAllNodesWithText("✗ MISS").assertCountEquals(1)
-        compose.onAllNodesWithText("HIDE SETTLED").assertCountEquals(1)
+        compose.onAllNodesWithText("SHOW PENDING").assertCountEquals(1)
+    }
+
+    @Test
+    fun `given verdicts on two horizons when the filter selects one then only that horizon is listed`() {
+        compose.setContent {
+            DecisionsLedgerSection(
+                rows = listOf(
+                    row(id = "a", horizon = "15m"),
+                    row(id = "b", horizon = "1h")
+                ),
+                onClearClick = {},
+                horizonFilter = "1h"
+            )
+        }
+
+        // "15m" and "1h" are also filter labels, so count the pinned HORIZON cells by
+        // their counter instead: only the filtered row contributes a pending verdict.
+        compose.onAllNodesWithText("Pend: 1").assertCountEquals(1)
+        compose.onAllNodesWithText("Settled: 0").assertCountEquals(1)
     }
 
     @Test
@@ -105,6 +128,7 @@ class DecisionsLedgerSectionBddSpec {
 
         compose.onAllNodesWithText("PENDING").assertCountEquals(0)
         compose.onAllNodesWithText("Settled: 1").assertCountEquals(1)
+        compose.onAllNodesWithText("SHOW ALL to review them", substring = true).assertCountEquals(1)
     }
 
     @Test

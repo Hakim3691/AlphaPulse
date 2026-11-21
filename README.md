@@ -56,7 +56,7 @@ the current release at a glance.
   - The screeners and nine quant models now read a dedicated 500-bar 1m series from Binance's `/fapi/v1/klines` (the same source as the price ledger), so MACD, Triple Screen and the 60-bar breakout compute instead of reporting "Needs N bars".
   - Opening Range Breakout anchors on the current UTC session; a failed fetch reuses the cached series, never synthetic candles.
 - **AlphaPulse tab is AlphaPulse only**:
-  - The ProactiveMS campaign / live-order workspace is no longer mounted inside `AlphaPulseScreen`; the tab shows the AlphaPulse header, workspace cards, ledgers, §3 board and model dock only (C-22).
+  - The ProactiveMS campaign / live-order workspace is no longer mounted inside `AlphaPulseScreen`; the tab shows the AlphaPulse header, workspace cards, ledgers, §3 board and the two header TSFM quick actions only (C-22).
 - **Rollback strategy**:
   - [`.github/workflows/rollback.yml`](./.github/workflows/rollback.yml) rebuilds a verified tag at a higher versionCode, verifies both APKs and the pinned checkpoint, and publishes it as the latest release (C-26).
 - **Changelog automation**:

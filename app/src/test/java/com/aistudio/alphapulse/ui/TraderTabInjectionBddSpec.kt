@@ -76,6 +76,24 @@ class TraderTabInjectionBddSpec {
         )
     }
 
+    @Test
+    fun `given no entitlement when the bottom bar is built then it offers one VIP call to action and no floating trader button`() {
+        val shell = repoFile("app/src/main/java/com/aistudio/alphapulse/ui/AppShell.kt").readText()
+
+        // Directive §3: one bar entry before entitlement, then the same slot becomes
+        // the trader tab. The floating button and the redundant Analysis tab are gone.
+        assertTrue("The bar must offer the VIP unlock", shell.contains("VIP_TAB_TAG"))
+        assertTrue(shell.contains("Enable VIP Features"))
+        assertFalse(
+            "The floating ENABLE AUTO-TRADER button collided with the bottom cards",
+            shell.contains("ENABLE AUTO-TRADER")
+        )
+        assertFalse(
+            "The redundant Analysis tab duplicated the whole core surface",
+            shell.contains("\"Analysis\"")
+        )
+    }
+
     private fun repoFile(relativePath: String): java.io.File {
         var directory: java.io.File? = java.io.File("").absoluteFile
         while (directory != null) {

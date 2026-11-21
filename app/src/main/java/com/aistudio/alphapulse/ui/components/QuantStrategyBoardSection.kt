@@ -16,6 +16,7 @@ package com.aistudio.alphapulse.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -23,6 +24,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,6 +42,7 @@ import com.aistudio.alphapulse.domain.presentation.ZoneMetadata
 import com.aistudio.alphapulse.domain.strategy.ScreenerSignal
 import com.aistudio.alphapulse.domain.strategy.SignalDirection
 import com.aistudio.alphapulse.domain.strategy.StrategySignal
+import com.aistudio.alphapulse.ui.theme.BrandAccent
 import com.aistudio.alphapulse.ui.theme.BrandAmber
 import com.aistudio.alphapulse.ui.theme.BrandBearish
 import com.aistudio.alphapulse.ui.theme.BrandBorder
@@ -62,8 +68,17 @@ private fun level(value: Double?): String =
 @Composable
 fun QuantStrategyBoardSection(
     screenerSignals: List<ScreenerSignal>,
-    strategySignals: List<StrategySignal>
+    strategySignals: List<StrategySignal>,
+    /** `SHOW ALL` is off by default: FLAT setups are noise until the user asks. */
+    initiallyShowAll: Boolean = false
 ) {
+    var showAll by remember { mutableStateOf(initiallyShowAll) }
+    val visibleStrategies = if (showAll) {
+        strategySignals
+    } else {
+        strategySignals.filter { it.direction != SignalDirection.NEUTRAL }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -86,12 +101,37 @@ fun QuantStrategyBoardSection(
                 letterSpacing = 1.sp
             )
             val active = strategySignals.count { it.isActive }
-            Text(
-                text = "$active / ${strategySignals.size} ACTIVE",
-                color = BrandAmber,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    text = "$active / ${strategySignals.size} ACTIVE",
+                    color = BrandAmber,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                // Directive §3: FLAT strategies stay hidden until this is switched on.
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(if (showAll) BrandAccent.copy(alpha = 0.2f) else BrandBorder.copy(alpha = 0.25f))
+                        .border(
+                            1.dp,
+                            if (showAll) BrandAccent else BrandBorder,
+                            RoundedCornerShape(4.dp)
+                        )
+                        .clickable { showAll = !showAll }
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "SHOW ALL",
+                        color = if (showAll) BrandAccent else Color(0xFF94A3B8),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
 
         HorizontalDivider(color = BrandBorder)
@@ -132,8 +172,17 @@ fun QuantStrategyBoardSection(
 
         // D3: one direction leads; opposing setups are retained but tagged.
         val dominant = StrategyConflicts.dominantDirection(strategySignals)
-        strategySignals.forEach { strategy ->
+        visibleStrategies.forEach { strategy ->
             StrategyRow(strategy, dominant)
+        }
+
+        if (visibleStrategies.isEmpty()) {
+            Text(
+                text = "All setups FLAT — SHOW ALL to review every model.",
+                color = Color(0xFF94A3B8),
+                fontSize = 10.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+            )
         }
     }
 }

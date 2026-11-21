@@ -4,9 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -14,7 +12,6 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -35,7 +32,14 @@ import com.aistudio.alphapulse.ui.theme.SlateTextPrimary
  * state, the download progress or a trader callback, so installing or removing
  * `:proactive_trader` cannot restyle or move anything inside it (D6).
  *
- * Spec Ref: Phase 1 §7, D5, D6
+ * There is one bar entry, never two: before entitlement it is the `Enable VIP
+ * Features` call to action that opens the emulated entitlement / dynamic-module
+ * unlock flow; afterwards the same slot becomes the trader tab with its honest
+ * progress label. The old floating auto-trader button and the redundant Analysis
+ * tab are deliberately gone — they collided with the bottom cards and duplicated a
+ * surface that is already the whole screen.
+ *
+ * Spec Ref: Phase 1 §7, D5, D6, Directive §3 Bottom Bar
  */
 @Composable
 fun AppShell(
@@ -58,18 +62,9 @@ fun AppShell(
                 containerColor = CardBackground,
                 contentColor = SlateTextPrimary
             ) {
-                NavigationBarItem(
-                    selected = true,
-                    onClick = { },
-                    icon = { Icon(Icons.Default.Analytics, contentDescription = "Analysis") },
-                    label = { Text("Analysis", fontSize = 10.sp) },
-                    colors = NavigationBarItemDefaults.colors(indicatorColor = Color(0xFF1E293B)),
-                    modifier = Modifier.testTag(TraderNavigation.CORE_TAB_TAG)
-                )
-
                 if (TraderNavigation.isTraderTabVisible(installState)) {
                     NavigationBarItem(
-                        selected = false,
+                        selected = true,
                         onClick = onTraderTab,
                         icon = { Icon(Icons.Default.Bolt, contentDescription = "Auto-Trader") },
                         label = {
@@ -84,6 +79,28 @@ fun AppShell(
                         ),
                         modifier = Modifier.testTag(TraderNavigation.TRADER_TAB_TAG)
                     )
+                } else {
+                    NavigationBarItem(
+                        selected = false,
+                        onClick = onUnlockTrader,
+                        icon = {
+                            Icon(
+                                Icons.Default.Bolt,
+                                contentDescription = "Enable VIP Features"
+                            )
+                        },
+                        label = {
+                            Text(
+                                "Enable VIP Features",
+                                fontSize = 9.sp,
+                                color = SlateTextMuted
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            indicatorColor = Color(0xFF1E293B)
+                        ),
+                        modifier = Modifier.testTag(TraderNavigation.VIP_TAB_TAG)
+                    )
                 }
             }
         }
@@ -95,22 +112,6 @@ fun AppShell(
                 .testTag(TraderNavigation.CORE_SURFACE_TAG)
         ) {
             coreContent()
-
-            if (TraderNavigation.showsUnlockButton(installState)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    contentAlignment = Alignment.BottomEnd
-                ) {
-                    Button(
-                        onClick = onUnlockTrader,
-                        modifier = Modifier.testTag(TraderNavigation.UNLOCK_BUTTON_TAG)
-                    ) {
-                        Text("ENABLE AUTO-TRADER", fontSize = 10.sp)
-                    }
-                }
-            }
         }
     }
 }

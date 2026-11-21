@@ -69,7 +69,9 @@ fun AlphaPulseScreen(
                 isHTFReady = uiState.isHTFReady,
                 pipelineRunning = uiState.pipelineRunning,
                 pipelineSecondsRemaining = uiState.pipelineSecondsRemaining,
-                onRefreshClick = { viewModel.showRefreshDialog(true) }
+                onRefreshClick = { viewModel.showRefreshDialog(true) },
+                modelStates = uiState.modelDownloads,
+                onDownloadModel = { viewModel.downloadModel(it) }
             )
 
             // Dynamic Screener Progress Banner
@@ -110,7 +112,8 @@ fun AlphaPulseScreen(
                     mountedModelIds = uiState.mountedModelIds,
                     decision = uiState.decision,
                     strategySignals = uiState.strategySignals,
-                    painPathPrior = uiState.painPathPrior
+                    painPathPrior = uiState.painPathPrior,
+                    onExportUniverseClick = { viewModel.export4TabUniverseCsv() }
                 )
 
                 // Collapsible Accordions (Risk Adjusted, Technical Microstructure, Institutional Filters, Forecasts, Canvas Chart, Cognitive Brief)
@@ -136,8 +139,7 @@ fun AlphaPulseScreen(
                     horizonFilter = uiState.horizonFilter,
                     onFilterChange = { viewModel.setHorizonFilter(it) },
                     onClearClick = { viewModel.clearLedger() },
-                    onExportClick = { viewModel.exportAndShareAuditCsv() },
-                    onExportUniverseClick = { viewModel.export4TabUniverseCsv() }
+                    onExportClick = { viewModel.exportAndShareAuditCsv() }
                 )
 
                 // §73 Secondary Pattern Prediction & Learning Ledger. Mounted directly
@@ -156,7 +158,10 @@ fun AlphaPulseScreen(
                 // price ledger, so there is exactly one decisions table.
                 DecisionsLedgerSection(
                     rows = uiState.decisionLedger,
-                    onClearClick = { viewModel.clearLedger() }
+                    onClearClick = { viewModel.clearLedger() },
+                    horizonFilter = uiState.horizonFilter,
+                    onFilterChange = { viewModel.setHorizonFilter(it) },
+                    onExportClick = { viewModel.exportDecisionLedgerCsv() }
                 )
 
                 // §74 Auxiliary Confluence Screeners & Quant Models. Evaluated on the same
@@ -172,11 +177,8 @@ fun AlphaPulseScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Compact TSFM model dock — mounts models into the live ensemble
-                ModelDownloadSection(
-                    states = uiState.modelDownloads,
-                    onDownload = { viewModel.downloadModel(it) }
-                )
+                // The bottom TSFM dock is gone: both artifacts are downloaded from the
+                // two header quick actions, and Needle 3 ships inside the APK.
 
                 // Needle 3 is on-device, so its gap is explained here: the weights
                 // may be downloaded and still have no engine to run them on (an

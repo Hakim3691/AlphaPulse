@@ -78,11 +78,11 @@ class PatternLedgerSettledVisibilityBddSpec {
             )
         }
 
-        compose.onNodeWithText("SHOW SETTLED").performClick()
+        compose.onNodeWithText("SHOW ALL").performClick()
         compose.onAllNodesWithText("BTCUSDT").assertCountEquals(1)
-        compose.onAllNodesWithText("HIDE SETTLED").assertCountEquals(1)
+        compose.onAllNodesWithText("SHOW PENDING").assertCountEquals(1)
 
-        compose.onNodeWithText("HIDE SETTLED").performClick()
+        compose.onNodeWithText("SHOW PENDING").performClick()
         compose.onAllNodesWithText("BTCUSDT").assertCountEquals(0)
     }
 
@@ -91,12 +91,12 @@ class PatternLedgerSettledVisibilityBddSpec {
         // The price ledger is wired from AlphaPulseScreen; its toggle must exist even
         // when the list is empty, so the control can be found and pressed.
         val toggle = LedgerSettledToggleProbe
-        org.junit.Assert.assertEquals("SHOW SETTLED", toggle.label(false))
-        org.junit.Assert.assertEquals("HIDE SETTLED", toggle.label(true))
+        org.junit.Assert.assertEquals("SHOW ALL", toggle.label(false))
+        org.junit.Assert.assertEquals("SHOW PENDING", toggle.label(true))
     }
 
     /** Mirrors [LedgerSettledToggle]'s wording so a wording drift fails a test. */
     private object LedgerSettledToggleProbe {
-        fun label(showSettled: Boolean) = if (showSettled) "HIDE SETTLED" else "SHOW SETTLED"
+        fun label(showSettled: Boolean) = if (showSettled) "SHOW PENDING" else "SHOW ALL"
     }
 }

@@ -144,8 +144,8 @@ fun AccordionsSection(
                     DiagnosticBox(
                         modifier = Modifier.weight(1f),
                         title = "MARKOV REGIME",
-                        value = markovRegime?.regime ?: "Evaluating...",
-                        subtext = markovRegime?.let { "Kurt: ${String.format(Locale.US, "%.2f", it.kurtosis)} (85p: ${String.format(Locale.US, "%.2f", it.cutoff)})" } ?: "Adaptive Kurtosis",
+                        value = markovRegime?.regime ?: "Calibrating...",
+                        subtext = markovRegime?.let { "Kurt: ${String.format(Locale.US, "%.2f", it.kurtosis)} (85p: ${String.format(Locale.US, "%.2f", it.cutoff)})" } ?: "Adaptive Kurtosis — awaiting closed candles",
                         valueColor = if (markovRegime?.regime?.contains("Burst") == true) BrandBearish else BrandBullish
                     )
                     val formattedOFI = formatLargeCurrency(netImbalanceUsdt)
@@ -169,19 +169,33 @@ fun AccordionsSection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Directive §2D: an unpopulated profile reads as a calibrating
+                    // badge, never as a real $0.00000 level.
+                    val hasProfile = alphaPoc > 0.0 && alphaVah > 0.0 && alphaVal > 0.0
                     DiagnosticBox(
                         modifier = Modifier.weight(1f),
                         title = "VOLUME PROFILE ATC",
-                        value = Formatters.formatPrice5Dec(alphaPoc),
-                        subtext = "VAH ${Formatters.formatPrice5Dec(alphaVah)} · VAL ${Formatters.formatPrice5Dec(alphaVal)}",
-                        valueColor = BrandNeural
+                        value = if (hasProfile) Formatters.formatPrice5Dec(alphaPoc) else "--",
+                        subtext = if (hasProfile) {
+                            "VAH ${Formatters.formatPrice5Dec(alphaVah)} · VAL ${Formatters.formatPrice5Dec(alphaVal)}"
+                        } else {
+                            "Calibrating — insufficient 24h volume history"
+                        },
+                        valueColor = if (hasProfile) BrandNeural else TextTertiary
                     )
+                    // Directive §2D: a zero or unread open interest yields no ratio
+                    // rather than a 1,392,868x spike from a division by a near-zero OI.
+                    val oiRatio = selectedCoin?.volToOiRatio?.takeIf { it.isFinite() && it > 0.0 }
                     DiagnosticBox(
                         modifier = Modifier.weight(1f),
                         title = "VOL / OI RATIO",
-                        value = selectedCoin?.volToOiRatio?.let { String.format(Locale.US, "%.2fx", it) } ?: "--",
-                        subtext = "Institutional flow confluence",
-                        valueColor = if ((selectedCoin?.volToOiRatio ?: 0.0) > 1.0) BrandBullish else TextPrimary
+                        value = oiRatio?.let { String.format(Locale.US, "%.2fx", it) } ?: "--",
+                        subtext = if (oiRatio == null) {
+                            "Open interest unread — ratio withheld"
+                        } else {
+                            "Institutional flow confluence"
+                        },
+                        valueColor = if ((oiRatio ?: 0.0) > 1.0) BrandBullish else TextPrimary
                     )
                 }
             }

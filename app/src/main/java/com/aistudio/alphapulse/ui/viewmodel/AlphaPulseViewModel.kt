@@ -726,27 +726,11 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             try {
                 val csvContent = repository.exportAuditLedgerCsv()
-                val context = getApplication<Application>().applicationContext
-                val file = File(context.cacheDir, "AlphaPulse_Audit_${System.currentTimeMillis()}.csv")
-                file.writeText(csvContent)
-
-                val uri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    file
+                shareCsvFile(
+                    fileName = "AlphaPulse_Audit_${System.currentTimeMillis()}.csv",
+                    content = csvContent,
+                    chooserTitle = "Export AlphaPulse Audit CSV"
                 )
-
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/csv"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-
-                val chooser = Intent.createChooser(intent, "Export AlphaPulse Audit CSV").apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(chooser)
             } catch (e: Exception) {
                 _uiState.update { it.copy(snackbarMessage = "Export ready in local storage") }
             }
@@ -786,7 +770,6 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
     fun exportPatternLedgerCsv() {
         viewModelScope.launch {
             try {
-                val context = getApplication<Application>().applicationContext
                 // The pattern ledger is state the screen already holds; the price
                 // predictions flow is a different table and has no `.value` to read.
                 val allEntries: List<PatternLedgerEntry> = _uiState.value.patternLedger
@@ -812,30 +795,79 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 }
 
                 val csvContent = sb.toString()
-                val file = File(context.cacheDir, "AlphaPulse_Pattern_Ledger_${System.currentTimeMillis()}.csv")
-                file.writeText(csvContent)
-
-                val uri = FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    file
+                shareCsvFile(
+                    fileName = "AlphaPulse_Pattern_Ledger_${System.currentTimeMillis()}.csv",
+                    content = csvContent,
+                    chooserTitle = "Export Pattern Ledger CSV"
                 )
-
-                val intent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/csv"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-
-                val chooser = Intent.createChooser(intent, "Export Pattern Ledger CSV").apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(chooser)
             } catch (e: Exception) {
                 _uiState.update { it.copy(snackbarMessage = "Export ready in local storage") }
             }
         }
+    }
+
+    /**
+     * Export the trade-decision ledger as CSV.
+     *
+     * The three ledgers share one action row, so each exports its own table rather
+     * than pointing every `LEDGER` button at the price audit export.
+     */
+    fun exportDecisionLedgerCsv() {
+        viewModelScope.launch {
+            try {
+                val rows = _uiState.value.decisionLedger
+                val sb = StringBuilder(
+                    "issued_at,symbol,horizon,state,confidence,source,reason,result,realized\n"
+                )
+                for (row in rows) {
+                    val record = row.record
+                    val result = when (row.hit) {
+                        true -> "HIT"
+                        false -> "MISS"
+                        null -> "PENDING"
+                    }
+                    val realized = row.realizedPrice?.let { String.format(Locale.US, "%.5f", it) } ?: ""
+                    sb.append(
+                        "${record.issuedTimestamp},${record.symbol},${record.referenceHorizon}," +
+                            "${record.state},${String.format(Locale.US, "%.4f", record.confidence)}," +
+                            "${record.source},\"${record.reason.replace("\"", "'")}\",$result,$realized\n"
+                    )
+                }
+
+                shareCsvFile(
+                    fileName = "AlphaPulse_Trade_Decisions_${System.currentTimeMillis()}.csv",
+                    content = sb.toString(),
+                    chooserTitle = "Export Trade Decisions CSV"
+                )
+            } catch (e: Exception) {
+                _uiState.update { it.copy(snackbarMessage = "Export ready in local storage") }
+            }
+        }
+    }
+
+
+    private fun shareCsvFile(fileName: String, content: String, chooserTitle: String) {
+        val context = getApplication<Application>().applicationContext
+        val file = File(context.cacheDir, fileName)
+        file.writeText(content)
+
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+        val chooser = Intent.createChooser(intent, chooserTitle).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(chooser)
     }
 
     override fun onCleared() {

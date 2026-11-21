@@ -19,12 +19,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,7 +61,8 @@ fun TopWorkspaceCards(
     mountedModelIds: List<String> = emptyList(),
     decision: DecisionReport? = null,
     strategySignals: List<StrategySignal> = emptyList(),
-    painPathPrior: String? = null
+    painPathPrior: String? = null,
+    onExportUniverseClick: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -76,7 +79,8 @@ fun TopWorkspaceCards(
                 selectedSymbol = selectedSymbol,
                 under10Only = under10Only,
                 onSelectCoin = onSelectCoin,
-                onToggleUnder10 = onToggleUnder10
+                onToggleUnder10 = onToggleUnder10,
+                onExportUniverseClick = onExportUniverseClick
             )
 
             SpotPriceCard(
@@ -117,7 +121,8 @@ fun ScreenedUniverseCard(
     selectedSymbol: String,
     under10Only: Boolean,
     onSelectCoin: (String) -> Unit,
-    onToggleUnder10: (Boolean) -> Unit
+    onToggleUnder10: (Boolean) -> Unit,
+    onExportUniverseClick: () -> Unit = {}
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -137,37 +142,72 @@ fun ScreenedUniverseCard(
                 Text(
                     text = "SCREENED UNIVERSE",
                     color = TextTertiary,
-                    fontSize = 9.sp,
+                    fontSize = 8.sp,
                     fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
                 )
 
-                // <= $10 toggle chip
                 Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(if (under10Only) BrandAccent.copy(alpha = 0.2f) else BrandCard)
-                        .border(1.dp, if (under10Only) BrandAccent.copy(alpha = 0.4f) else BrandBorder, RoundedCornerShape(4.dp))
-                        .clickable { onToggleUnder10(!under10Only) }
-                        .padding(horizontal = 5.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (under10Only) {
+                    // Directive §1: the universe export lives in this header now, not
+                    // in the price prediction ledger.
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(BrandCard)
+                            .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
+                            .clickable { onExportUniverseClick() }
+                            .testTag("universe_export")
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Active",
-                            tint = BrandAccent,
-                            modifier = Modifier.size(10.dp)
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "EXPORT UNIVERSE",
+                            tint = BrandBullish,
+                            modifier = Modifier.size(9.dp)
+                        )
+                        Text(
+                            text = "EXPORT UNIVERSE",
+                            color = BrandBullish,
+                            fontSize = 7.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
                         )
                     }
-                    Text(
-                        text = "≤ $10 Only",
-                        color = if (under10Only) BrandAccent else TextSecondary,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
+
+                    // <= $10 toggle chip
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (under10Only) BrandAccent.copy(alpha = 0.2f) else BrandCard)
+                            .border(1.dp, if (under10Only) BrandAccent.copy(alpha = 0.4f) else BrandBorder, RoundedCornerShape(4.dp))
+                            .clickable { onToggleUnder10(!under10Only) }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        if (under10Only) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Active",
+                                tint = BrandAccent,
+                                modifier = Modifier.size(9.dp)
+                            )
+                        }
+                        Text(
+                            text = "≤ $10 Only",
+                            color = if (under10Only) BrandAccent else TextSecondary,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 

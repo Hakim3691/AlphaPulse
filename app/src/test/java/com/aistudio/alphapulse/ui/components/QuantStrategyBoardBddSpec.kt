@@ -2,6 +2,7 @@ package com.aistudio.alphapulse.ui.components
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.aistudio.alphapulse.domain.strategy.ScreenerSignal
 import com.aistudio.alphapulse.domain.strategy.SignalDirection
 import com.aistudio.alphapulse.domain.strategy.StrategySignal
@@ -69,7 +70,9 @@ class QuantStrategyBoardBddSpec {
         compose.setContent {
             QuantStrategyBoardSection(
                 screenerSignals = listOf(rsiScreener),
-                strategySignals = listOf(turtle, connors)
+                strategySignals = listOf(turtle, connors),
+                // This scenario audits the FLAT row, so it opens the full catalogue.
+                initiallyShowAll = true
             )
         }
 
@@ -81,8 +84,28 @@ class QuantStrategyBoardBddSpec {
     }
 
     @Test
+    fun `given a flat model when SHOW ALL is off then the row is hidden and switching it on reveals it`() {
+        compose.setContent {
+            QuantStrategyBoardSection(
+                screenerSignals = emptyList(),
+                strategySignals = listOf(turtle, connors)
+            )
+        }
+
+        // Directive §3: FLAT setups are noise by default.
+        compose.onNodeWithText("Connors RSI").assertDoesNotExist()
+        compose.onNodeWithText("Turtle Breakout").assertExists()
+
+        compose.onNodeWithText("SHOW ALL").performClick()
+
+        compose.onNodeWithText("Connors RSI").assertExists()
+    }
+
+    @Test
     fun `given a model without levels when the board renders then it says staging suspended instead of empty dashes`() {
-        compose.setContent { QuantStrategyBoardSection(emptyList(), listOf(connors)) }
+        compose.setContent {
+            QuantStrategyBoardSection(emptyList(), listOf(connors), initiallyShowAll = true)
+        }
 
         // Phase 1 §3: an unavailable setup publishes a status, not "ENTRY — EXIT —".
         compose.onNodeWithText("STATUS: Staging Suspended (Awaiting Trigger)", substring = true).assertExists()

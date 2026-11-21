@@ -32,6 +32,9 @@ object TraderNavigation {
 
     const val CORE_TAB_TAG: String = "nav_item_analysis"
     const val TRADER_TAB_TAG: String = "nav_item_trader"
+
+    /** Before entitlement the single bar entry is the VIP unlock call to action. */
+    const val VIP_TAB_TAG: String = "nav_item_vip"
     const val UNLOCK_BUTTON_TAG: String = "enable_trader_button"
     const val CORE_SURFACE_TAG: String = "core_analysis_surface"
 
