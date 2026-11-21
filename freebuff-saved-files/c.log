@@ -1,0 +1,496 @@
+Reusing configuration cache.
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:processDebugGoogleServices UP-TO-DATE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:processDebugNavigationResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:kspDebugKotlin UP-TO-DATE
+> Task :app:generateDebugRFile UP-TO-DATE
+
+> Task :app:compileDebugKotlin FAILED
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BatteryModeManager.kt:9:26 Unresolved reference 'experimental'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BatteryModeManager.kt:65:50 Named arguments are prohibited for non-Kotlin functions.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BatteryModeManager.kt:65:50 No parameter with name 'isCharging' found.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BatteryModeManager.kt:65:70 Mixing named and positional arguments is not allowed unless the order of the arguments matches the order of the parameters.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BatteryModeManager.kt:65:70 No value passed for parameter 'p0'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BatteryModeManager.kt:65:70 No value passed for parameter 'p1'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:3:17 Unresolved reference 'biometric'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:5:28 Unresolved reference 'WindowInspectionDuration'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:6:26 Unresolved reference 'experimental'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:22:34 Unresolved reference 'BiometricPrompt'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:29:27 Unresolved reference 'BiometricPrompt'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:29:54 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:44:26 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:44:26 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T, R> T.let(block: (T) -> R): R
+    [R|Contract description]
+     <
+        CallsInPlace(block, EXACTLY_ONCE)
+    >
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:44:30 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:45:30 Unresolved reference 'BiometricPrompt'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:48:58 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:48:61 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:52:16 Unresolved reference 'authenticate'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:52:53 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:53:28 Unresolved reference 'result'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:56:52 Unresolved reference 'name'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:61:46 Unresolved reference 'errorString'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/BiometricAuthHelper.kt:65:11 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:33:71 Unresolved reference 'runtimeEnvironment'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:48:96 Unresolved reference 'filter'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:48:105 Unresolved reference 'it'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:56:22 Suspend function 'suspend fun getAllModels(): List<ModelRegistryEntity>' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:57:23 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:58:26 Unresolved reference 'update'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:63:23 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:64:23 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:65:23 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:70:26 Unresolved reference 'update'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:87:19 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:88:19 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:89:19 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:90:19 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:91:19 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:92:19 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:93:19 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:103:17 No value passed for parameter 'latencyMs'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:103:17 No value passed for parameter 'accuracyPct'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:106:18 Suspend function 'suspend fun insert(model: ModelRegistryEntity): Unit' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:121:20 Suspend function 'suspend fun insertSession(session: SessionEntity): Unit' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:127:25 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:128:20 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:129:20 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:130:20 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:131:28 Suspend function 'suspend fun updateSession(session: SessionEntity): Unit' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:136:20 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:137:20 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:138:20 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:139:20 'val' cannot be reassigned.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:140:24 Suspend function 'suspend fun updateSession(session: SessionEntity): Unit' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:149:31 Unresolved reference 'predictionDao'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:150:27 Unresolved reference 'it'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:150:70 Unresolved reference 'it'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:151:39 Unresolved reference 'it'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:155:18 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:156:18 Unresolved reference 'orElseGet'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:156:28 Unresolved reference 'ModelState'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:172:59 Unresolved reference 'ModelState'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:175:47 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:175:59 Return type mismatch: expected 'Pair<uninferred K (of fun <T, K, V> Iterable<T>.associate), uninferred V (of fun <T, K, V> Iterable<T>.associate)>', actual 'List<String>'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:176:20 Unresolved reference 'ModelState'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:188:50 Unresolved reference 'ModelState'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:189:35 Unresolved reference 'weightK'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:189:62 Unresolved reference 'weightP'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:189:93 Unresolved reference 'weightAlpha'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:189:121 Unresolved reference 'mode'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:194:22 Unresolved reference 'ModelState'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:195:31 Unresolved reference 'PredictionEntity'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:211:23 None of the following candidates is applicable:
+fun <T> Array<out T>.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((T) -> CharSequence)? = ...): String
+fun ByteArray.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((Byte) -> CharSequence)? = ...): String
+fun ShortArray.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((Short) -> CharSequence)? = ...): String
+fun IntArray.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((Int) -> CharSequence)? = ...): String
+fun LongArray.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((Long) -> CharSequence)? = ...): String
+fun FloatArray.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((Float) -> CharSequence)? = ...): String
+fun DoubleArray.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((Double) -> CharSequence)? = ...): String
+fun BooleanArray.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((Boolean) -> CharSequence)? = ...): String
+fun CharArray.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((Char) -> CharSequence)? = ...): String
+fun <T> Iterable<T>.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((T) -> CharSequence)? = ...): String
+fun <T> Sequence<T>.joinToString(separator: CharSequence = ..., prefix: CharSequence = ..., postfix: CharSequence = ..., limit: Int = ..., truncated: CharSequence = ..., transform: ((T) -> CharSequence)? = ...): String
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:211:56 Unresolved reference 'it'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:232:50 Unresolved reference 'runtimeEnvironment'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:236:16 Return type mismatch: expected 'File?', actual 'Boolean'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/ModelManager.kt:236:48 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:11:26 Unresolved reference 'experimental'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:45:24 Unresolved reference 'ConnectivityReceiver'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:71:42 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:71:42 Not enough information to infer type argument for 'T'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:73:40 Unresolved reference 'type'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:74:25 Unresolved reference 'NetworkManager'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:75:25 Unresolved reference 'NetworkManager'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:76:25 Unresolved reference 'NetworkManager'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:81:69 Unresolved reference 'EXTRA_EXTRA_NETWORK_INFO'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:93:65 Unresolved reference 'EXTRA_IS_METERED'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:97:24 'when' expression must be exhaustive. Add the 'true', 'false' branches or an 'else' branch.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/OfflineModeManager.kt:100:15 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:4:17 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:5:17 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:6:17 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:10:36 Unresolved reference 'send'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:28:36 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:32:46 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:34:9 Unresolved reference 'WorkManager'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:36:22 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:43:36 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:44:37 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:44:73 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:44:73 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+val <T> KClass<T>.java: Class<T>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:47:46 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:49:9 Unresolved reference 'WorkManager'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:51:22 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:58:36 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:59:37 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:59:71 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:59:71 Unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+val <T> KClass<T>.java: Class<T>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:63:26 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:66:9 Unresolved reference 'WorkManager'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:68:22 Unresolved reference 'work'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:82:34 Unresolved reference 'WorkerParameters'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:82:54 Unresolved reference 'WorkerCoroutine'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:83:5 'run' overrides nothing.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:83:33 One type argument expected for class Result<out T> : Serializable.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:86:23 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:87:13 No parameter with name 'data' found.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:87:13 No value passed for parameter 'value'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:93:34 Unresolved reference 'WorkerParameters'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:93:54 Unresolved reference 'WorkerCoroutine'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:94:5 'run' overrides nothing.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:94:33 One type argument expected for class Result<out T> : Serializable.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:97:23 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:98:13 No parameter with name 'data' found.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:98:13 No value passed for parameter 'value'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:104:32 Unresolved reference 'WorkerParameters'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:104:52 Unresolved reference 'WorkerCoroutine'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:105:5 'run' overrides nothing.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:105:33 One type argument expected for class Result<out T> : Serializable.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:108:23 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:109:13 No parameter with name 'data' found.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/model/WorkManagerScheduler.kt:109:13 No value passed for parameter 'value'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:17:44 Unresolved reference 'DepthSnapshot'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:18:44 Unresolved reference 'watchedSymbols'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:27:26 Unresolved reference 'resumeWith'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:41:34 Type of 'watchedSymbols' is not a subtype of overridden property 'val watchedSymbols: StateFlow<List<String>>' defined in 'com/aistudio/alphapulse/domain/data/ExchangeDataProvider'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:44:72 Unresolved reference 'flow'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:46:30 Suspend function 'suspend fun getJsonObject(path: String): JSONObject' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:47:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:62:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:80:70 Unresolved reference 'flow'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:81:51 'fun String.toUpperCase(locale: Locale): String' is deprecated. Use uppercase() instead.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:89:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:93:21 No parameter with name 'timestamp' found.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:97:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:101:21 No parameter with name 'timestamp' found.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:108:73 Unresolved reference 'flow'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:111:33 Suspend function 'suspend fun fetchAggTrades(symbol: String, limit: Int = ...): List<Double>' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:115:17 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:117:40 No 'get' operator method providing array access.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:118:38 No 'get' operator method providing array access.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:119:41 No 'get' operator method providing array access.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:120:44 No 'get' operator method providing array access.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:121:43 No 'get' operator method providing array access.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:122:42 No 'get' operator method providing array access.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:131:9 Unresolved reference 'suspendCancellableCoroutine'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:131:39 Unresolved reference 'it'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:131:42 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:135:79 Unresolved reference 'flow'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:137:31 Suspend function 'suspend fun fetchFundingRate(symbol: String = ...): Double' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:138:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:146:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:157:79 Unresolved reference 'flow'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:162:30 Suspend function 'suspend fun getJsonObject(path: String): JSONObject' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:163:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:176:34 Suspend function 'suspend fun getJsonObject(path: String): JSONObject' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:177:17 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:179:47 Unresolved reference 'toDouble'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:180:53 Unresolved reference 'toDouble'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:188:17 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:202:81 Unresolved reference 'flow'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:204:30 Suspend function 'suspend fun getJsonObject(path: String): JSONObject' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:206:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:214:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:225:66 Return type of 'getKlineFlow' is not a subtype of the return type of the overridden member 'fun getKlineFlow(symbol: String, interval: String): Flow<List<KlineData>>' defined in 'com/aistudio/alphapulse/domain/data/ExchangeDataProvider'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:225:90 Unresolved reference 'flow'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:227:30 Suspend function 'suspend fun getJsonArray(path: String): JSONArray' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:244:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:246:13 Unresolved reference 'emit'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:246:18 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:253:30 Suspend function 'suspend fun getJsonObject(path: String): JSONObject' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/network/BinanceProvider.kt:264:30 Suspend function 'suspend fun getJsonObject(path: String): JSONObject' can only be called from a coroutine or another suspend function.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:571:29 Unresolved reference 'computeRSI'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:572:30 Unresolved reference 'computeEMA'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:573:31 Unresolved reference 'computeEMA'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:574:85 'operator' modifier is required on 'FirNamedFunctionSymbol kotlin/text/compareTo' in 'compareTo'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:576:36 Unresolved reference 'evaluateMarkovRegimeGARCH'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:577:36 Unresolved reference 'evaluateTemporalAttention'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:578:38 Unresolved reference 'computeConfluenceAlpha'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:579:28 Unresolved reference 'computeVolumeProfileAndVWAP'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:858:23 Unresolved reference 'JSONObject'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:872:9 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:890:9 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/data/repository/AlphaPulseRepository.kt:898:9 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:16:26 Unresolved reference 'experimental'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:54:5 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:54:10 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:54:12 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:54:14 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:57:5 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:57:10 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:57:13 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:57:15 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:66:25 Unresolved reference 'In'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:66:30 Unresolved reference 'Out'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:107:25 Unresolved reference 'withContext'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:107:37 Unresolved reference 'Dispatchers'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:110:31 Unresolved reference 'IngestionAgent'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:110:48 Unresolved reference 'execute'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:111:36 No value passed for parameter 'normalizedPriceData'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:111:36 No value passed for parameter 'orderBookSnapshot'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:111:36 No value passed for parameter 'priceHistory'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:112:14 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:115:33 Unresolved reference 'MarketStateAgent'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:115:52 Unresolved reference 'execute'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:121:14 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:124:33 Unresolved reference 'QuantVectorAgent'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:124:52 Unresolved reference 'execute'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:127:17 No parameter with name 'marketState' found.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:129:17 No value passed for parameter 'currentRegime'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:131:14 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:134:26 Unresolved reference 'TsfmAgent'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:134:38 Unresolved reference 'execute'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:141:14 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:144:30 Unresolved reference 'DecisionRouterAgent'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:144:52 Unresolved reference 'execute'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:157:14 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:160:26 Unresolved reference 'RiskConfidenceAgent'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:160:48 Unresolved reference 'execute'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:171:14 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:174:30 Unresolved reference 'NarratorAgent'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:174:46 Unresolved reference 'execute'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:188:14 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:191:9 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:206:5 Object 'AgentDAG.IngestionAgent' is not abstract and does not implement abstract member:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:214:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:214:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:214:26 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:214:28 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:215:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:215:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:215:27 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:215:29 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:217:9 'execute' overrides nothing. Potential signatures for overriding:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:242:41 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:242:41 Not enough information to infer type argument for 'V'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:243:32 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:243:32 Not enough information to infer type argument for 'B'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:243:71 Unresolved reference 'div' for operator '/'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:244:33 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:244:33 Not enough information to infer type argument for 'B'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:244:76 Unresolved reference 'div' for operator '/'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:244:78 Unresolved reference 'max'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:257:66 Unresolved reference 'lobConfidence'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:310:5 Object 'AgentDAG.MarketStateAgent' is not abstract and does not implement abstract member:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:318:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:318:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:318:26 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:318:28 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:319:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:319:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:319:27 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:319:29 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:321:9 'execute' overrides nothing. Potential signatures for overriding:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:329:33 Unresolved reference 'abs'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:330:33 Unresolved reference 'abs'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:330:58 Unresolved reference 'abs'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:335:52 Unresolved reference 'abs'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:378:5 Object 'AgentDAG.QuantVectorAgent' is not abstract and does not implement abstract member:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:386:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:386:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:386:26 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:386:28 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:387:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:387:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:387:27 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:387:29 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:389:9 'execute' overrides nothing. Potential signatures for overriding:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:398:69 Unresolved reference 'max'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:452:5 Object 'AgentDAG.TsfmAgent' is not abstract and does not implement abstract member:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:460:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:460:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:460:26 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:460:28 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:461:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:461:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:461:27 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:461:29 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:463:9 'execute' overrides nothing. Potential signatures for overriding:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:530:5 Object 'AgentDAG.DecisionRouterAgent' is not abstract and does not implement abstract member:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:538:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:538:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:538:26 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:538:28 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:539:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:539:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:539:27 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:539:29 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:541:9 'execute' overrides nothing. Potential signatures for overriding:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:543:13 Unresolved reference 'DeterministicDecisionRouter'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:543:50 Unresolved reference 'DecisionInputs'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:554:9 Missing return statement.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:592:5 Object 'AgentDAG.RiskConfidenceAgent' is not abstract and does not implement abstract member:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:600:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:600:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:600:26 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:600:28 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:601:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:601:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:601:27 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:601:29 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:603:9 'execute' overrides nothing. Potential signatures for overriding:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:642:35 Unresolved reference 'sign'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:643:21 Unresolved reference 'sign'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:646:34 Unresolved reference 'regimeConfidence'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:652:24 Unresolved reference 'max'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:652:33 Unresolved reference 'min'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:679:5 Object 'AgentDAG.NarratorAgent' is not abstract and does not implement abstract members:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+fun updateHealth(isSuccessful: Boolean, error: String?, durationMs: Long): Unit
+fun reset(): Unit
+fun validateInputs(inputs: Any): Boolean
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:687:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:687:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:687:26 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:687:28 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:688:18 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:688:23 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:688:27 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:688:29 Syntax error: Expecting member declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:690:9 'execute' overrides nothing. Potential signatures for overriding:
+fun execute(inputs: <ERROR TYPE REF: Symbol not found for In>): <ERROR TYPE REF: Symbol not found for Out>
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:703:46 Unresolved reference 'coneBreaches'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:703:58 Syntax error: Expecting an element.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:709:38 Unresolved reference 'joinToString'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:709:65 Unresolved reference 'it'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:709:78 Unresolved reference 'it'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:709:78 Argument type mismatch: actual type is 'R (of fun <T, R> T.let)', but 'K? (of fun <K> ELVIS_CALL)' was expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:709:87 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:709:91 Cannot infer type for this parameter. Specify it explicitly.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:709:108 Argument type mismatch: actual type is 'String', but 'K (of fun <K> ELVIS_CALL)' was expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:709:118 Syntax error: Expecting '"'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:710:23 Unresolved reference 'json'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:713:17 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:713:24 Unresolved reference 'json'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:714:22 Unresolved reference 'e'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:714:23 Syntax error: Expecting ')'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:714:23 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:715:37 Unresolved reference 'e'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:716:17 'return' is prohibited here.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:718:10 Syntax error: Expecting 'catch' or 'finally'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:720:9 Modifier 'override' is not applicable to 'local function'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:722:9 Modifier 'override' is not applicable to 'local function'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:724:9 Modifier 'override' is not applicable to 'local function'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:725:5 Missing return statement.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/agent/Agent.kt:726:2 Syntax error: Missing '}.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/decision/DecisionRouter.kt:192:38 Unresolved reference 'abs'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/decision/DecisionRouter.kt:192:66 Unresolved reference 'abs'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/decision/DecisionRouter.kt:214:16 Unresolved reference 'max'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/decision/DecisionRouter.kt:214:25 Unresolved reference 'min'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/narrative/EdgeSlmNarrativeLayer.kt:98:13 This variable must either have an explicit type or be initialized.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/narrative/EdgeSlmNarrativeLayer.kt:98:19 Syntax error: Unexpected tokens (use ';' to separate expressions on the same line).
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/narrative/EdgeSlmNarrativeLayer.kt:99:43 Variable 'lower' must be initialized.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/narrative/EdgeSlmNarrativeLayer.kt:109:39 Unresolved reference 'lowerNarrative'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:17:22 Unresolved reference 'nextDouble'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:71:82 Argument type mismatch: actual type is 'Float', but 'Double' was expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:74:82 Argument type mismatch: actual type is 'Float', but 'Double' was expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:78:83 Argument type mismatch: actual type is 'Float', but 'Double' was expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:81:83 Argument type mismatch: actual type is 'Float', but 'Double' was expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:84:74 Argument type mismatch: actual type is 'Float', but 'Double' was expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:94:27 Argument type mismatch: actual type is 'Float', but 'Double' was expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:232:13 Unresolved reference 'VPResult'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:242:38 Unresolved reference 'poc'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:248:24 Unresolved reference 'rotationRuleTriggered'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:248:52 Unresolved reference 'rotationTarget'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:249:45 Unresolved reference 'rotationTarget'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:252:43 'operator' modifier is required on 'FirNamedFunctionSymbol kotlin/compareTo' in 'compareTo'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:289:31 Unresolved reference 'ln'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:293:32 Unresolved reference 'ln'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/domain/quant/QuantMath.kt:302:22 Unresolved reference 'computeVolumeProfileAndVWAP'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:45:33 This type is final, so it cannot be extended.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:45:33 No value passed for parameter 'PREDICTION_VALIDATION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:45:33 No value passed for parameter 'FROM_EVERY_SETTLED_PREDICTION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:45:33 No value passed for parameter 'SURVIVE_SCREEN_LOCK_BACKGROUND'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:45:33 No value passed for parameter 'RECOVER_AFTER_PROCESS_TERMINATION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:45:33 No value passed for parameter 'COMPLETE_AUDIT_LEDGER'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:45:33 No value passed for parameter 'NO_EXPOSED_API_CREDENTIALS'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:45:33 No value passed for parameter 'EXPLAIN_NUMERICAL_STATE_LOCALLY'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:45:33 No value passed for parameter 'MEASURABLE_INCREMENTAL_INFO'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:48:5 Syntax error: Expecting an expression.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:48:5 Syntax error: Expecting ')'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:48:9 Syntax error: Expecting a class body.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:48:9 Expression 'ADAPTIVE_ENSEMBLE_LEARNING' of type 'Boolean' cannot be invoked as a function. Function 'invoke()' is not found.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:48:36 Syntax error: Expecting an element.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:48:38 Syntax error: Property getter or setter expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:51:37 Syntax error: Property getter or setter expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:54:45 Syntax error: Property getter or setter expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:58:1 Syntax error: Expecting a top level declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:61:36 This type is final, so it cannot be extended.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:61:36 No value passed for parameter 'PREDICTION_VALIDATION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:61:36 No value passed for parameter 'FROM_EVERY_SETTLED_PREDICTION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:61:36 No value passed for parameter 'SURVIVE_SCREEN_LOCK_BACKGROUND'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:61:36 No value passed for parameter 'RECOVER_AFTER_PROCESS_TERMINATION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:61:36 No value passed for parameter 'COMPLETE_AUDIT_LEDGER'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:61:36 No value passed for parameter 'NO_EXPOSED_API_CREDENTIALS'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:61:36 No value passed for parameter 'EXPLAIN_NUMERICAL_STATE_LOCALLY'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:61:36 No value passed for parameter 'MEASURABLE_INCREMENTAL_INFO'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:64:5 Syntax error: Expecting an expression.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:64:5 Syntax error: Expecting ')'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:64:9 Syntax error: Expecting a class body.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:64:9 Expression 'RECOVER_AFTER_PROCESS_TERMINATION' of type 'Boolean' cannot be invoked as a function. Function 'invoke()' is not found.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:64:43 Syntax error: Expecting an element.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:64:45 Syntax error: Property getter or setter expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:67:37 Syntax error: Property getter or setter expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:70:42 Syntax error: Property getter or setter expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:73:47 Syntax error: Property getter or setter expected.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:77:1 Syntax error: Expecting a top level declaration.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:107:40 Unresolved reference 'ADAPTIVE_ENSEMBLE_LEARNING'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:108:26 Unresolved reference 'PREDICTION_VALIDATION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:109:26 Unresolved reference 'FROM_EVERY_SETTLED_PREDICTION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:110:26 Unresolved reference 'SURVIVE_SCREEN_LOCK_BACKGROUND'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:112:46 Unresolved reference 'RECOVER_AFTER_PROCESS_TERMINATION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:113:29 Unresolved reference 'COMPLETE_AUDIT_LEDGER'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:114:29 Unresolved reference 'NO_EXPOSED_API_CREDENTIALS'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:115:29 Unresolved reference 'EXPLAIN_NUMERICAL_STATE_LOCALLY'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:116:29 Unresolved reference 'MEASURABLE_INCREMENTAL_INFO'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:140:40 Unresolved reference 'ADAPTIVE_ENSEMBLE_LEARNING'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:141:26 Unresolved reference 'PREDICTION_VALIDATION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:142:26 Unresolved reference 'FROM_EVERY_SETTLED_PREDICTION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:143:26 Unresolved reference 'SURVIVE_SCREEN_LOCK_BACKGROUND'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:147:46 Unresolved reference 'RECOVER_AFTER_PROCESS_TERMINATION'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:148:29 Unresolved reference 'COMPLETE_AUDIT_LEDGER'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:149:29 Unresolved reference 'NO_EXPOSED_API_CREDENTIALS'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:150:29 Unresolved reference 'EXPLAIN_NUMERICAL_STATE_LOCALLY'.
+e: file:///workspace/chats/049a85052ab0e30ead41eb11/app/src/main/java/com/aistudio/alphapulse/release/DefinitionOfDone.kt:151:29 Unresolved reference 'MEASURABLE_INCREMENTAL_INFO'.
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 12s
+9 actionable tasks: 1 executed, 8 up-to-date
+Configuration cache entry reused.

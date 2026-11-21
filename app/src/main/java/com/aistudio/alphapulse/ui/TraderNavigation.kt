@@ -55,7 +55,7 @@ object TraderNavigation {
     fun label(state: ModuleInstallState, progress: Int): String = when (state) {
         ModuleInstallState.DOWNLOADING -> "Trader ${progress.coerceIn(0, 100)}%"
         ModuleInstallState.INSTALLING -> "Installing"
-        else -> "Auto-Trader"
+        else -> "VIP Features"
     }
 
     fun action(state: ModuleInstallState): TraderTabAction = when (state) {

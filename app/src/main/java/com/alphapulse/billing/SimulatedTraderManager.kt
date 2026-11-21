@@ -44,7 +44,7 @@ class SimulatedTraderManager(
     override fun requestPurchaseSimulation(activity: Activity, onSuccess: () -> Unit) {
         AlertDialog.Builder(activity)
             .setTitle("Google Play Billing (Simulated)")
-            .setMessage("Unlock ProactiveMS Auto-Trader Plugin for $49.99 (Debug Emulation)?")
+            .setMessage("Unlock ProactiveMS VIP Features Plugin for $49.99 (Debug Emulation)?")
             .setPositiveButton("Simulate Purchase Success") { _, _ ->
                 prefs.edit().putBoolean(KEY_UNLOCKED, true).apply()
                 isEntitled.value = true

@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Phase 1 §7 / D5: the Auto-Trader navigation entry is injected only from the
+ * Phase 1 §7 / D5: the VIP Features navigation entry is injected only from the
  * simulated entitlement lifecycle, and never before it.
  *
  * The tab is a function of state, not a boolean scattered through the UI, so these
@@ -39,7 +39,7 @@ class TraderTabInjectionBddSpec {
     @Test
     fun `given the module is installed when the tab is tapped then it launches the feature host`() {
         assertTrue(TraderNavigation.isTraderTabVisible(ModuleInstallState.INSTALLED))
-        assertEquals("Auto-Trader", TraderNavigation.label(ModuleInstallState.INSTALLED, 100))
+        assertEquals("VIP Features", TraderNavigation.label(ModuleInstallState.INSTALLED, 100))
         assertEquals(TraderTabAction.LAUNCH, TraderNavigation.action(ModuleInstallState.INSTALLED))
         assertFalse(TraderNavigation.showsUnlockButton(ModuleInstallState.INSTALLED))
     }
@@ -63,13 +63,13 @@ class TraderTabInjectionBddSpec {
             "downloadProgress"
         ).forEach { marker ->
             assertFalse(
-                "AlphaPulseScreen must not depend on the trader module ($marker)",
+                "AlphaPulseScreen must not depend on the VIP Features module ($marker)",
                 screen.contains(marker)
             )
         }
 
         val shell = repoFile("app/src/main/java/com/aistudio/alphapulse/ui/AppShell.kt").readText()
-        assertTrue("The shell must render the trader entry", shell.contains("TRADER_TAB_TAG"))
+        assertTrue("The shell must render the trader entry", shell.contains("VIP_TAB_TAG"))
         assertTrue(
             "The core surface must be a plain content slot",
             shell.contains("coreContent()")
@@ -85,8 +85,8 @@ class TraderTabInjectionBddSpec {
         assertTrue("The bar must offer the VIP unlock", shell.contains("VIP_TAB_TAG"))
         assertTrue(shell.contains("Enable VIP Features"))
         assertFalse(
-            "The floating ENABLE AUTO-TRADER button collided with the bottom cards",
-            shell.contains("ENABLE AUTO-TRADER")
+            "The floating ENABLE VIP FEATURES button collided with the bottom cards",
+            shell.contains("ENABLE VIP FEATURES")
         )
         assertFalse(
             "The redundant Analysis tab duplicated the whole core surface",

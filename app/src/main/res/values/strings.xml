@@ -3,5 +3,5 @@
     <!-- Phase 1 D4: the user-visible title of the on-demand :proactive_trader module.
          It must live in the base resource table; the bundle tool resolves a dynamic
          module's dist:title from there. -->
-    <string name="trader_module_title">ProactiveMS Auto-Trader</string>
+    <string name="trader_module_title">ProactiveMS VIP Features</string>
 </resources>
