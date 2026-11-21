@@ -65,14 +65,22 @@ class DynamicFeatureContractBddSpec {
     }
 
     @Test
-    fun `given the feature host when read then it exposes the six ProactiveMS tabs and no native code`() {
+    fun `given the feature host when read then it renders the canonical seven ProactiveMS tabs and no native code`() {
         val activity = repoFile(
             "proactive_trader/src/main/java/com/alphapulse/proactive/TraderHostActivity.kt"
         ).readText()
 
-        listOf("Analysis", "Screener", "Dashboard", "Telemetry", "Guardrails", "Audit").forEach { tab ->
-            assertTrue("The host must expose the $tab tab", activity.contains("\"$tab\""))
-        }
+        // C-22 replaced the earlier six-label list: `Analysis` is retired, `AlphaPulse` and
+        // `Replay` are part of the contract, and the host must read the one tab order rather
+        // than declaring a second list of its own (`ProactiveTabsBddSpec`).
+        assertTrue(
+            "The host must render the canonical tab order",
+            activity.contains("ProactiveMsWorkspaceState.TAB_ORDER")
+        )
+        assertFalse(
+            "The retired Analysis tab must not return",
+            activity.contains("\"Analysis\"")
+        )
         assertFalse(
             "The feature ships no native libraries, so the arm64 ABI split stays untouched",
             File(repoFile("proactive_trader").path, "src/main/cpp").exists()

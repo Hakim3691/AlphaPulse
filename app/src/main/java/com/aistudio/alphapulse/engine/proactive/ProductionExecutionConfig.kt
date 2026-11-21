@@ -74,6 +74,12 @@ data class ProductionExecutionConfig(
         const val REENTRY_COOLDOWN_MINUTES = 30
         const val WS_PING_TIMEOUT_MS = 5_000L
 
+        /** §69/§71: the walk-forward proactive tolerance the audit row records in force. */
+        const val PROACTIVE_MAX_LOSS_R = 0.50
+
+        /** §71: the parameter-set version every audit row attributes its decision to. */
+        const val AUDIT_PARAMETER_SET_VERSION = "proactive-production/v1"
+
         /** The shipped defaults, exactly as §34 publishes them. */
         val PRODUCTION = ProductionExecutionConfig()
     }

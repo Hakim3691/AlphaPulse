@@ -5,6 +5,7 @@ import com.aistudio.alphapulse.data.model.Campaign
 import com.aistudio.alphapulse.data.model.CampaignState
 import com.aistudio.alphapulse.data.model.CryptoAsset
 import com.aistudio.alphapulse.data.model.VenueHealth
+import com.aistudio.alphapulse.engine.proactive.ProductionExecutionConfig
 
 /**
  * Phase 4 (Spec §33 Operational Guardrails): pure decision functions wired into the
@@ -43,14 +44,43 @@ object ExecutionGuardrails {
         }
 
     /**
-     * §33 "Spread exceeds volatility-adjusted limit": passive staging disabled. The
-     * spread limit widens with volatility: 8 bps base, scaled by the ATR ratio.
+     * §33 "Spread exceeds volatility-adjusted limit": passive staging disabled.
+     *
+     * The ceiling is the §34 configured 0.10%, widened by the ATR ratio up to §33's
+     * 0.12% maximum. Both numbers are percentages of price, matching
+     * `CryptoAsset.orderBookSpreadPct`, so the guard and the published configuration
+     * cannot drift apart.
      */
-    fun isSpreadBlowout(asset: CryptoAsset): Boolean {
+    fun spreadCeilingPct(
+        atr5m: Double,
+        lastPrice: Double,
+        config: ProductionExecutionConfig = ProductionExecutionConfig.PRODUCTION
+    ): Double {
+        if (lastPrice <= 0.0) return config.maxSpreadPct
+        val atrPct = (atr5m / lastPrice * 100.0).coerceAtLeast(0.0)
+        val widened = config.maxSpreadPct + atrPct * config.atrZoneMultiplier
+        return widened.coerceIn(
+            config.maxSpreadPct,
+            config.maxSpreadPct + MAX_VOLATILITY_SPREAD_WIDENING_PCT
+        )
+    }
+
+    /** §33's upper bound on the volatility-adjusted spread ceiling. */
+    const val MAX_VOLATILITY_SPREAD_WIDENING_PCT = 0.02
+
+    fun isSpreadBlowout(
+        spreadPct: Double,
+        atr5m: Double,
+        lastPrice: Double,
+        config: ProductionExecutionConfig = ProductionExecutionConfig.PRODUCTION
+    ): Boolean = spreadPct > spreadCeilingPct(atr5m, lastPrice, config)
+
+    fun isSpreadBlowout(
+        asset: CryptoAsset,
+        config: ProductionExecutionConfig = ProductionExecutionConfig.PRODUCTION
+    ): Boolean {
         if (asset.lastPrice <= 0.0) return true
-        val atrPct = asset.atr5m / asset.lastPrice * 10_000.0 // ATR in bps
-        val limitBps = (8.0 + atrPct * 0.25).coerceAtLeast(8.0)
-        return asset.orderBookSpreadPct * 100.0 > limitBps
+        return isSpreadBlowout(asset.orderBookSpreadPct, asset.atr5m, asset.lastPrice, config)
     }
 
     /** §33 "Order rejects exceed threshold": pause venue for that asset. */

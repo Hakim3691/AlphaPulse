@@ -43,4 +43,7 @@ dependencies {
   // The auto-trader surface mounts the base app's MainViewModel, which owns the
   // paper-trade loop and the Scaled Live staging gate (§38).
   implementation(libs.androidx.activity.ktx)
+  // §3: the host observes its own lifecycle so the orphan intercept is reachable.
+  implementation(libs.androidx.lifecycle.runtime.ktx)
+  implementation(libs.kotlinx.coroutines.android)
 }

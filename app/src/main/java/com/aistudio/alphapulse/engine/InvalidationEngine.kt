@@ -8,6 +8,7 @@ import com.aistudio.alphapulse.data.model.EvidenceFrame
 import com.aistudio.alphapulse.data.model.InvalidationFamily
 import com.aistudio.alphapulse.data.model.InvalidationReason
 import com.aistudio.alphapulse.data.model.LevelMap
+import com.aistudio.alphapulse.engine.proactive.ProductionExecutionConfig
 import kotlin.math.abs
 
 data class InvalidationResult(
@@ -24,7 +25,16 @@ enum class InvalidationAction {
     REARM_CAMPAIGN
 }
 
-class InvalidationEngine {
+class InvalidationEngine(
+    private val config: ProductionExecutionConfig = ProductionExecutionConfig.PRODUCTION
+) {
+
+    /**
+     * §34: the single source of the hard-flatten re-entry lockout. Both this engine and
+     * the view model arm the cooldown through this method, so the 30-minute production
+     * value cannot drift back to a hard-coded 15.
+     */
+    fun cooldownDeadline(nowMillis: Long): Long = nowMillis + config.reentryCooldownMillis()
 
     /**
      * Evaluates live evidence and updates campaign invalidation score and state
@@ -153,8 +163,8 @@ class InvalidationEngine {
             )
         }
 
-        // 5. Liquidity Disorder (Spread blowout)
-        if (asset.orderBookSpreadPct > 0.08) {
+        // 5. Liquidity Disorder (Spread blowout) — the §34 configured ceiling.
+        if (asset.orderBookSpreadPct > config.maxSpreadPct) {
             val pts = 20
             score += pts
             reasons.add(
@@ -212,7 +222,11 @@ class InvalidationEngine {
             topReasons = reasons.take(3),
             status = newStatus,
             entryLadder = newLadder,
-            cooldownUntilTs = if (action == InvalidationAction.HARD_FLATTEN_COOLDOWN) System.currentTimeMillis() + (15 * 60 * 1000) else campaign.cooldownUntilTs
+            cooldownUntilTs = if (action == InvalidationAction.HARD_FLATTEN_COOLDOWN) {
+                cooldownDeadline(System.currentTimeMillis())
+            } else {
+                campaign.cooldownUntilTs
+            }
         )
 
         val reasonText = reasons.firstOrNull()?.explanation ?: "Evidence baseline within safety envelope"

@@ -51,6 +51,8 @@ import com.aistudio.alphapulse.engine.PaperPnl
 import com.aistudio.alphapulse.engine.OverrideWarning
 import com.aistudio.alphapulse.engine.PathEngine
 import com.aistudio.alphapulse.engine.proactive.PreLaunchVerdict
+import com.aistudio.alphapulse.engine.proactive.ProactiveAuditRecorder
+import com.aistudio.alphapulse.engine.proactive.ProductionExecutionConfig
 import com.aistudio.alphapulse.engine.proactive.ProactiveEvidenceRuntime
 import com.aistudio.alphapulse.engine.proactive.ProactiveLoopFrame
 import com.aistudio.alphapulse.engine.proactive.ProactiveLoopResult
@@ -701,7 +703,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 status = CampaignState.CANCELLED,
                 entryLadder = c.entryLadder.map { it.copy(isResting = false, isFilled = false) },
                 invalidationScore = 85,
-                cooldownUntilTs = System.currentTimeMillis() + (15 * 60 * 1000)
+                cooldownUntilTs = invalidationEngine.cooldownDeadline(System.currentTimeMillis())
             )
             currentCampaigns[index] = updated
             _uiState.value = _uiState.value.copy(
@@ -983,6 +985,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         currentLevelMap
                     )
                     if (result.triggerAction != InvalidationAction.NO_ACTION) {
+                        // §71/C-22: every invalidation decision writes the 25-field ledger.
+                        persistProactiveAudit(
+                            result.updatedCampaign,
+                            updatedAsset,
+                            result.triggerAction
+                        )
                         repository.logAction(
                             asset = updatedAsset.symbol,
                             campaignId = campaign.id,
@@ -1171,6 +1179,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ------------------------------------------------------------- Phase 4 execution
 
     /** §31: records the loop's own cancellations so the audit trail names the loop. */
+    /**
+     * §71/C-22: append the decision to the 25-field audit ledger. A storage failure is
+     * contained so it cannot take down the live evaluation cycle; the eight-field log the
+     * same branch writes remains the operational trace when Room is unavailable.
+     */
+    private suspend fun persistProactiveAudit(
+        campaign: Campaign,
+        asset: CryptoAsset,
+        action: InvalidationAction
+    ) {
+        runCatching {
+            AlphaDatabase.getDatabase(getApplication())
+                .proactiveAuditLedgerDao()
+                .insert(
+                    ProactiveAuditRecorder.record(
+                        campaign = campaign,
+                        asset = asset,
+                        action = action,
+                        config = ProductionExecutionConfig.PRODUCTION
+                    )
+                )
+        }
+    }
+
     private suspend fun logLoopActions(
         previous: List<Campaign>,
         result: ProactiveLoopResult
