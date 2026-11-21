@@ -43,7 +43,8 @@ class SimulatedTraderManagerBddSpec {
     @Test
     fun `given a simulated purchase when the download runs then progress reaches 100 and the state becomes installed`() {
         val scope = TestScope(UnconfinedTestDispatcher())
-        val manager = SimulatedTraderManager(context, scope)
+        // The feature host is present: the install lifecycle is what is under test.
+        val manager = SimulatedTraderManager(context, scope) { true }
 
         // The billing sheet writes the entitlement; the install simulation then runs.
         context.getSharedPreferences(SimulatedTraderManager.PREFS, Context.MODE_PRIVATE)
@@ -64,7 +65,7 @@ class SimulatedTraderManagerBddSpec {
         context.getSharedPreferences(SimulatedTraderManager.PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean(SimulatedTraderManager.KEY_UNLOCKED, true).apply()
 
-        val manager = SimulatedTraderManager(context, TestScope())
+        val manager = SimulatedTraderManager(context, TestScope()) { true }
 
         assertTrue(manager.isEntitled.value)
         assertEquals(ModuleInstallState.INSTALLED, manager.installState.value)

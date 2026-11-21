@@ -51,15 +51,24 @@ object TraderNavigation {
         ModuleInstallState.ERROR -> true
     }
 
-    /** `Auto-Trader`, `Trader 40%`, or `Installing`. */
+    /**
+     * `VIP Features`, `Trader 40%`, `Installing`, or `VIP unavailable`.
+     *
+     * `ERROR` is what the lifecycle reports when the entitlement exists but the
+     * on-demand host is not on the device, so the bar must not keep advertising a
+     * VIP tab that can never open.
+     */
     fun label(state: ModuleInstallState, progress: Int): String = when (state) {
         ModuleInstallState.DOWNLOADING -> "Trader ${progress.coerceIn(0, 100)}%"
         ModuleInstallState.INSTALLING -> "Installing"
+        ModuleInstallState.ERROR -> "VIP unavailable"
         else -> "VIP Features"
     }
 
     fun action(state: ModuleInstallState): TraderTabAction = when (state) {
-        ModuleInstallState.INSTALLED, ModuleInstallState.ERROR -> TraderTabAction.LAUNCH
+        ModuleInstallState.INSTALLED -> TraderTabAction.LAUNCH
+        // Nothing to launch: the module was never delivered to this build.
+        ModuleInstallState.ERROR -> TraderTabAction.WAITING
         ModuleInstallState.DOWNLOADING, ModuleInstallState.INSTALLING -> TraderTabAction.WAITING
         ModuleInstallState.NOT_INSTALLED, ModuleInstallState.ENTITLEMENT_REQUIRED ->
             TraderTabAction.PURCHASE
