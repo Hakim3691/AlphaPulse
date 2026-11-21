@@ -50,6 +50,7 @@ import com.aistudio.alphapulse.engine.OrderBookSnapshot
 import com.aistudio.alphapulse.engine.PaperPnl
 import com.aistudio.alphapulse.engine.OverrideWarning
 import com.aistudio.alphapulse.engine.PathEngine
+import com.aistudio.alphapulse.engine.proactive.PreLaunchVerdict
 import com.aistudio.alphapulse.engine.proactive.ProactiveEvidenceRuntime
 import com.aistudio.alphapulse.engine.proactive.ProactiveLoopFrame
 import com.aistudio.alphapulse.engine.proactive.ProactiveLoopResult
@@ -509,6 +510,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun dismissLiveModeGate() {
         _uiState.value = _uiState.value.copy(isLiveModeBlocked = false)
     }
+
+    /**
+     * §38: the durable-evidence verdict [gateAndLog] hands to `gateStaging`.
+     *
+     * Exposed because Scaled Live is a decision surface, not a hidden side effect:
+     * the auto-trader screen and its BDD scenario read the exact object the staging
+     * call uses instead of constructing a second verdict from the same fields.
+     */
+    fun preLaunchVerdict(): PreLaunchVerdict = proactiveCycle.preLaunchVerdict()
+
+    /**
+     * §38: run the shipped staging gate over [campaigns] in the current mode, exactly
+     * as the live delta loop does. This is the single path from persisted paper
+     * evidence to Scaled Live routing.
+     */
+    fun stageCampaigns(campaigns: List<Campaign>): List<Campaign> = gateAndLog(campaigns)
 
     fun setExecutionMode(mode: ExecutionMode) {
         val isLiveMode = mode == ExecutionMode.CAPPED_LIVE || mode == ExecutionMode.SCALED_LIVE

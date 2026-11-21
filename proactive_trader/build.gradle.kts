@@ -40,4 +40,7 @@ dependencies {
   // A dynamic feature must depend on its base module; the contract is shared.
   implementation(project(":app"))
   implementation(project(":core_contract"))
+  // The auto-trader surface mounts the base app's MainViewModel, which owns the
+  // paper-trade loop and the Scaled Live staging gate (§38).
+  implementation(libs.androidx.activity.ktx)
 }

@@ -1,6 +1,5 @@
 package com.alphapulse.proactive
 
-import android.app.Activity
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
@@ -9,6 +8,9 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
+import com.aistudio.alphapulse.ui.MainViewModel
 
 /**
  * Phase 1 §7: the dynamic feature module's host screen.
@@ -22,9 +24,17 @@ import android.widget.Toast
  * libraries, so its packaging cannot disturb the base module's arm64 resource /
  * split processing.
  *
- * Spec Ref: Phase 1 §5 Dynamic Feature Module Architecture, §7
+ * This activity mounts the base app's [MainViewModel]: it is the shipped surface that
+ * runs the paper-trade loop and the single Scaled Live staging gate backed by the
+ * durable §38 evidence. Before this wiring the view model was never mounted by any
+ * shipped screen, so Scaled Live could not be reached outside tests.
+ *
+ * Spec Ref: Phase 1 §5 Dynamic Feature Module Architecture, §7; Phase 2 §38
  */
-class TraderHostActivity : Activity() {
+class TraderHostActivity : ComponentActivity() {
+
+    /** The engine behind the auto-trader tabs; owns trading evidence and the gate. */
+    private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,6 +95,16 @@ class TraderHostActivity : Activity() {
                 textSize = 10f
                 gravity = Gravity.START
                 setPadding(0, dp(20), 0, 0)
+            }
+        )
+        root.addView(
+            TextView(this).apply {
+                // §38: the mounted engine's pre-launch verdict, read from the same
+                // persisted evidence its staging gate uses.
+                text = viewModel.preLaunchVerdict().summary
+                setTextColor(MUTED)
+                textSize = 10f
+                setPadding(0, dp(12), 0, 0)
             }
         )
 
