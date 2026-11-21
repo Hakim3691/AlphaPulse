@@ -2,9 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:dist="http://schemas.android.com/apk/distribution">
 
-    <!-- Phase 1 §5: on-demand delivery. The module is not fused into the base APK. -->
+    <!-- Phase 1 §5: on-demand delivery. Play still installs the module separately and
+         the base APKs never contain it. Fusing is enabled because bundletool omits a
+         non-fused module from the universal APK, and that APK is the sideloaded build
+         (C-03) that must actually open the trader host. -->
     <dist:module dist:onDemand="true" dist:title="@string/trader_module_title">
-        <dist:fusing dist:include="false" />
+        <dist:fusing dist:include="true" />
     </dist:module>
 
     <application>

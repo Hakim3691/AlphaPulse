@@ -278,14 +278,18 @@ class FinalizedContractGuardBddSpec {
             )
         }
 
-        val gate = workflow.indexOf("Require both arm64-v8a APKs before publishing")
-        assertTrue("The release job must refuse a release with only one APK", gate >= 0)
+        val gate = workflow.indexOf("Require every arm64-v8a APK before publishing")
+        assertTrue("The release job must refuse a release with a missing APK", gate >= 0)
         assertTrue(
             "The completeness gate must run before the release is published",
             gate < workflow.indexOf("Publish Release with APK Assets")
         )
         val gateBlock = workflow.substring(gate).substringBefore("      - name: Publish Release with APK Assets")
-        for (apk in listOf("app-arm64-v8a-debug.apk", "app-arm64-v8a-release.apk")) {
+        for (apk in listOf(
+            "app-arm64-v8a-debug.apk",
+            "app-arm64-v8a-release.apk",
+            "app-arm64-v8a-universal-debug.apk"
+        )) {
             assertTrue("The completeness gate must require $apk: $gateBlock", gateBlock.contains(apk))
         }
     }

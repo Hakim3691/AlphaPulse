@@ -52,8 +52,9 @@ Deleting a row, deleting a guard spec, or relaxing an assertion is a regression.
   bundled and pinned (35,335,380 bytes, sha-256
   `c9d915eca282ed42d1a09b143b592adb4cc6744ffe2d294adf5cfc5548170c38`), mounted
   from the APK and verified before use.
-- Only `arm64-v8a` is built and shipped; debug and release APKs are separate CI
-  artifacts.
+- Only `arm64-v8a` is built and shipped; the debug and release APKs are separate CI
+  artifacts, plus an arm64-only fused universal APK (bundletool) that carries the
+  on-demand feature so it is installable outside Play.
 - Signing uses the persistent cache-backed keystore and `versionCode` grows
   monotonically, so updates install in place without wiping user data or models.
 - Every evaluation writes exactly one ledger row with its verdict, calibrated

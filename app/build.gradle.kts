@@ -164,9 +164,11 @@ android {
     }
   }
   // ONNX Runtime and the Cactus engine bundle native libraries per architecture.
-  // Only arm64-v8a is shipped, so a single base APK is emitted and no universal APK
-  // exists: one artifact, no wasted bandwidth, and the name the CI workflow uploads
-  // (`app-arm64-v8a-{debug,release}.apk`).
+  // Only arm64-v8a is shipped, so a single base APK per variant is emitted with the
+  // name the CI workflow uploads (`app-arm64-v8a-{debug,release}.apk`). CI additionally
+  // converts the debug .aab into an arm64-only universal APK with bundletool so the
+  // on-demand feature (C-32) is installable outside Play (C-03); that artifact is
+  // produced after the bundle, never by this module.
   //
   // APK ABI splits are deliberately not used. AGP cannot resolve a dynamic feature
   // module's resource output when the base module splits by ABI

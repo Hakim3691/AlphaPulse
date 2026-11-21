@@ -786,6 +786,58 @@ jobs:
           print(f"Dynamic feature packaged: {path} ({len(names)} entries)")
           EOF
 
+      - name: Build the universal APK from the verified bundle
+        # C-03: `:proactive_trader` is delivered on demand, so neither variant APK
+        # contains com.alphapulse.proactive and a sideloaded release shows "VIP
+        # unavailable". bundletool's universal mode fuses every module whose manifest
+        # allows fusing into one APK, which is the installable build for sideloaded
+        # users; it is converted from the same .aab whose module set was just asserted
+        # and signed with the debug identity so it installs in place over the debug APK.
+        env:
+          BUNDLETOOL_VERSION: 1.17.2
+        run: |
+          set -euo pipefail
+
+          BUNDLETOOL_JAR="$RUNNER_TEMP/bundletool.jar"
+          # The maven-artifact jar under com/android/tools/build has no Main-Class and
+          # cannot be run with `java -jar`; the release `bundletool-all` jar is the
+          # executable distribution.
+          BUNDLETOOL_URL="https://github.com/google/bundletool/releases/download/${BUNDLETOOL_VERSION}/bundletool-all-${BUNDLETOOL_VERSION}.jar"
+          echo "Downloading bundletool ${BUNDLETOOL_VERSION}"
+          curl -fsSL --retry 3 --retry-delay 2 -o "$BUNDLETOOL_JAR" "$BUNDLETOOL_URL" || {
+            echo "::error::Could not download bundletool ${BUNDLETOOL_VERSION} from $BUNDLETOOL_URL"
+            exit 1
+          }
+
+          BUNDLE="app/build/outputs/bundle/debug/app-debug.aab"
+          test -s "$BUNDLE" || {
+            echo "::error::$BUNDLE is missing; the bundle step must run first."
+            exit 1
+          }
+
+          rm -rf "$RUNNER_TEMP/universal"
+          mkdir -p "$RUNNER_TEMP/universal"
+          java -jar "$BUNDLETOOL_JAR" build-apks \
+            --bundle="$BUNDLE" \
+            --output="$RUNNER_TEMP/universal.apks" \
+            --mode=universal \
+            --ks=debug.keystore \
+            --ks-key-alias=androiddebugkey \
+            --ks-pass=pass:android \
+            --key-pass=pass:android
+
+          unzip -o "$RUNNER_TEMP/universal.apks" universal.apk -d "$RUNNER_TEMP/universal"
+
+          mkdir -p app/build/outputs/apk/universal
+          cp "$RUNNER_TEMP/universal/universal.apk" \
+            app/build/outputs/apk/universal/app-arm64-v8a-universal-debug.apk
+          ls -lh app/build/outputs/apk/universal/app-arm64-v8a-universal-debug.apk
+
+          # The artifact itself is the only proof the feature was fused and that no
+          # second ABI came back; a zero exit from bundletool proves neither.
+          python3 scripts/verify_universal_apk.py \
+            app/build/outputs/apk/universal/app-arm64-v8a-universal-debug.apk
+
       # Artifact storage is metered per billing cycle and can refuse an upload even
       # when the repo holds nothing (GitHub accrues GB-hours; deleting never refunds
       # them). The uploads stay contract-exact - a missing APK is still fatal - but a
@@ -818,6 +870,18 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload universal APK (arm64-v8a)
+        # C-03: the fused APK is the only asset a sideloaded user can install that also
+        # carries the on-demand trader. Same quota caveat as the two variant uploads;
+        # the cache stash below is the second transport, and the release gate decides.
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: alphapulse-arm64-v8a-universal
+          path: app/build/outputs/apk/universal/app-arm64-v8a-universal-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
       # Cache storage is a separate 10 GB per-repo allowance and is not billed against
       # the artifact quota, so this is the delivery path that still works when artifact
       # storage is exhausted. Same run, same verified bytes, keyed to the commit and
@@ -830,6 +894,7 @@ jobs:
           path: |
             app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
             app/build/outputs/apk/release/app-arm64-v8a-release.apk
+            app/build/outputs/apk/universal/app-arm64-v8a-universal-debug.apk
 
   # =========================================================================
   # JOB 3: Automatic GitHub Release (Triggers only on pushed tags, e.g. v1.0.0)
@@ -861,7 +926,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Restore the verified APKs stashed by the build job
-        # Quota-independent transport: the build job saved the same two APKs to the
+        # Quota-independent transport: the build job saved the same three APKs to the
         # Actions cache. Restored before the artifact download so the completeness
         # gate below can use whichever path produced files.
         uses: actions/cache/restore@v4
@@ -870,6 +935,7 @@ jobs:
           path: |
             app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
             app/build/outputs/apk/release/app-arm64-v8a-release.apk
+            app/build/outputs/apk/universal/app-arm64-v8a-universal-debug.apk
 
       - name: Download the arm64-v8a APK artifacts
         # Both per-build-type artifacts, merged flat; whichever build type ran is
@@ -883,24 +949,28 @@ jobs:
           merge-multiple: true
           path: release-apks
 
-      - name: Require both arm64-v8a APKs before publishing
-        # C-04 says the release carries the debug and the release APK. The download
-        # step succeeds even when one artifact is absent, so the published release
-        # was previously missing an asset without any job turning red.
+      - name: Require every arm64-v8a APK before publishing
+        # C-04 says the release carries the debug, the release and the fused universal
+        # APK. The download step succeeds even when one artifact is absent, so the
+        # published release was previously missing an asset without any job turning red.
         run: |
           # Harvest both transports into one directory: artifact download first, then
           # the cache-restored build output. Neither is trusted - the check below is.
+          declare -A CANDIDATES=(
+            [app-arm64-v8a-debug.apk]="app/build/outputs/apk/debug/app-arm64-v8a-debug.apk"
+            [app-arm64-v8a-release.apk]="app/build/outputs/apk/release/app-arm64-v8a-release.apk"
+            [app-arm64-v8a-universal-debug.apk]="app/build/outputs/apk/universal/app-arm64-v8a-universal-debug.apk"
+          )
           mkdir -p release-apks
-          for apk in app-arm64-v8a-debug.apk app-arm64-v8a-release.apk; do
+          for apk in "${!CANDIDATES[@]}"; do
             [ -s "release-apks/$apk" ] && continue
-            for candidate in "app/build/outputs/apk/debug/$apk" "app/build/outputs/apk/release/$apk"; do
-              if [ -s "$candidate" ]; then cp "$candidate" "release-apks/$apk"; break; fi
-            done
+            candidate="${CANDIDATES[$apk]}"
+            if [ -s "$candidate" ]; then cp "$candidate" "release-apks/$apk"; fi
           done
           missing=0
-          for apk in app-arm64-v8a-debug.apk app-arm64-v8a-release.apk; do
+          for apk in app-arm64-v8a-debug.apk app-arm64-v8a-release.apk app-arm64-v8a-universal-debug.apk; do
             if [ ! -s "release-apks/$apk" ]; then
-              echo "::error::The release is missing $apk. A release must attach both the debug and the release APK."
+              echo "::error::The release is missing $apk. A release must attach the debug, the release and the fused universal APK."
               missing=1
             fi
           done

@@ -161,8 +161,38 @@ def check_release_job(text: str) -> None:
         fail("the release job must stay gated on a v* tag")
     if "Refuse to publish unverified artifacts" not in release:
         fail("the release job lost its 'Refuse to publish unverified artifacts' guard")
-    if "Require both arm64-v8a APKs before publishing" not in release:
+    if "Require every arm64-v8a APK before publishing" not in release:
         fail("the release job lost its completeness gate")
+
+
+def check_universal_delivery(text: str) -> None:
+    """The on-demand feature must also ship as a fused, installable universal APK."""
+    block = dict(steps(text)).get("Build the universal APK from the verified bundle", "")
+    if not block:
+        fail(
+            "the workflow has no universal APK stage, so the on-demand trader module is "
+            "not installable from a sideloaded release"
+        )
+        return
+
+    for required in (
+        "--mode=universal",
+        "app/build/outputs/bundle/debug/app-debug.aab",
+        "app/build/outputs/apk/universal/app-arm64-v8a-universal-debug.apk",
+        "scripts/verify_universal_apk.py",
+    ):
+        if required not in block:
+            fail(f"the universal APK stage must contain {required!r}")
+
+    upload = dict(steps(text)).get("Upload universal APK (arm64-v8a)", "")
+    if not upload:
+        fail("the workflow must upload the universal APK as its own artifact")
+    elif "if-no-files-found: error" not in upload:
+        fail("the universal APK upload must fail when its APK is missing")
+
+    release = job(text, "release:")
+    if "app-arm64-v8a-universal-debug.apk" not in release:
+        fail("the release job must require the universal APK before publishing")
 
 
 def check_changelog() -> None:
@@ -199,6 +229,7 @@ def main() -> int:
     check_apk_uploads(text)
     check_preflight_wiring(text)
     check_release_job(text)
+    check_universal_delivery(text)
     check_changelog()
 
     if problems:
