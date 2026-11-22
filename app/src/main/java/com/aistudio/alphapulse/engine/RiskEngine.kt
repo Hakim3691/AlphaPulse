@@ -5,6 +5,7 @@ import com.aistudio.alphapulse.data.model.CampaignFamily
 import com.aistudio.alphapulse.data.model.CampaignState
 import com.aistudio.alphapulse.data.model.RiskEnvelope
 import com.aistudio.alphapulse.data.model.VenueHealth
+import kotlin.math.abs
 
 data class OverrideWarning(
     val title: String,
@@ -14,6 +15,31 @@ data class OverrideWarning(
 )
 
 class RiskEngine {
+
+    companion object {
+        /** §23: at most two boards may be live on one asset at a time. */
+        const val MAX_CONCURRENT_PER_ASSET = 2
+
+        /** §23 fallback stop distance when a campaign carries no usable stop. */
+        const val FALLBACK_STOP_DISTANCE_PCT = 0.025
+
+        /** §23: 1R is the production 0.50% account-risk unit. */
+        const val ONE_R_FRACTION = 0.005
+    }
+
+    /** Deterministic admission order: priority first, then the earlier id. */
+    private fun outranks(peer: Campaign, candidate: Campaign): Boolean =
+        peer.priorityScore > candidate.priorityScore ||
+            (peer.priorityScore == candidate.priorityScore && peer.id < candidate.id)
+
+    /** The live-board states that consume a symbol's concurrency budget. */
+    private fun isLive(campaign: Campaign): Boolean = when (campaign.status) {
+        CampaignState.STAGED,
+        CampaignState.PARTIALLY_FILLED,
+        CampaignState.ACTIVE,
+        CampaignState.REDUCED -> true
+        else -> false
+    }
 
     /**
      * Checks if new campaign violates symbol or gross exposure caps
@@ -44,6 +70,38 @@ class RiskEngine {
             }
             if (hasFullSizeLong) {
                 return Pair(false, "Conflict: Active full-size Support Long exists on ${newCampaign.asset}.")
+            }
+        }
+
+        // §23 admission is deterministic and independent of list order: a peer holds the
+        // symbol's slot only when it outranks the candidate (higher priority, or the
+        // same priority with the earlier id). Exactly one board per side therefore
+        // survives a whole re-planned book, and the winner does not depend on the order
+        // in which the book happened to be built.
+        val liveOnAsset = existingCampaigns.filter { it.id != newCampaign.id && it.asset == newCampaign.asset }
+            .filter { isLive(it) }
+        val outranking = liveOnAsset.filter { outranks(it, newCampaign) }
+
+        // §23 per-asset concurrency cap: two live boards is the ceiling for one symbol.
+        if (outranking.size >= MAX_CONCURRENT_PER_ASSET) {
+            return Pair(
+                false,
+                "Per-asset concurrency cap: ${newCampaign.asset} already has " +
+                    "${outranking.size} live boards (max $MAX_CONCURRENT_PER_ASSET)."
+            )
+        }
+
+        // §23 single owner per side: one live board owns a symbol's long exposure (or
+        // its short exposure). A second same-side board is a duplicate of the same
+        // structural idea and would double the size the role budget already set.
+        if (newCampaign.status == CampaignState.STAGED || newCampaign.status == CampaignState.PLANNED) {
+            val sameSide = outranking.firstOrNull { it.isLong == newCampaign.isLong }
+            if (sameSide != null) {
+                val side = if (newCampaign.isLong) "long" else "short"
+                return Pair(
+                    false,
+                    "Single owner per side: ${newCampaign.asset} already has a live $side board (${sameSide.id})."
+                )
             }
         }
 
@@ -104,13 +162,56 @@ class RiskEngine {
     }
 
     /**
-     * Calculates worst-case concurrent stop-out across all staged/active campaigns
+     * §23 worst-case concurrent stop-out, netted per symbol.
+     *
+     * A long and a short of the same size on one symbol are a hedge: if both stop, the
+     * two moves offset rather than add. The figure therefore nets the long and short
+     * budgets per symbol before applying that symbol's widest stop distance, and reports
+     * the total alongside the per-asset breakdown the dashboard reads.
      */
-    fun computeWorstCaseStopOutR(campaigns: List<Campaign>, accountEquity: Double): Double {
-        val activeNotional = campaigns.filter { it.status == CampaignState.STAGED || it.status == CampaignState.ACTIVE }
-            .sumOf { it.sizeBudgetUsd }
-        val worstLoss = activeNotional * 0.025 // assuming ~2.5% stop distance
-        val oneR = accountEquity * 0.005 // 0.5% = 1R
-        return Math.round((worstLoss / oneR) * 100.0) / 100.0
+    fun computeStopOutRisk(campaigns: List<Campaign>, accountEquity: Double): StopOutRisk {
+        val live = campaigns.filter { isLive(it) }
+        if (live.isEmpty() || accountEquity <= 0.0) return StopOutRisk(0.0, emptyMap())
+        val oneR = accountEquity * ONE_R_FRACTION
+
+        val perAsset = live.groupBy { it.asset }.mapValues { (_, boards) ->
+            val netNotional = boards.sumOf { if (it.isLong) it.sizeBudgetUsd else -it.sizeBudgetUsd }
+            val distancePct = boards.mapNotNull { stopDistancePct(it) }.maxOrNull()
+                ?: FALLBACK_STOP_DISTANCE_PCT
+            round2(abs(netNotional) * distancePct / oneR)
+        }
+        return StopOutRisk(
+            worstCaseR = perAsset.values.maxOrNull() ?: 0.0,
+            perAssetR = perAsset
+        )
     }
+
+    /** The shipped single-number view of [computeStopOutRisk] for existing callers. */
+    fun computeWorstCaseStopOutR(campaigns: List<Campaign>, accountEquity: Double): Double =
+        computeStopOutRisk(campaigns, accountEquity).worstCaseR
+
+    /**
+     * How far the board's ladder sits from its hard stop, as a fraction of its average
+     * entry. Null when neither the ladder nor the stop carries a usable price.
+     */
+    private fun stopDistancePct(campaign: Campaign): Double? {
+        val notional = campaign.entryLadder.sumOf { it.notionalUsd }
+        val averageEntry = if (notional > 0.0) {
+            campaign.entryLadder.sumOf { it.price * it.notionalUsd } / notional
+        } else {
+            campaign.entryLadder.map { it.price }.filter { it > 0.0 }.average().takeIf { !it.isNaN() }
+        }
+        val entry = averageEntry?.takeIf { it > 0.0 } ?: return null
+        val stop = campaign.stopLogic.hardStopPrice
+        if (stop <= 0.0) return null
+        return abs(entry - stop) / entry
+    }
+
+    private fun round2(value: Double): Double = Math.round(value * 100.0) / 100.0
 }
+
+/** §23's netted worst-case stop-out: the total and the per-symbol contribution. */
+data class StopOutRisk(
+    val worstCaseR: Double,
+    val perAssetR: Map<String, Double>
+)

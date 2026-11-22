@@ -48,6 +48,17 @@ data class LevelZone(
 ) {
     val center: Double get() = (priceLow + priceHigh) / 2.0
     val width: Double get() = priceHigh - priceLow
+
+    /**
+     * §8: the third touch is the end of a level's usefulness. The ledger prints
+     * "Exhausted (Touch 3/3)" at this ceiling and the structure engine stops rewarding
+     * further taps, so the UI and the scorer agree on when a shelf is spent.
+     */
+    val isExhausted: Boolean get() = touches >= TOUCH_CEILING
+
+    companion object {
+        const val TOUCH_CEILING = 3
+    }
 }
 
 data class LevelMap(

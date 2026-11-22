@@ -79,7 +79,7 @@ class CampaignEngine {
                 family = CampaignFamily.SUPPORT_LONG,
                 regime = asset.regime,
                 role = role,
-                priorityScore = calculatePriority(role, paths, isLong = true),
+                priorityScore = calculatePriority(paths, isLong = true, levelConfidence = supportZone.confidence),
                 sizeBudgetUsd = sizeBudget,
                 sizeMultiplier = if (role == BoardRole.PRIMARY) 1.25 else 0.75,
                 entryLadder = ladder,
@@ -119,7 +119,7 @@ class CampaignEngine {
                 family = CampaignFamily.RESISTANCE_SHORT,
                 regime = asset.regime,
                 role = role,
-                priorityScore = calculatePriority(role, paths, isLong = false),
+                priorityScore = calculatePriority(paths, isLong = false, levelConfidence = htfResist.confidence),
                 sizeBudgetUsd = sizeBudget,
                 sizeMultiplier = if (role == BoardRole.PRIMARY) 1.25 else 0.75,
                 entryLadder = ladder,
@@ -159,7 +159,7 @@ class CampaignEngine {
                 family = CampaignFamily.RECLAIM_LONG,
                 regime = asset.regime,
                 role = role,
-                priorityScore = calculatePriority(role, paths, isLong = true) - 5.0,
+                priorityScore = calculatePriority(paths, isLong = true, levelConfidence = reclaimZone.confidence) - 5.0,
                 sizeBudgetUsd = sizeBudget,
                 sizeMultiplier = 1.0,
                 entryLadder = ladder,
@@ -199,7 +199,7 @@ class CampaignEngine {
                 family = CampaignFamily.RECLAIM_FADE_SHORT,
                 regime = asset.regime,
                 role = role,
-                priorityScore = calculatePriority(role, paths, isLong = false) - 8.0,
+                priorityScore = calculatePriority(paths, isLong = false, levelConfidence = fadeZone.confidence) - 8.0,
                 sizeBudgetUsd = sizeBudget,
                 sizeMultiplier = 0.8,
                 entryLadder = ladder,
@@ -236,7 +236,7 @@ class CampaignEngine {
                 family = CampaignFamily.BREAKOUT_LONG,
                 regime = asset.regime,
                 role = role,
-                priorityScore = calculatePriority(role, paths, isLong = true) - 12.0,
+                priorityScore = calculatePriority(paths, isLong = true, levelConfidence = htfResist.confidence) - 12.0,
                 sizeBudgetUsd = sizeBudget,
                 sizeMultiplier = 0.9,
                 entryLadder = ladder,
@@ -259,6 +259,8 @@ class CampaignEngine {
     // 6. Proactive Breakdown Short
     if (breakdownZone != null || supportZone != null) {
         val breakThreshold = breakdownZone?.priceLow ?: (supportZone!!.priceLow)
+        // §11: the level the breakdown stages through is the one that prices it.
+        val breakZoneConfidence = (breakdownZone ?: supportZone)!!.confidence
         val role = roles[CampaignFamily.BREAKDOWN_SHORT] ?: BoardRole.DEFENSIVE
         val sizeBudget = calculateSizeBudget(role, totalRiskBudgetUsd)
         val ladder = buildStopLadder(
@@ -274,7 +276,7 @@ class CampaignEngine {
                 family = CampaignFamily.BREAKDOWN_SHORT,
                 regime = asset.regime,
                 role = role,
-                priorityScore = calculatePriority(role, paths, isLong = false) - 10.0,
+                priorityScore = calculatePriority(paths, isLong = false, levelConfidence = breakZoneConfidence) - 10.0,
                 sizeBudgetUsd = sizeBudget,
                 sizeMultiplier = 0.9,
                 entryLadder = ladder,
@@ -445,19 +447,22 @@ private fun calculateSizeBudget(role: BoardRole, totalBudget: Double): Double {
     }
 }
 
+/**
+ * §11: the structural priority is the product of the directional path's probability,
+ * its cleanliness and the confidence of the level the board stages on. Role and family
+ * still decide size and ordering adjustments, but they no longer replace the structure.
+ */
 private fun calculatePriority(
-    role: BoardRole,
     paths: List<CandidatePath>,
-    isLong: Boolean
+    isLong: Boolean,
+    levelConfidence: Int
 ): Double {
-    val base = when (role) {
-        BoardRole.PRIMARY -> 85.0
-        BoardRole.SECONDARY -> 65.0
-        BoardRole.DEFENSIVE -> 45.0
-        BoardRole.DISABLED -> 10.0
-    }
-    val pathBonus = paths.firstOrNull { (it.direction == PathDirection.BULLISH) == isLong }?.probabilityScore ?: 50
-    return base + (pathBonus * 0.15)
+    val path = paths.firstOrNull { (it.direction == PathDirection.BULLISH) == isLong }
+    return CampaignPriority.of(
+        pathProbability = path?.probabilityScore ?: CampaignPriority.FALLBACK_PATH_SCORE,
+        cleanliness = path?.cleanlinessScore ?: CampaignPriority.FALLBACK_PATH_SCORE,
+        levelConfidence = levelConfidence
+    )
 }
 
 private fun buildEntryLadder(

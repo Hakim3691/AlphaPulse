@@ -7,6 +7,47 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [18.2] — 2026-11-22
+
+Phase 2 risk and structure hardening: a symbol can no longer be double-booked, the
+published priority is structure rather than role, spent levels stop scoring, and the
+candle cache stops serving a four-hour-old 5m series.
+
+### Changed
+
+- **A second same-side board on one symbol is refused, and the cap is two live boards.**
+  `RiskEngine` admits a board only when it outranks the peers already live on that asset
+  (higher priority, or the earlier id on a tie), so a re-planned book keeps exactly one
+  long and one short per symbol deterministically and the rest are suppressed with a
+  reason naming the asset, the cap and the owning board (C-50).
+- **Worst-case stop-out nets the book.** `computeStopOutRisk` offsets long and short
+  budgets per symbol and applies that symbol's widest real ladder-to-hard-stop distance
+  instead of adding every notional at a fixed 2.5%, so a hedge no longer reads as two
+  independent losses and a wide stop no longer reads as a tight one (C-50).
+- **`PRIORITY RANK` is the published product, not a role base.** A campaign's priority is
+  path probability × path cleanliness × level confidence, bounded 0-100 (C-51).
+- **A level is spent at its third touch.** `LevelZone.isExhausted` and
+  `StructureEngine.zoneConfidence` cap touch points at `TOUCH_CEILING`, so a fourth or
+  ninth tap adds no confidence and the scorer agrees with the ledger's
+  `Exhausted (Touch 3/3)` (C-52).
+
+### Fixed
+
+- **The 5m candle series could be nearly four hours old.** The Room-first cache applied
+  the four-hour HTF staleness window to every interval, so structure detection and
+  calibration could map the morning's swings while price traded elsewhere. Each series is
+  now reused for its own horizon — 4h for four hours, 1h for one hour, 5m for five minutes
+  — and data exactly at the window is stale (C-53).
+
+### Verification
+
+- BDD specs: `ConcurrencyAndStopOutBddSpec` (cap, single owner, deterministic admission,
+  netted and hedged stop-out), `CampaignPriorityAndZoneExhaustionBddSpec` (the product,
+  bounded maximum, touch ceiling and exhaustion) and `CandleCacheTtlBddSpec` (per-interval
+  windows and the boundary). All were run red against the missing behaviour first.
+- Full local gates: `:app:testDebugUnitTest` (915 tests, 4 skipped), `check_integrity.py`
+  (356 files), `:app:assembleDebug` and `:app:verifyPackagedWeights` on both built APKs.
+
 ## [18.1] — 2026-11-20
 
 ### Changed

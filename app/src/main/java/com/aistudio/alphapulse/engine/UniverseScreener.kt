@@ -26,6 +26,26 @@ class UniverseScreener(private val candleDao: CandleDao) {
     companion object {
         /** §5 Heavy Data staleness window for HTF context. */
         const val HTF_STALENESS_MS: Long = 4L * 60L * 60L * 1000L
+
+        private const val HOUR_MS = 60L * 60L * 1000L
+
+        /**
+         * §5: each series is reused for roughly its own bar, not the HTF window.
+         *
+         * The four-hour window was applied to every interval, so the 5m series that
+         * structure detection and calibration read could be almost four hours old. The
+         * HTF window belongs to the 4h candles; 1h and 5m refresh on their own horizons.
+         */
+        fun stalenessMsFor(interval: String): Long = when (interval) {
+            "4h" -> HTF_STALENESS_MS
+            "1h" -> HOUR_MS
+            "5m" -> 5L * 60L * 1000L
+            "15m" -> 15L * 60L * 1000L
+            else -> HTF_STALENESS_MS
+        }
+
+        /** A series fetched exactly at its window is stale; only younger data is served. */
+        fun isFresh(ageMs: Long, interval: String): Boolean = ageMs < stalenessMsFor(interval)
     }
 
     /** Offline seed universe for the clearly-labeled first-frame placeholder. */
@@ -72,7 +92,7 @@ class UniverseScreener(private val candleDao: CandleDao) {
         val cached = runCatching { candleDao.getCandles(symbol, interval) }.getOrDefault(emptyList())
         val latest = runCatching { candleDao.getLatestFetchedAtMs(symbol, interval) }.getOrNull()
         val fresh = cached.isNotEmpty() && latest != null &&
-            (System.currentTimeMillis() - latest) < HTF_STALENESS_MS
+            isFresh(System.currentTimeMillis() - latest, interval)
         if (fresh) {
             return@withContext cached.takeLast(limit).map { it.toDomain() }
         }

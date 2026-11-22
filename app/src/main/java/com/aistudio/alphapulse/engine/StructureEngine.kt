@@ -39,6 +39,33 @@ class StructureEngine {
             "4h" -> 0.08
             else -> 0.02
         }
+
+        /**
+         * §8 zone confidence from the four published inputs: touches, reaction magnitude,
+         * timeframe importance and recency.
+         *
+         * Touch points are capped at [LevelZone.TOUCH_CEILING] taps. A level already
+         * tested three times is exhausted, not stronger: the fourth and fifth taps add
+         * nothing, so a spent shelf cannot keep climbing the board's ranking.
+         */
+        fun zoneConfidence(
+            touches: Int,
+            avgReactionAtr: Double,
+            timeframe: String,
+            freshness: Int
+        ): Int {
+            val effectiveTouches = touches.coerceIn(1, LevelZone.TOUCH_CEILING)
+            val touchPts = ((effectiveTouches - 1) * 12).coerceIn(0, W_TOUCHES)
+            val reactionPts = ((avgReactionAtr / 2.5) * W_REACTION)
+                .coerceIn(0.0, W_REACTION.toDouble()).toInt()
+            val timeframePts = when (timeframe) {
+                "4h" -> W_TIMEFRAME
+                "1h" -> 17
+                else -> 10
+            }
+            val recencyPts = (W_RECENCY * freshness / 100.0).toInt()
+            return (touchPts + reactionPts + timeframePts + recencyPts).coerceIn(5, 100)
+        }
     }
 
     /** One clustered reaction zone before [ZoneType] classification. */
@@ -108,17 +135,8 @@ class StructureEngine {
         val below = clusters.filter { it.center < price }.sortedByDescending { it.center }
         val above = clusters.filter { it.center > price }.sortedBy { it.center }
 
-        fun confidenceOf(c: SwingCluster, freshness: Int): Int {
-            val touchPts = ((c.touches - 1) * 12).coerceIn(0, W_TOUCHES)
-            val reactionPts = ((c.avgReactionAtr / 2.5) * W_REACTION).coerceIn(0.0, W_REACTION.toDouble()).toInt()
-            val timeframePts = when (c.timeframe) {
-                "4h" -> W_TIMEFRAME
-                "1h" -> 17
-                else -> 10
-            }
-            val recencyPts = (W_RECENCY * freshness / 100.0).toInt()
-            return (touchPts + reactionPts + timeframePts + recencyPts).coerceIn(5, 100)
-        }
+        fun confidenceOf(c: SwingCluster, freshness: Int): Int =
+            zoneConfidence(c.touches, c.avgReactionAtr, c.timeframe, freshness)
 
         fun toZone(c: SwingCluster, zoneType: ZoneType): LevelZone {
             val minSpan = max(atr5m * ATR_ZONE_MULTIPLIER, price * MIN_RELATIVE_ZONE_WIDTH)
