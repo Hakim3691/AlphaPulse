@@ -115,6 +115,51 @@ class ProactiveTabsBddSpec {
         )
     }
 
+    @Test
+    fun `given the feature host when read then the seven tabs are its bottom bar below the content`() {
+        val host = repoFile(
+            "proactive_trader/src/main/java/com/alphapulse/proactive/TraderHostActivity.kt"
+        ).readText()
+
+        assertTrue(
+            "C-22: the seven tabs must be the workspace's bottom bar, or the shipped screen " +
+                "shows a top strip and the bottom navigation the contract names is missing",
+            host.contains("bottomBar")
+        )
+        assertTrue(
+            "The bar must be added to the root after the scrollable tab body, so it sits at " +
+                "the bottom of the screen: $host",
+            host.indexOf("bottomBar =") > host.indexOf("bodyText =")
+        )
+        assertTrue(
+            "Each of the seven tabs must get one equal slot, so none is pushed off-screen: $host",
+            host.contains("LinearLayout.LayoutParams(0") &&
+                host.contains("1f") &&
+                host.contains("TAB_ORDER.forEach")
+        )
+    }
+
+    @Test
+    fun `given the app sources when scanned then exactly one tab order exists`() {
+        val appSources = repoFile("app/src/main/java").walkTopDown()
+            .filter { it.isFile && it.name.endsWith(".kt") }
+            .toList()
+
+        for (retired in listOf("AppDestination", "AppBottomNavigationBar")) {
+            val offenders = appSources.filter { it.readText().contains(retired) }
+            assertTrue(
+                "C-22 has one tab order, `ProactiveMsWorkspaceState.TAB_ORDER`. '$retired' " +
+                    "duplicated it with a different order and had no call site; found in: " +
+                    "${offenders.joinToString { it.name }}",
+                offenders.isEmpty()
+            )
+        }
+        assertFalse(
+            "The dead navigation model must not come back as a second tab surface",
+            appSources.any { it.name == "Navigation.kt" }
+        )
+    }
+
     /** Locates a repository file from whichever directory tests run in. */
     private fun repoFile(relativePath: String): File {
         var directory: File? = File("").absoluteFile

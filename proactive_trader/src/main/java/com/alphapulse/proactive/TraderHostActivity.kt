@@ -2,6 +2,7 @@ package com.alphapulse.proactive
 
 import android.app.AlertDialog
 import android.os.Bundle
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
@@ -61,6 +62,7 @@ class TraderHostActivity : ComponentActivity() {
     private var lastState = MainUiState()
 
     private lateinit var bodyText: TextView
+    private lateinit var bottomBar: LinearLayout
     private lateinit var symbolRow: LinearLayout
     private val tabButtons = mutableMapOf<ProactiveMsTab, Button>()
 
@@ -94,34 +96,6 @@ class TraderHostActivity : ComponentActivity() {
                 setTextColor(MUTED)
                 textSize = 11f
                 setPadding(0, dp(6), 0, dp(16))
-            }
-        )
-
-        val tabRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        ProactiveMsWorkspaceState.TAB_ORDER.forEach { tab ->
-            val button = Button(this).apply {
-                text = tab.label
-                textSize = 11f
-                setOnClickListener {
-                    workspace = workspace.selectTab(tab)
-                    refreshTabs()
-                    renderBody()
-                }
-            }
-            tabButtons[tab] = button
-            tabRow.addView(button)
-        }
-        root.addView(
-            HorizontalScrollView(this).apply {
-                addView(
-                    tabRow,
-                    ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    )
-                )
             }
         )
 
@@ -173,6 +147,45 @@ class TraderHostActivity : ComponentActivity() {
                 textSize = 10f
                 setPadding(0, dp(12), 0, 0)
             }
+        )
+
+        // §72/C-22: the seven canonical tabs are this workspace's bottom bar, one equal
+        // slot each. A top strip scrolled away with the content and left the screen with
+        // no bottom navigation at all; a bar pinned below the body is the contract's
+        // surface, and equal weights keep every tab reachable on a phone width.
+        bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setBackgroundColor(BAR_BACKGROUND)
+            setPadding(0, dp(4), 0, dp(4))
+        }
+        ProactiveMsWorkspaceState.TAB_ORDER.forEach { tab ->
+            val button = Button(this).apply {
+                text = tab.label
+                textSize = 9f
+                isAllCaps = false
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                minimumWidth = 0
+                setPadding(dp(1), 0, dp(1), 0)
+                contentDescription = "${tab.label} tab"
+                setOnClickListener {
+                    workspace = workspace.selectTab(tab)
+                    refreshTabs()
+                    renderBody()
+                }
+            }
+            tabButtons[tab] = button
+            bottomBar.addView(
+                button,
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            )
+        }
+        root.addView(
+            bottomBar,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
         )
 
         setContentView(root)
@@ -269,6 +282,7 @@ class TraderHostActivity : ComponentActivity() {
 
     companion object {
         private const val BACKGROUND = 0xFF0B1220.toInt()
+        private const val BAR_BACKGROUND = 0xFF111A2E.toInt()
         private const val ACCENT = 0xFF22D3EE.toInt()
         private const val MUTED = 0xFF94A3B8.toInt()
         private const val SlateTextPrimary = 0xFFE2E8F0.toInt()

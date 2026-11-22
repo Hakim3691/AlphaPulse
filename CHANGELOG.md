@@ -7,6 +7,35 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [18.6] — 2026-11-22
+
+The ProactiveMS workspace finally renders its seven tabs where the contract says they
+are, and a sideloaded release now carries the on-demand trader module.
+
+### Fixed
+
+- **The seven-tab navigation is a bottom bar.** `TraderHostActivity` rendered the
+  canonical tab order as a horizontally scrolling strip at the top of the screen, so the
+  shipped workspace had no bottom navigation at all and the tabs scrolled away with the
+  header. The tabs are now the host's bottom bar, one equal-weight slot per tab, pinned
+  below the body so all seven stay reachable on a phone width (C-22).
+
+### Changed
+
+- **One tab order, one surface.** `AppDestination` and `AppBottomNavigationBar` in the
+  base module had zero call sites, duplicated `ProactiveMsWorkspaceState.TAB_ORDER` and
+  disagreed with it — `AlphaPulse` was last instead of second. Both are deleted, so the
+  canonical enum in `ProactiveMsNavigation.kt` is the only tab order in the app.
+
+### Added
+
+- **The release carries the fused universal APK.** `app-arm64-v8a-universal-debug.apk`
+  is built by bundletool from the verified `.aab` and verified to contain
+  `com.alphapulse.proactive.TraderHostActivity`; it is the only sideloadable asset that
+  can start the VIP workspace, so installing the debug or release variant still shows
+  `VIP unavailable`. Install the universal APK to use the trader module outside Play
+  (C-03/C-04).
+
 ## [18.5] — 2026-11-22
 
 The Robolectric cache can no longer be lost, quietly renamed, or left short of the
