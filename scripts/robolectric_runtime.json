@@ -1,7 +1,7 @@
 {
   "_why": "Single source of truth for the Robolectric android-all runtime cache. Robolectric downloads these jars while the tests run, outside Gradle's and setup-gradle's caches, so a cold runner is the only place the download can flake. scripts/check_ci_preflight.py and app/src/test/java/com/aistudio/alphapulse/build/RobolectricRuntimeCacheBddSpec.kt both read this file: the workflow key, the prefetched artifacts and every SDK the suite pins with @Config must agree, so adding an SDK or bumping the version without a new key fails cheaply instead of reintroducing the download.",
   "robolectric_version": "4.16.1",
-  "cache_key": "robolectric-android-all-4.16.1-sdk33-36-v1",
+  "cache_key": "robolectric-android-all-4.16.1-sdk33-36-v2",
   "sdk_artifacts": {
     "33": "13-robolectric-9030017-i7",
     "36": "16-robolectric-13921718-i7"

@@ -267,7 +267,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.m2/repository/org/robolectric
-          key: robolectric-android-all-4.16.1-sdk33-36-v1
+          key: robolectric-android-all-4.16.1-sdk33-36-v2
 
       - name: Prefetch the Robolectric Android runtime jars when the cache is cold
         # Backstop only: the cache does the real work. On a miss this fills it with a
