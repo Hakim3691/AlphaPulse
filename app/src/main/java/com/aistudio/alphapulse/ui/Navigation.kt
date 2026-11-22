@@ -29,7 +29,8 @@ enum class AppDestination(val route: String, val title: String, val icon: ImageV
     TELEMETRY("telemetry", "Telemetry", Icons.Default.Sensors),
     RISK("risk", "Guardrails", Icons.Default.Security),
     SIMULATION("simulation", "Replay", Icons.Default.Analytics),
-    AUDIT("audit", "Audit", Icons.Default.History)
+    AUDIT("audit", "Audit", Icons.Default.History),
+    ALPHA_PULSE("alpha_pulse", "AlphaPulse", Icons.Default.Analytics)
 }
 
 @Composable
