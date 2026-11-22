@@ -69,13 +69,21 @@ class DynamicFeatureContractBddSpec {
         val activity = repoFile(
             "proactive_trader/src/main/java/com/alphapulse/proactive/TraderHostActivity.kt"
         ).readText()
+        val workspace = repoFile(
+            "app/src/main/java/com/aistudio/alphapulse/ui/ProactiveWorkspace.kt"
+        ).readText()
 
         // C-22 replaced the earlier six-label list: `Analysis` is retired, `AlphaPulse` and
-        // `Replay` are part of the contract, and the host must read the one tab order rather
-        // than declaring a second list of its own (`ProactiveTabsBddSpec`).
+        // `Replay` are part of the contract, and the surface must read the one tab order
+        // rather than declaring a second list of its own (`ProactiveTabsBddSpec`). The host
+        // mounts that workspace; it no longer builds its own plain-text views.
         assertTrue(
-            "The host must render the canonical tab order",
-            activity.contains("ProactiveMsWorkspaceState.TAB_ORDER")
+            "The host must mount the canonical workspace",
+            activity.contains("mountProactiveWorkspace")
+        )
+        assertTrue(
+            "The workspace must render the canonical tab order",
+            workspace.contains("ProactiveMsWorkspaceState.TAB_ORDER")
         )
         assertFalse(
             "The retired Analysis tab must not return",

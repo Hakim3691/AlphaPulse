@@ -7,6 +7,30 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [18.7] — 2026-11-22
+
+The ProactiveMS workspace draws one header and one set of window insets for all seven
+tabs, and its AlphaPulse tab renders the real AlphaPulse analysis instead of repeating
+the workspace chrome.
+
+### Fixed
+
+- **One header, one set of insets.** The AlphaPulse tab used to nest the whole
+  AlphaPulse screen, so it brought its own `Scaffold`, `safeDrawing` padding and header
+  while the workspace drew another for every other tab; the result was stacked chrome
+  and content pushed off the screen. `AlphaPulseScreen` now splits into the standalone
+  entry (unchanged `Scaffold`, header and insets, still used by `MainActivity`) and a
+  body-only `AlphaPulseScreenContent`, which is what the workspace mounts. The workspace
+  draws `TopBar` once for every tab, including AlphaPulse.
+
+### Changed
+
+- **The AlphaPulse tab is the AlphaPulse screen.** The tab now shows the session timer,
+  decision card and analysis flow of the base screen rather than the four-line summary
+  that duplicated the AlphaPulse destination (C-22). Its own coin selector replaces the
+  workspace symbol strip on that tab, so the selected symbol is still shared and never
+  shown twice.
+
 ## [18.6] — 2026-11-22
 
 The ProactiveMS workspace finally renders its seven tabs where the contract says they

@@ -2,14 +2,6 @@ package com.alphapulse.proactive
 
 import android.app.AlertDialog
 import android.os.Bundle
-import android.text.TextUtils
-import android.view.Gravity
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.HorizontalScrollView
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.lifecycle.Lifecycle
@@ -17,11 +9,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.aistudio.alphapulse.engine.OrphanInterceptDialog
 import com.aistudio.alphapulse.engine.OrphanInterceptLifecycle
-import com.aistudio.alphapulse.ui.MainUiState
 import com.aistudio.alphapulse.ui.MainViewModel
-import com.aistudio.alphapulse.ui.ProactiveMsTab
-import com.aistudio.alphapulse.ui.ProactiveMsWorkspaceState
-import com.aistudio.alphapulse.ui.ProactiveTabRenderer
+import com.aistudio.alphapulse.ui.mountProactiveWorkspace
+import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 import kotlinx.coroutines.launch
 
 /**
@@ -32,18 +22,15 @@ import kotlinx.coroutines.launch
  * dependency in either direction. The ProactiveMS tabs render here, in their own
  * module, and never inside the AlphaPulse analysis view.
  *
- * The UI is built in code on purpose: the feature ships no resources and no native
- * libraries, so its packaging cannot disturb the base module's arm64 resource /
- * split processing.
- *
- * This activity mounts the base app's [MainViewModel]: it is the shipped surface that
- * runs the paper-trade loop and the single Scaled Live staging gate backed by the
- * durable §38 evidence.
+ * The host is deliberately thin. The workspace itself is composed in the base module
+ * (`ProactiveWorkspaceScreen`) so every tab is drawn with AlphaPulse's design system and
+ * components rather than a hand-built `TextView` column, and the feature still ships no
+ * resources or native libraries to reconcile with the base module's arm64 split.
  *
  * Three things this host must do, because it is the only shipped screen that mounts
  * the engine (each has its own BDD spec):
- *  - render the canonical [ProactiveMsWorkspaceState.TAB_ORDER] with one shared symbol,
- *    instead of the retired six-label list and its Toast placeholders (`ProactiveTabsBddSpec`);
+ *  - render the canonical [com.aistudio.alphapulse.ui.ProactiveMsWorkspaceState.TAB_ORDER]
+ *    workspace with one shared symbol (`ProactiveTabsBddSpec`);
  *  - observe the activity lifecycle and forward `ON_STOP` to the §3 policy
  *    (`OrphanInterceptReachabilityBddSpec`);
  *  - compose the §3 intercept when the policy asks for it.
@@ -52,19 +39,14 @@ import kotlinx.coroutines.launch
  */
 class TraderHostActivity : ComponentActivity() {
 
-    /** The engine behind the auto-trader tabs; owns trading evidence and the gate. */
+    /** The engine behind the ProactiveMS tabs; owns trading evidence and the gate. */
     private val viewModel: MainViewModel by viewModels()
 
-    /** The one selection every tab shares. */
-    private var workspace = ProactiveMsWorkspaceState()
-
-    /** The last state the engine published; the tab body is a pure function of it. */
-    private var lastState = MainUiState()
-
-    private lateinit var bodyText: TextView
-    private lateinit var bottomBar: LinearLayout
-    private lateinit var symbolRow: LinearLayout
-    private val tabButtons = mutableMapOf<ProactiveMsTab, Button>()
+    /**
+     * C-22's AlphaPulse tab is the real analysis screen, so the host also mounts the
+     * analysis view model rather than a summary of it.
+     */
+    private val alphaPulseViewModel: AlphaPulseViewModel by viewModels()
 
     /** Guard so a re-emitted state does not stack intercept dialogs. */
     private var interceptDialog: AlertDialog? = null
@@ -76,133 +58,16 @@ class TraderHostActivity : ComponentActivity() {
         // so a permission sheet or a system dialog cannot wipe a live session.
         lifecycle.addObserver(OrphanInterceptLifecycle { viewModel.onAppBackgrounded() })
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(BACKGROUND)
-            setPadding(dp(16), dp(28), dp(16), dp(20))
-        }
-
-        root.addView(
-            TextView(this).apply {
-                text = "PROACTIVEMS AUTO-TRADER"
-                setTextColor(ACCENT)
-                textSize = 18f
-            }
-        )
-        root.addView(
-            TextView(this).apply {
-                text = "Delivered on demand as the :proactive_trader dynamic feature. " +
-                    "The base AlphaPulse analysis view is unchanged."
-                setTextColor(MUTED)
-                textSize = 11f
-                setPadding(0, dp(6), 0, dp(16))
-            }
+        mountProactiveWorkspace(
+            activity = this,
+            mainViewModel = viewModel,
+            alphaPulseViewModel = alphaPulseViewModel
         )
 
-        symbolRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(8), 0, dp(8))
-        }
-        root.addView(
-            HorizontalScrollView(this).apply {
-                addView(
-                    symbolRow,
-                    ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.WRAP_CONTENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    )
-                )
-            }
-        )
-
-        bodyText = TextView(this).apply {
-            setTextColor(SlateTextPrimary)
-            textSize = 12f
-            gravity = Gravity.START
-            setLineSpacing(dp(4).toFloat(), 1f)
-        }
-        root.addView(
-            ScrollView(this).apply {
-                addView(
-                    bodyText,
-                    ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    )
-                )
-                layoutParams = LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    0,
-                    1f
-                )
-            }
-        )
-
-        root.addView(
-            TextView(this).apply {
-                // §38: the mounted engine's pre-launch verdict, read from the same
-                // persisted evidence its staging gate uses.
-                text = viewModel.preLaunchVerdict().summary
-                setTextColor(MUTED)
-                textSize = 10f
-                setPadding(0, dp(12), 0, 0)
-            }
-        )
-
-        // §72/C-22: the seven canonical tabs are this workspace's bottom bar, one equal
-        // slot each. A top strip scrolled away with the content and left the screen with
-        // no bottom navigation at all; a bar pinned below the body is the contract's
-        // surface, and equal weights keep every tab reachable on a phone width.
-        bottomBar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(BAR_BACKGROUND)
-            setPadding(0, dp(4), 0, dp(4))
-        }
-        ProactiveMsWorkspaceState.TAB_ORDER.forEach { tab ->
-            val button = Button(this).apply {
-                text = tab.label
-                textSize = 9f
-                isAllCaps = false
-                maxLines = 1
-                ellipsize = TextUtils.TruncateAt.END
-                minimumWidth = 0
-                setPadding(dp(1), 0, dp(1), 0)
-                contentDescription = "${tab.label} tab"
-                setOnClickListener {
-                    workspace = workspace.selectTab(tab)
-                    refreshTabs()
-                    renderBody()
-                }
-            }
-            tabButtons[tab] = button
-            bottomBar.addView(
-                button,
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            )
-        }
-        root.addView(
-            bottomBar,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        setContentView(root)
-        refreshTabs()
-        renderBody()
-
+        // §3: mirror the policy's verdict into the platform dialog exactly once.
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.uiState.collect { state ->
-                    lastState = state
-                    workspace = workspace.copy(
-                        verifiedSymbols = state.assets.map { it.symbol }
-                    )
-                    renderSymbolRow()
-                    renderBody()
-                    syncIntercept(state)
-                }
+                viewModel.uiState.collect { state -> syncIntercept(state.isOrphanedOrderWarningOpen) }
             }
         }
     }
@@ -213,9 +78,8 @@ class TraderHostActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    /** §3: mirror the policy's verdict into the platform dialog exactly once. */
-    private fun syncIntercept(state: MainUiState) {
-        if (state.isOrphanedOrderWarningOpen) {
+    private fun syncIntercept(isOpen: Boolean) {
+        if (isOpen) {
             if (interceptDialog != null) return
             interceptDialog = OrphanInterceptDialog.show(
                 activity = this,
@@ -232,59 +96,5 @@ class TraderHostActivity : ComponentActivity() {
             interceptDialog?.dismiss()
             interceptDialog = null
         }
-    }
-
-    private fun refreshTabs() {
-        tabButtons.forEach { (tab, button) ->
-            val selected = tab == workspace.activeTab
-            button.alpha = if (selected) 1f else 0.55f
-            button.setTextColor(if (selected) ACCENT else MUTED)
-        }
-    }
-
-    private fun renderSymbolRow() {
-        symbolRow.removeAllViews()
-        if (workspace.availableSymbols.isEmpty()) {
-            symbolRow.addView(
-                TextView(this).apply {
-                    text = "No screened coin yet"
-                    setTextColor(MUTED)
-                    textSize = 10f
-                }
-            )
-            return
-        }
-        workspace.availableSymbols.forEach { symbol ->
-            val selected = symbol == workspace.activeSymbol
-            symbolRow.addView(
-                Button(this).apply {
-                    text = symbol
-                    textSize = 10f
-                    alpha = if (selected) 1f else 0.6f
-                    setOnClickListener {
-                        // One symbol, shared by every tab (§72/C-22).
-                        workspace = workspace.selectSymbol(symbol)
-                        renderSymbolRow()
-                        renderBody()
-                    }
-                }
-            )
-        }
-    }
-
-    private fun renderBody() {
-        bodyText.text = ProactiveTabRenderer
-            .lines(workspace.activeTab, lastState, workspace)
-            .joinToString("\n")
-    }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-
-    companion object {
-        private const val BACKGROUND = 0xFF0B1220.toInt()
-        private const val BAR_BACKGROUND = 0xFF111A2E.toInt()
-        private const val ACCENT = 0xFF22D3EE.toInt()
-        private const val MUTED = 0xFF94A3B8.toInt()
-        private const val SlateTextPrimary = 0xFFE2E8F0.toInt()
     }
 }
