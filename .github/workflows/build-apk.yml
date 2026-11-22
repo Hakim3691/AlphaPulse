@@ -280,15 +280,20 @@ jobs:
           fetch() {
             artifact="$1"
             dir="$HOME/.m2/repository/org/robolectric/android-all-instrumented/$artifact"
+            # Maven names the files after the artifactId, not after the version
+            # directory: android-all-instrumented-<version>.jar. Writing
+            # <version>.jar here left every URL 404ing, so the backstop fetched
+            # nothing and a cold runner still downloaded the jars itself.
+            name="android-all-instrumented-$artifact"
             mkdir -p "$dir"
             for ext in pom jar jar.sha512; do
-              file="$dir/$artifact.$ext"
+              file="$dir/$name.$ext"
               if [ -s "$file" ]; then
                 continue
               fi
               if curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
                   --connect-timeout 20 --max-time 300 \
-                  -o "$file.tmp" "$BASE/$artifact/$artifact.$ext"; then
+                  -o "$file.tmp" "$BASE/$artifact/$name.$ext"; then
                 mv "$file.tmp" "$file"
               else
                 rm -f "$file.tmp"

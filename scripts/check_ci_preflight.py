@@ -26,6 +26,10 @@ What it checks
    the release R8 pass, and the `build`/`release` jobs depend on it.
 5. The release job is tag-gated and still carries its completeness gate.
 6. The newest CHANGELOG section - the published release body - has real content.
+7. The Robolectric `android-all` runtime cache still exists in the test job under
+   the key `scripts/robolectric_runtime.json` records, that key still names the
+   pinned Robolectric version and every SDK it covers, and every SDK the suite
+   pins with `@Config` (or inherits from `targetSdk`) has a prefetched artifact.
 
 Usage
 -----
@@ -36,12 +40,23 @@ Exit code 0 means the pipeline's own contract holds; 1 prints what to fix.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github/workflows/build-apk.yml"
+# Robolectric fetches android-all-instrumented from Maven Central while the tests
+# run, so its jars are outside Gradle's and setup-gradle's caches. The registry
+# below is shared with RobolectricRuntimeCacheBddSpec, so the workflow key, the
+# prefetched artifacts and the SDKs the suite pins cannot drift apart.
+ROBOLECTRIC_REGISTRY = ROOT / "scripts/robolectric_runtime.json"
+VERSION_CATALOG = ROOT / "gradle/libs.versions.toml"
+APP_BUILD = ROOT / "app/build.gradle.kts"
+TEST_SOURCES = ROOT / "app/src/test"
+ROBOLECTRIC_M2 = "~/.m2/repository/org/robolectric"
+ROBOLECTRIC_CACHE_ID = "robolectric-cache"
 
 problems: list[str] = []
 
@@ -195,6 +210,184 @@ def check_universal_delivery(text: str) -> None:
         fail("the release job must require the universal APK before publishing")
 
 
+def check_robolectric_runtime_cache(text: str) -> None:
+    """The android-all jars are fetched mid-test, so the cache cannot be lost.
+
+    Robolectric resolves `android-all-instrumented` at test time; that is why a
+    429 from Maven Central once failed the API 34 leg after every Gradle
+    dependency had resolved. The test job caches `~/.m2/repository/org/robolectric`
+    under a key derived from the pinned Robolectric version and the SDKs the
+    suite runs on, and prefetches those jars only when the cache missed. Everything
+    here is shared with `RobolectricRuntimeCacheBddSpec` through
+    `scripts/robolectric_runtime.json`, so a lost step, a changed key or an SDK
+    added without its artifact fails in seconds instead of on a cold runner.
+    """
+    if not ROBOLECTRIC_REGISTRY.is_file():
+        fail(
+            "scripts/robolectric_runtime.json is missing; it is the shared source of "
+            "truth for the Robolectric android-all cache key and the SDKs it covers"
+        )
+        return
+    try:
+        registry = json.loads(ROBOLECTRIC_REGISTRY.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        fail(f"scripts/robolectric_runtime.json is not valid JSON: {error}")
+        return
+
+    version = registry.get("robolectric_version")
+    cache_key = registry.get("cache_key")
+    sdk_artifacts = registry.get("sdk_artifacts")
+    if not isinstance(version, str) or not version:
+        fail("scripts/robolectric_runtime.json does not record `robolectric_version`")
+        return
+    if not isinstance(cache_key, str) or not cache_key:
+        fail("scripts/robolectric_runtime.json does not record `cache_key`")
+        return
+    if not isinstance(sdk_artifacts, dict) or not sdk_artifacts:
+        fail(
+            "scripts/robolectric_runtime.json records no `sdk_artifacts`, so nothing "
+            "documents which SDKs the cache covers"
+        )
+        return
+    if not all(
+        isinstance(sdk, str) and sdk.isdigit() and isinstance(artifact, str) and artifact
+        for sdk, artifact in sdk_artifacts.items()
+    ):
+        fail("scripts/robolectric_runtime.json maps SDKs to artifacts with a non-numeric key")
+        return
+
+    # The key must be derived from what the registry documents. If it is not, a
+    # version or SDK bump restores jars for the old set, the new one is downloaded
+    # mid-test, and the flake this cache exists to remove is back.
+    sdk_suffix = "-".join(sorted(sdk_artifacts, key=int))
+    derived = re.compile(
+        rf"^robolectric-android-all-{re.escape(version)}-sdk{re.escape(sdk_suffix)}-v\d+$"
+    )
+    if not derived.match(cache_key):
+        fail(
+            f"the Robolectric cache key {cache_key!r} does not name version {version} and "
+            f"its covered SDKs (sdk{sdk_suffix}); a version or SDK bump must change the key, "
+            "otherwise a cold runner restores the old jars and downloads the new one mid-test"
+        )
+
+    if VERSION_CATALOG.is_file():
+        pinned = re.search(
+            r'(?m)^robolectric\s*=\s*"([^"]+)"',
+            VERSION_CATALOG.read_text(encoding="utf-8"),
+        )
+        if pinned is None:
+            fail("gradle/libs.versions.toml no longer pins Robolectric")
+        elif pinned.group(1) != version:
+            fail(
+                f"Robolectric is pinned at {pinned.group(1)} in gradle/libs.versions.toml but "
+                f"the runtime registry documents {version}; Robolectric names its android-all "
+                "jars per version, so both and the cache key must move together"
+            )
+
+    test_job = job(text, "test:")
+    if not test_job:
+        fail("the workflow has no `test` job to check for the Robolectric runtime cache")
+        return
+
+    cache_steps = [
+        (name, block)
+        for name, block in steps(test_job)
+        if ROBOLECTRIC_M2 in block and "actions/cache" in block
+    ]
+    if not cache_steps:
+        fail(
+            f"the test job no longer caches {ROBOLECTRIC_M2}; Robolectric fetches its "
+            "android-all jars during the run, so a cold runner downloads them again and a "
+            "429 fails the leg after every Gradle dependency has resolved"
+        )
+    else:
+        name, block = cache_steps[0]
+        if f"key: {cache_key}" not in block:
+            fail(
+                f"the Robolectric cache step '{name}' does not use the key "
+                f"{cache_key!r} that scripts/robolectric_runtime.json documents"
+            )
+        if f"id: {ROBOLECTRIC_CACHE_ID}" not in block:
+            fail(
+                f"the Robolectric cache step '{name}' lost `id: {ROBOLECTRIC_CACHE_ID}`, so "
+                "the cold-cache prefetch can no longer tell a hit from a miss"
+            )
+
+    prefetch_steps = [
+        (name, block)
+        for name, block in steps(test_job)
+        if name.startswith("Prefetch the Robolectric Android runtime jars")
+    ]
+    if not prefetch_steps:
+        fail(
+            "the test job lost its cold-cache Robolectric prefetch, so a first run races "
+            "Robolectric's own fetcher with no bounded retry"
+        )
+    else:
+        name, block = prefetch_steps[0]
+        if f"steps.{ROBOLECTRIC_CACHE_ID}.outputs.cache-hit != 'true'" not in block:
+            fail(
+                f"'{name}' is no longer gated on a cache miss, so it pays the download on "
+                "every run and the cache stops being the fix"
+            )
+        for sdk, artifact in sdk_artifacts.items():
+            if f"fetch {artifact}" not in block:
+                fail(
+                    f"SDK {sdk} is documented as cached, but '{name}' never fetches "
+                    f"{artifact}, so a cold runner leans on Robolectric's own download"
+                )
+        # Maven names the files after the artifactId, not after the version
+        # directory. Writing <version>.jar made every prefetch URL 404, so the step
+        # only warned and the cold runner still downloaded the jars itself.
+        if "android-all-instrumented-$artifact" not in block:
+            fail(
+                f"'{name}' does not build Maven's android-all-instrumented-<artifact> file "
+                "name, so its URLs 404 and the cold-cache backstop prefetches nothing"
+            )
+
+    cache_at = test_job.find(f"id: {ROBOLECTRIC_CACHE_ID}")
+    tests_at = test_job.find("Execute Unit & Robolectric Tests")
+    if cache_at < 0 or tests_at < 0 or cache_at > tests_at:
+        fail(
+            "the Robolectric runtime cache must be restored before 'Execute Unit & "
+            "Robolectric Tests' runs, or it caches nothing the test run can use"
+        )
+
+    used = pinned_robolectric_sdks()
+    uncovered = sorted(used - set(sdk_artifacts), key=int)
+    if uncovered:
+        fail(
+            f"the suite runs Robolectric on SDK {uncovered}, but "
+            "scripts/robolectric_runtime.json has no android-all artifact for it. Add the "
+            "artifact, the cold-cache prefetch entry and a new cache key in the same change; "
+            "otherwise the first runner that reaches that SDK downloads it mid-test"
+        )
+
+
+def pinned_robolectric_sdks() -> set[str]:
+    """Every SDK the suite asks Robolectric to run on.
+
+    `@Config(sdk = ...)` wins; a spec that pins nothing inherits `targetSdk` from
+    `app/build.gradle.kts`, so that SDK is covered whether or not a test names it.
+    """
+    sdks: set[str] = set()
+    if TEST_SOURCES.is_dir():
+        for path in TEST_SOURCES.rglob("*.kt"):
+            text = path.read_text(encoding="utf-8")
+            for args in re.findall(r"@Config\((.*?)\)", text, re.S):
+                for block in re.findall(r"sdk\s*=\s*\[([^\]]*)\]", args):
+                    sdks.update(re.findall(r"\d+", block))
+                for scalar in re.findall(r"sdk\s*=\s*(\d+)", args):
+                    sdks.add(scalar)
+    if APP_BUILD.is_file():
+        target = re.search(
+            r"(?m)^\s*targetSdk\s*=\s*(\d+)", APP_BUILD.read_text(encoding="utf-8")
+        )
+        if target:
+            sdks.add(target.group(1))
+    return sdks
+
+
 def check_changelog() -> None:
     """The newest CHANGELOG section is the published release body."""
     path = ROOT / "CHANGELOG.md"
@@ -230,6 +423,7 @@ def main() -> int:
     check_preflight_wiring(text)
     check_release_job(text)
     check_universal_delivery(text)
+    check_robolectric_runtime_cache(text)
     check_changelog()
 
     if problems:
@@ -239,7 +433,10 @@ def main() -> int:
         print("\nFix the pipeline before paying for the test matrix and the APK build.")
         return 1
 
-    print("Preflight check passed (workflow contract, release completeness, changelog body).")
+    print(
+        "Preflight check passed (workflow contract, release completeness, Robolectric "
+        "runtime cache, changelog body)."
+    )
     return 0
 
 

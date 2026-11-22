@@ -7,6 +7,39 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [18.5] — 2026-11-22
+
+The Robolectric cache can no longer be lost, quietly renamed, or left short of the
+SDKs the suite actually runs on.
+
+### Added
+
+- **The runtime cache is a checked contract.** `scripts/robolectric_runtime.json`
+  records the pinned Robolectric version, the cache key and the `android-all`
+  artifact for every SDK it covers. `scripts/check_ci_preflight.py` and
+  `build/RobolectricRuntimeCacheBddSpec.kt` both read that one file, so the
+  workflow key, the cold-cache prefetch and the SDKs the suite pins with
+  `@Config` (plus the `targetSdk` a spec inherits) must agree. Losing the cache
+  step, renaming its key, dropping a prefetched artifact or adding an SDK without
+  its jar now fails preflight in seconds — before the test matrix downloads
+  anything.
+
+### Fixed
+
+- **The cold-cache prefetch actually fetches.** It wrote and requested
+  `<version>.jar` inside the artifact's directory, but Maven names those files
+  `android-all-instrumented-<version>.jar`, so every URL 404ed, the step only
+  warned, and a cold runner fell back to Robolectric's own download. The filename
+  is now built from the artifactId, and both the preflight gate and the spec
+  assert it so the backstop cannot rot silently.
+
+### Changed
+
+- **The cache key is derived from what it caches.** A key must name the pinned
+  version and every covered SDK (`robolectric-android-all-4.16.1-sdk33-36-v1`),
+  so bumping either without a new key fails instead of restoring stale jars and
+  downloading the missing one mid-test (C-28).
+
 ## [18.4] — 2026-11-22
 
 A held board now says why on the card, and a CI test run no longer depends on a
