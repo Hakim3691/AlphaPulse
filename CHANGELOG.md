@@ -7,6 +7,27 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [18.3] — 2026-11-22
+
+§22 staging precondition: a campaign may no longer stage on a pipeline that is only
+partly warm.
+
+### Changed
+
+- **All four §22 readiness components must be observed before a board stages.**
+  `TSFM Ready`, `Neural LOB Ready`, `Liquidity Heatmap Ready` and `Ensemble Ready` are
+  now an AND enforced inside `ExecutionEngine.gateStaging`, which takes the verdict as a
+  required argument and holds the board `PLANNED` with its resting slices cleared when any
+  component is missing (C-54).
+- **Absence fails closed.** A component with no evidence is `UNOBSERVED`, which blocks; an
+  explicitly failed measurement is `UNAVAILABLE`; the gate note names every unmet
+  component, so a held board says which feed is cold instead of looking like a risk stop.
+- **The verdict comes from what the app observed.** `MainViewModel` derives it per symbol
+  from the persisted ladder's model tier, the live two-sided book, a heatmap row inside
+  the map's 24-hour window and the ladder's horizon count, and drops the data-driven
+  components back to `UNOBSERVED` when a probe cannot read them. A cold
+  `ProactiveExecutionLoopFrame` defaults to no evidence and therefore cannot stage.
+
 ## [18.2] — 2026-11-22
 
 Phase 2 risk and structure hardening: a symbol can no longer be double-booked, the

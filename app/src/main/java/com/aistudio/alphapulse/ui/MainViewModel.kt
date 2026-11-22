@@ -47,6 +47,9 @@ import com.aistudio.alphapulse.engine.MarketDataRepository
 import com.aistudio.alphapulse.engine.OrphanInterceptDecision
 import com.aistudio.alphapulse.engine.OrphanInterceptPolicy
 import com.aistudio.alphapulse.engine.OrderBookSnapshot
+import com.aistudio.alphapulse.domain.campaign.StagingObservations
+import com.aistudio.alphapulse.domain.campaign.StagingPrecondition
+import com.aistudio.alphapulse.domain.campaign.StagingPreconditionVerdict
 import com.aistudio.alphapulse.engine.PaperPnl
 import com.aistudio.alphapulse.engine.OverrideWarning
 import com.aistudio.alphapulse.engine.PathEngine
@@ -149,6 +152,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Latest forecast ladder per symbol, refreshed with each universe load. */
     @Volatile
     private var forecastsBySymbol: Map<String, List<ForecastTarget>> = emptyMap()
+
+    /** §22 Liquidity Heatmap Ready: newest observed heatmap timestamp per symbol. */
+    @Volatile
+    private var heatmapObservedAt: Map<String, Long> = emptyMap()
+    private var lastHeatmapProbeMs = 0L
     private val featureEngine = FeatureEngine()
     private val structureEngine = StructureEngine()
     private val pathEngine = PathEngine(featureEngine)
@@ -340,6 +348,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chosen: CryptoAsset,
         isLive: Boolean
     ) {
+        // §22: the liquidation heatmap is a staged-order precondition, so its
+        // availability is probed from the persisted map rather than assumed.
+        refreshHeatmapObservation(chosen.symbol)
+
         // §8: build the level map from real swing structure when candle history exists;
         // fall back to the ATR-offset synthesis only when no candles are available.
         val timeframes = runCatching { universeScreener.loadTimeframes(chosen.symbol) }.getOrNull()
@@ -968,7 +980,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     hasActiveSession = sessionManager.hasValidActiveSession(),
                     oneMinuteCandleClosed = true,
                     fiveMinuteCandleClosed = true,
-                    allowNewStaging = false
+                    allowNewStaging = false,
+                    stagingPrecondition = stagingPreconditionFor(updatedAsset.symbol)
                 )
                 val loopResult = proactiveCycle.run(
                     loopFrame,
@@ -1231,14 +1244,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Runs the staging gate (risk validation + ExecutionMode + §33 rejects), logging notes. */
     private fun gateAndLog(campaigns: List<Campaign>): List<Campaign> {
         val state = _uiState.value
-        val gated = executionEngine.gateStaging(
-            campaigns,
-            state.executionMode,
-            state.riskEnvelope,
-            state.venueHealth,
-            sessionManager.hasValidActiveSession(),
-            preLaunchAcceptance = proactiveCycle.preLaunchVerdict()
-        )
+        // §22/§23: admission is per symbol, and so is the four-component readiness
+        // verdict, so each asset's boards are gated against their own evidence.
+        val gated = campaigns.groupBy { it.asset }.flatMap { (asset, boards) ->
+            executionEngine.gateStaging(
+                boards,
+                state.executionMode,
+                state.riskEnvelope,
+                state.venueHealth,
+                sessionManager.hasValidActiveSession(),
+                stagingPrecondition = stagingPreconditionFor(asset),
+                preLaunchAcceptance = proactiveCycle.preLaunchVerdict()
+            )
+        }
         val feedStale = ExecutionGuardrails.staleFeedAction(state.venueHealth) ==
             ExecutionGuardrails.StaleFeedAction.SUPPRESS_AND_TRIM
         val latencySpike = state.venueHealth.isLatencySpike
@@ -1283,6 +1301,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             campaign
+        }
+    }
+
+    /**
+     * §22's four-component staging precondition, from what the shipped pipeline has
+     * actually observed for [symbol]:
+     *
+     *  - `TSFM` — the persisted forecast ladder was produced by a TSFM-carrying tier
+     *    (`Quad-Factor`/`Penta-Factor`);
+     *  - `NEURAL_LOB` — the live L2 stream has a two-sided book for this symbol, not a
+     *    synthesized or empty one;
+     *  - `LIQUIDITY_HEATMAP` — a liquidation-heatmap row for this symbol was observed
+     *    inside the 24-hour window the map describes;
+     *  - `ENSEMBLE` — the ladder covers at least the tri-factor minimum of three
+     *    horizons.
+     *
+     * Anything not observed is `UNOBSERVED`, which blocks staging rather than passing.
+     */
+    fun stagingPreconditionFor(symbol: String): StagingPreconditionVerdict {
+        val forecasts = forecastsBySymbol[symbol].orEmpty()
+        val book = _uiState.value.orderBook
+        val bookSides = if (book != null && book.asset == symbol) {
+            listOf(book.bids, book.asks).count { it.isNotEmpty() }
+        } else {
+            0
+        }
+
+        return StagingPrecondition.fromObservations(
+            observations = StagingObservations(
+                forecastModelTypes = forecasts.map { it.modelType },
+                forecastHorizons = forecasts.map { it.horizonId }.toSet(),
+                bookSides = bookSides,
+                heatmapObservedAtMs = heatmapObservedAt[symbol]
+            ),
+            nowMs = System.currentTimeMillis()
+        )
+    }
+
+    /** Reads the newest persisted liquidation-heatmap row, throttled per symbol. */
+    private suspend fun refreshHeatmapObservation(symbol: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastHeatmapProbeMs < HEATMAP_PROBE_INTERVAL_MS) return
+        lastHeatmapProbeMs = now
+        val latest = runCatching {
+            AlphaDatabase.getDatabase(getApplication<Application>())
+                .liquidationHeatmapDao()
+                .getLatestLiquidationHeat(symbol, 1)
+                .firstOrNull()
+        }.getOrNull()
+        if (latest != null) {
+            heatmapObservedAt = heatmapObservedAt + (symbol to latest.timestamp)
         }
     }
 
@@ -1696,5 +1765,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val MIN_SCENARIO_CANDLES = 30
         /** §2/§33 diagnostics cadence: re-sample hardware + feed latency every minute. */
         const val DIAGNOSTICS_RE_SAMPLE_MS = 60_000L
+
+        /** Reading the newest heatmap row per symbol no more than once a minute. */
+        const val HEATMAP_PROBE_INTERVAL_MS = 60_000L
     }
 }

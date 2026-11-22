@@ -7,6 +7,7 @@ import com.aistudio.alphapulse.data.model.LadderSlice
 import com.aistudio.alphapulse.data.model.OrderType
 import com.aistudio.alphapulse.data.model.RiskEnvelope
 import com.aistudio.alphapulse.data.model.VenueHealth
+import com.aistudio.alphapulse.domain.campaign.StagingPreconditionVerdict
 import com.aistudio.alphapulse.engine.proactive.PreLaunchVerdict
 
 /** 
@@ -30,16 +31,23 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
 
     data class GatedCampaign(val campaign: Campaign, val note: String?)
 
+    /**
+     * @param stagingPrecondition §22's four-component verdict for this board's asset.
+     *   Required, not defaulted: every staging path has to state the readiness evidence
+     *   it actually observed rather than inheriting a silent pass.
+     */
     fun gateStaging(
         campaigns: List<Campaign>,
         mode: ExecutionMode,
         envelope: RiskEnvelope,
         venueHealth: VenueHealth,
         hasActiveSession: Boolean,
+        stagingPrecondition: StagingPreconditionVerdict,
         preLaunchAcceptance: PreLaunchVerdict? = null
     ): List<GatedCampaign> = campaigns.map { c ->
         gateCampaign(
-            c, mode, envelope, venueHealth, hasActiveSession, campaigns, preLaunchAcceptance
+            c, mode, envelope, venueHealth, hasActiveSession, campaigns,
+            stagingPrecondition, preLaunchAcceptance
         )
     }
 
@@ -50,6 +58,7 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
         venueHealth: VenueHealth,
         hasActiveSession: Boolean,
         existing: List<Campaign>,
+        stagingPrecondition: StagingPreconditionVerdict,
         preLaunchAcceptance: PreLaunchVerdict?
     ): GatedCampaign {
         // §22 step 7: stage only after all preconditions and account constraints pass.
@@ -58,6 +67,18 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
         )
         if (!allowed) {
             return GatedCampaign(campaign.copy(status = CampaignState.SUPPRESSED), reason)
+        }
+        // §22: the four readiness components are a precondition on the order plan itself,
+        // so an unmet component holds the board as a visible plan with no resting slices
+        // instead of letting it arm on half-observed evidence.
+        if (!stagingPrecondition.canStage) {
+            return GatedCampaign(
+                campaign.copy(
+                    status = CampaignState.PLANNED,
+                    entryLadder = campaign.entryLadder.map { it.copy(isResting = false) }
+                ),
+                stagingPrecondition.note()
+            )
         }
         return when (mode) {
             ExecutionMode.SHADOW -> GatedCampaign(

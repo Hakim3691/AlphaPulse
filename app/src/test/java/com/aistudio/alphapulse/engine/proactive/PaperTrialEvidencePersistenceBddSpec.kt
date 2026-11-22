@@ -11,6 +11,9 @@ import com.aistudio.alphapulse.data.model.OrderType
 import com.aistudio.alphapulse.data.model.RiskEnvelope
 import com.aistudio.alphapulse.data.model.StopLogic
 import com.aistudio.alphapulse.data.model.VenueHealth
+import com.aistudio.alphapulse.domain.campaign.ComponentAvailability
+import com.aistudio.alphapulse.domain.campaign.StagingComponent
+import com.aistudio.alphapulse.domain.campaign.StagingPrecondition
 import com.aistudio.alphapulse.engine.ExecutionEngine
 import com.aistudio.alphapulse.engine.RiskEngine
 import org.junit.Assert.assertEquals
@@ -109,6 +112,9 @@ class PaperTrialEvidencePersistenceBddSpec {
                 RiskEnvelope(),
                 VenueHealth(),
                 hasActiveSession = true,
+                stagingPrecondition = StagingPrecondition.evaluate(
+                    StagingComponent.entries.associateWith { ComponentAvailability.READY }
+                ),
                 preLaunchAcceptance = verdict
             )
 

@@ -16,6 +16,9 @@ import com.aistudio.alphapulse.data.model.RiskEnvelope
 import com.aistudio.alphapulse.data.model.StopLogic
 import com.aistudio.alphapulse.data.model.VenueHealth
 import com.aistudio.alphapulse.data.model.ZoneType
+import com.aistudio.alphapulse.domain.campaign.ComponentAvailability
+import com.aistudio.alphapulse.domain.campaign.StagingComponent
+import com.aistudio.alphapulse.domain.campaign.StagingPrecondition
 import com.aistudio.alphapulse.engine.ExecutionEngine
 import com.aistudio.alphapulse.engine.RiskEngine
 import org.junit.Assert.assertEquals
@@ -79,6 +82,11 @@ class ProactiveCycleRunnerBddSpec {
         rejectionQuality = 0.90,
         trapProbabilityPct = trap,
         recentImpulseQuality = "normal"
+    )
+
+    /** §22's four components all observed, so the gate's verdict is about §38 alone. */
+    private fun readyPrecondition() = StagingPrecondition.evaluate(
+        StagingComponent.entries.associateWith { ComponentAvailability.READY }
     )
 
     private fun campaign() = Campaign(
@@ -173,6 +181,7 @@ class ProactiveCycleRunnerBddSpec {
             RiskEnvelope(),
             VenueHealth(),
             hasActiveSession = true,
+            stagingPrecondition = readyPrecondition(),
             preLaunchAcceptance = verdict
         )
 
@@ -190,6 +199,7 @@ class ProactiveCycleRunnerBddSpec {
             RiskEnvelope(),
             VenueHealth(),
             hasActiveSession = true,
+            stagingPrecondition = readyPrecondition(),
             preLaunchAcceptance = runner.preLaunchVerdict()
         )
 

@@ -16,6 +16,10 @@ import com.aistudio.alphapulse.data.model.RiskEnvelope
 import com.aistudio.alphapulse.data.model.StopLogic
 import com.aistudio.alphapulse.data.model.VenueHealth
 import com.aistudio.alphapulse.data.model.ZoneType
+import com.aistudio.alphapulse.domain.campaign.ComponentAvailability
+import com.aistudio.alphapulse.domain.campaign.StagingComponent
+import com.aistudio.alphapulse.domain.campaign.StagingPrecondition
+import com.aistudio.alphapulse.domain.campaign.StagingPreconditionVerdict
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -139,7 +143,10 @@ class ProactiveExecutionLoopBddSpec {
         fifteenMinuteClosed: Boolean = false,
         preLaunch: PreLaunchVerdict? = null,
         envelope: RiskEnvelope = RiskEnvelope(),
-        venueHealth: VenueHealth = VenueHealth()
+        venueHealth: VenueHealth = VenueHealth(),
+        stagingPrecondition: StagingPreconditionVerdict = StagingPrecondition.evaluate(
+            StagingComponent.entries.associateWith { ComponentAvailability.READY }
+        )
     ) = ProactiveLoopFrame(
         nowMillis = now,
         asset = asset,
@@ -156,7 +163,8 @@ class ProactiveExecutionLoopBddSpec {
         oneMinuteCandleClosed = oneMinuteClosed,
         fiveMinuteCandleClosed = fiveMinuteClosed,
         fifteenMinuteCandleClosed = fifteenMinuteClosed,
-        preLaunch = preLaunch
+        preLaunch = preLaunch,
+        stagingPrecondition = stagingPrecondition
     )
 
     @Test

@@ -12,6 +12,8 @@ import com.aistudio.alphapulse.data.model.InvalidationReason
 import com.aistudio.alphapulse.data.model.LevelMap
 import com.aistudio.alphapulse.data.model.RiskEnvelope
 import com.aistudio.alphapulse.data.model.VenueHealth
+import com.aistudio.alphapulse.domain.campaign.StagingPrecondition
+import com.aistudio.alphapulse.domain.campaign.StagingPreconditionVerdict
 import com.aistudio.alphapulse.engine.CampaignEngine
 import com.aistudio.alphapulse.engine.ExecutionEngine
 import com.aistudio.alphapulse.engine.RiskEngine
@@ -77,7 +79,9 @@ data class ProactiveLoopFrame(
     val fifteenMinuteCandleClosed: Boolean = false,
     val preLaunch: PreLaunchVerdict? = null,
     /** The base app plans its own boards; monitoring passes set this false. */
-    val allowNewStaging: Boolean = true
+    val allowNewStaging: Boolean = true,
+    /** §22's four-component readiness verdict for [asset]. A cold frame observes none. */
+    val stagingPrecondition: StagingPreconditionVerdict = StagingPrecondition.unobserved()
 )
 
 data class ProactiveLoopTelemetry(
@@ -179,6 +183,7 @@ class ProactiveExecutionLoop(
                 frame.envelope,
                 frame.venueHealth,
                 frame.hasActiveSession,
+                frame.stagingPrecondition,
                 frame.preLaunch
             )
             val knownIds = working.map { it.id }.toSet()

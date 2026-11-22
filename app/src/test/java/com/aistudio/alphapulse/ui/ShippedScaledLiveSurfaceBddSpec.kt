@@ -12,6 +12,7 @@ import com.aistudio.alphapulse.data.model.LadderSlice
 import com.aistudio.alphapulse.data.model.MarketRegime
 import com.aistudio.alphapulse.data.model.OrderType
 import com.aistudio.alphapulse.data.model.StopLogic
+import com.aistudio.alphapulse.domain.campaign.StagingComponent
 import com.aistudio.alphapulse.engine.proactive.ProactiveEvidenceRuntime
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -115,7 +116,14 @@ class ShippedScaledLiveSurfaceBddSpec {
 
         val gated = viewModel.stageCampaigns(listOf(campaign()))
 
-        assertEquals(CampaignState.STAGED, gated.single().status)
+        // C-54: §38 is satisfied, but the shipped staging call also enforces §22's four
+        // components, and a freshly relaunched process has observed none of them. The
+        // board must therefore stay a visible plan instead of arming resting slices.
+        assertEquals(CampaignState.PLANNED, gated.single().status)
+        assertTrue(gated.single().entryLadder.none { it.isResting })
+        val precondition = viewModel.stagingPreconditionFor("SOLUSDT")
+        assertFalse(precondition.canStage)
+        assertEquals(StagingComponent.entries, precondition.unmet)
     }
 
     @Test

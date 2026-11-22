@@ -49,6 +49,8 @@ enum class CampaignLifecycleState {
  * @param readyTsfmDockModels TSFM models whose weights are loaded
  * @param requiredTsfmDockModels TSFM models required for the current tier
  * @param horizonConeHitRatePct rolling cone hit rate per horizon id, in percent
+ * @param componentAvailability §22's four readiness components as actually observed; an
+ *   absent entry is unobserved and blocks staging (see [StagingPrecondition])
  */
 data class AlphaPulseReadinessTelemetry(
     val settled1mCount: Int,
@@ -60,7 +62,8 @@ data class AlphaPulseReadinessTelemetry(
     val totalEnsembleModels: Int,
     val readyTsfmDockModels: Int,
     val requiredTsfmDockModels: Int = 2,
-    val horizonConeHitRatePct: Map<String, Double>
+    val horizonConeHitRatePct: Map<String, Double>,
+    val componentAvailability: Map<StagingComponent, ComponentAvailability> = emptyMap()
 ) {
     /** The fast structure needs two 1m closes and one 5m close before it is stable. */
     val isLtfReady: Boolean
@@ -81,6 +84,10 @@ data class AlphaPulseReadinessTelemetry(
     /** The TSFM dock holds exactly what the tier requires — no partial mounts. */
     val isTsfmDockReady: Boolean
         get() = readyTsfmDockModels == requiredTsfmDockModels
+
+    /** §22's four-component precondition, evaluated from the observed evidence. */
+    val stagingPrecondition: StagingPreconditionVerdict
+        get() = StagingPrecondition.evaluate(componentAvailability)
 }
 
 /** The gate's verdict: the state the campaign may enter, and why not when it may not. */
@@ -114,6 +121,10 @@ class CampaignReadinessGate(
         if (!telemetry.isHtfReady) reasons.add("HTF_NOT_READY")
         if (!telemetry.isEnsembleReady) reasons.add("ENSEMBLE_NOT_5_OF_5_READY")
         if (!telemetry.isTsfmDockReady) reasons.add("TSFM_DOCK_NOT_2_OF_2_READY")
+
+        // §22's four named components are additional to the framework above: every one
+        // must be actually observed, not merely absent from the refusal list.
+        reasons.addAll(telemetry.stagingPrecondition.reasons)
 
         governingHorizons.forEach { horizon ->
             // A governing horizon with no measurement is not ready: silence from the
