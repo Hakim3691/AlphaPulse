@@ -7,6 +7,32 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [18.4] — 2026-11-22
+
+A held board now says why on the card, and a CI test run no longer depends on a
+fresh Robolectric download.
+
+### Changed
+
+- **The §22 staging hold is readable on the board.** `ExecutionEngine` puts the
+  refusal on the campaign itself (`gateNote`) and `CampaignCard` renders it directly
+  under the header as an amber `STAGING GATE` strip, naming each missing input the way
+  §22 names it — `TSFM Ready not observed`, `Liquidity Heatmap Ready unavailable` — so
+  a held board no longer looks like an unexplained plan. The machine-readable
+  `TSFM_UNOBSERVED` tokens stay in the audit note, not on the card (C-54).
+- **A stale reason cannot outlive its verdict.** The gate clears `gateNote` on every
+  pass that does not hold the board, so a routed board never carries last cycle's
+  refusal.
+
+### Fixed
+
+- **CI no longer fails on a Robolectric download.** Robolectric fetches its
+  `android-all-instrumented` jars from Maven Central while the tests run, outside
+  Gradle's cache; a 429 from that host killed the API 34 leg after every Gradle
+  dependency had resolved. The unit-test job now caches those jars under a key tied to
+  the Robolectric version and pre-populates them with a bounded, retrying download on
+  a cold cache, so later runs restore instead of downloading.
+
 ## [18.3] — 2026-11-22
 
 §22 staging precondition: a campaign may no longer stage on a pipeline that is only

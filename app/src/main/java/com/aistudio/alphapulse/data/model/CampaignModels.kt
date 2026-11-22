@@ -140,6 +140,14 @@ data class Campaign(
     val invalidationScore: Int,     // 0-100
     val topReasons: List<InvalidationReason>,
     val status: CampaignState,
+    /**
+     * Why the staging gate held this board, when it did (§22 / C-54).
+     *
+     * The gate's own audit note is machine-readable; this is the card-ready sentence
+     * the dashboard renders, and it is cleared on any verdict that does not hold the
+     * board so a stale reason can never sit under a routed board.
+     */
+    val gateNote: String? = null,
     val mirrorCampaignId: String? = null,
     val cooldownUntilTs: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()

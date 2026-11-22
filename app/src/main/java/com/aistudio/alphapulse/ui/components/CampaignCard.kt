@@ -156,6 +156,43 @@ fun CampaignCard(
             }
         }
 
+        // §22 / C-54: the reason the staging gate held this board. It sits directly under
+        // the header because a held board is a state the trader must read before the
+        // numbers, and it names the missing input instead of pointing at a log.
+        val gateNote = campaign.gateNote
+        if (gateNote != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(AmberWarning.copy(alpha = 0.10f))
+                    .border(1.dp, AmberWarning.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .testTag("gate_note_${campaign.id}")
+            ) {
+                Text(
+                    text = "STAGING GATE",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = AmberWarning,
+                        fontSize = 9.sp,
+                        letterSpacing = 0.5.sp
+                    )
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = gateNote,
+                    modifier = Modifier.testTag("gate_note_text_${campaign.id}"),
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = SlateTextPrimary,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp
+                    )
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(4.dp))
 
         // Structural description

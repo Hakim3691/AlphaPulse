@@ -52,7 +52,7 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
     }
 
     private fun gateCampaign(
-        campaign: Campaign,
+        board: Campaign,
         mode: ExecutionMode,
         envelope: RiskEnvelope,
         venueHealth: VenueHealth,
@@ -61,6 +61,9 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
         stagingPrecondition: StagingPreconditionVerdict,
         preLaunchAcceptance: PreLaunchVerdict?
     ): GatedCampaign {
+        // Only this gate may put a reason on the card, so a board that no longer holds
+        // never keeps the previous cycle's sentence.
+        val campaign = board.copy(gateNote = null)
         // §22 step 7: stage only after all preconditions and account constraints pass.
         val (allowed, reason) = riskEngine.validateCampaignStaging(
             campaign, existing, envelope, venueHealth
@@ -75,7 +78,8 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
             return GatedCampaign(
                 campaign.copy(
                     status = CampaignState.PLANNED,
-                    entryLadder = campaign.entryLadder.map { it.copy(isResting = false) }
+                    entryLadder = campaign.entryLadder.map { it.copy(isResting = false) },
+                    gateNote = stagingPrecondition.displayNote()
                 ),
                 stagingPrecondition.note()
             )

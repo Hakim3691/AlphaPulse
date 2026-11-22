@@ -64,12 +64,35 @@ data class StagingObservations(
 data class StagingPreconditionVerdict(
     val canStage: Boolean,
     val unmet: List<StagingComponent>,
-    val reasons: List<String>
+    val reasons: List<String>,
+    /** What was observed for every component, so the UI can word the hold correctly. */
+    val states: Map<StagingComponent, ComponentAvailability> = emptyMap()
 ) {
-    /** The gate's note: a stable, component-named sentence. */
+    /** The gate's note: a stable, component-named sentence for logs and the audit trail. */
     fun note(): String =
         if (canStage) "Staging precondition met: all four readiness components observed"
         else "Staging precondition unmet: ${reasons.joinToString(", ")}"
+
+    /**
+     * The board card's copy: the same facts, in words a trader reads once and understands.
+     *
+     * The raw `TSFM_UNOBSERVED` tokens belong in the log, not on a card, so each unmet
+     * component is named by its §22 label with what actually happened to it: an input that
+     * was never observed reads differently from one that answered but had nothing usable.
+     */
+    fun displayNote(): String =
+        if (canStage) {
+            "All four readiness inputs observed"
+        } else {
+            "Held as a plan — " + unmet.joinToString(", ") { component ->
+                val state = states[component] ?: ComponentAvailability.UNOBSERVED
+                val what = when (state) {
+                    ComponentAvailability.UNAVAILABLE -> "unavailable"
+                    else -> "not observed"
+                }
+                "${component.label} $what"
+            }
+        }
 }
 
 object StagingPrecondition {
@@ -81,14 +104,18 @@ object StagingPrecondition {
         val unmet = StagingComponent.entries.filter { component ->
             availability[component] != ComponentAvailability.READY
         }
+        val states = StagingComponent.entries.associateWith { component ->
+            availability[component] ?: ComponentAvailability.UNOBSERVED
+        }
         val reasons = unmet.map { component ->
-            val state = availability[component] ?: ComponentAvailability.UNOBSERVED
+            val state = states.getValue(component)
             "${component.name}_${state.name}"
         }
         return StagingPreconditionVerdict(
             canStage = unmet.isEmpty(),
             unmet = unmet,
-            reasons = reasons
+            reasons = reasons,
+            states = states
         )
     }
 

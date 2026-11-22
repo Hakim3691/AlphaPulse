@@ -255,6 +255,52 @@ jobs:
         # that will be packaged rather than a cached copy of something else.
         run: ./gradlew :app:bundleNeedle3Weights --console=plain
 
+      - name: Restore the Robolectric Android runtime jars
+        # Robolectric fetches android-all-instrumented from Maven Central *while the
+        # tests run*, so it sits outside both Gradle's dependency cache and
+        # setup-gradle's cache. A 429 from that host failed the API 34 leg after every
+        # Gradle dependency had already resolved. Caching the two SDK jars this suite
+        # uses (33 for the spec qualifiers, 36 for the targetSdk) under a key tied to
+        # the Robolectric version means a cold runner populates the cache once and
+        # every later run restores it instead of downloading again.
+        id: robolectric-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-android-all-4.16.1-sdk33-36-v1
+
+      - name: Prefetch the Robolectric Android runtime jars when the cache is cold
+        # Backstop only: the cache does the real work. On a miss this fills it with a
+        # bounded, retrying download so a first run does not race Robolectric's own
+        # fetcher, and a transient 429 cannot fail the leg by itself.
+        if: steps.robolectric-cache.outputs.cache-hit != 'true'
+        run: |
+          set -uo pipefail
+          BASE="https://repo.maven.apache.org/maven2/org/robolectric/android-all-instrumented"
+          fetch() {
+            artifact="$1"
+            dir="$HOME/.m2/repository/org/robolectric/android-all-instrumented/$artifact"
+            mkdir -p "$dir"
+            for ext in pom jar jar.sha512; do
+              file="$dir/$artifact.$ext"
+              if [ -s "$file" ]; then
+                continue
+              fi
+              if curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 \
+                  --connect-timeout 20 --max-time 300 \
+                  -o "$file.tmp" "$BASE/$artifact/$artifact.$ext"; then
+                mv "$file.tmp" "$file"
+              else
+                rm -f "$file.tmp"
+                echo "::warning title=Robolectric prefetch::$artifact.$ext could not be downloaded; Robolectric will fetch it during the test run."
+                return 0
+              fi
+            done
+            echo "Prefetched $artifact"
+          }
+          fetch 13-robolectric-9030017-i7
+          fetch 16-robolectric-13921718-i7
+
       - name: Execute Unit & Robolectric Tests
         run: |
           # Without pipefail this step reports tee's exit status, so a failing test still
