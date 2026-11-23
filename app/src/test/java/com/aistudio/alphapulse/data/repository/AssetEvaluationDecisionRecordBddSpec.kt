@@ -169,24 +169,48 @@ class AssetEvaluationDecisionRecordBddSpec {
         )
     }
 
-    // ------------------------------------------------- append, never replace
+    // -------------------------------- one row per verdict, not per cycle (C-29)
 
     @Test
-    fun `given an asset already evaluated when it is evaluated again then the newer verdict is appended`() = runBlocking {
+    fun `given an asset already evaluated when the same verdict is produced again then the log keeps one row`() = runBlocking {
         evaluate("BTCUSDT")
         val first = repository.getDecisionHistoryFlow("BTCUSDT", limit = 10).first().single()
 
         evaluate("BTCUSDT")
 
         val rows = repository.getDecisionHistoryFlow("BTCUSDT", limit = 10).first()
-        assertEquals("A second evaluation appends rather than replacing", 2, rows.size)
-        assertNotEquals("The two snapshots must not collide on one id", first.id, rows.first().id)
-        assertEquals("The first verdict is still there", first.id, rows.last().id)
+        assertEquals(
+            "A cycle that repeats the recorded verdict is not a new decision",
+            1,
+            rows.size
+        )
+        assertEquals(
+            "The recorded verdict keeps the timestamp at which it was first made",
+            first.issuedTimestamp,
+            rows.single().issuedTimestamp
+        )
+        assertEquals(DecisionSource.DETERMINISTIC.name, rows.single().source)
+    }
+
+    @Test
+    fun `given a recorded verdict when the router changes its answer then the new verdict is appended`() = runBlocking {
+        evaluate("BTCUSDT")
+        val first = repository.getDecisionHistoryFlow("BTCUSDT", limit = 10).first().single()
+
+        // Same store and same cycle path, but a different answering router: both the
+        // state and the source change, so this is a decision the log must keep.
+        modelBackedRepository(tool = "decide_strong_long", confidence = 0.83)
+            .executeAssetEvaluation(symbol = "BTCUSDT", modelState = ModelState())
+
+        val rows = repository.getDecisionHistoryFlow("BTCUSDT", limit = 10).first()
+        assertEquals("A changed verdict appends rather than replacing", 2, rows.size)
+        assertNotEquals("The two verdicts must not collide on one id", first.id, rows.first().id)
+        assertEquals("The earlier verdict is still there", first.id, rows.last().id)
         assertTrue(
             "Newest first: ${rows.map { it.issuedTimestamp }}",
             rows.first().issuedTimestamp >= rows.last().issuedTimestamp
         )
-        assertEquals(DecisionSource.DETERMINISTIC.name, rows.first().source)
+        assertEquals(DecisionSource.NEEDLE3.name, rows.first().source)
         assertTrue(
             "Every stored state must be a real §29 outcome",
             rows.all { it.state in DecisionState.values().map { state -> state.name } }
