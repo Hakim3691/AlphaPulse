@@ -7,6 +7,54 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.4] — 2026-11-23
+
+One header, one navigation bar, and a ProactiveMS gate that layers its evidence.
+
+### Added
+
+- **Layered evidence (C-58).** ProactiveMS no longer asks whether one blended number is
+  good enough. Its evidence is layered: **PRICE** is the only blocking layer, **PATTERN**
+  becomes an additional input per coin and horizon once that horizon's settled formations
+  clear 85%, and **STRATEGY** becomes an additional input once the coin's graded §74 rows
+  clear 85% over at least twenty graded calls. An unproven additive layer is inactive and
+  never withholds a board the price layer has proven; every verdict names the layers that
+  were live. The only production staging path (`MainViewModel.gateAndLog` →
+  `ExecutionEngine.gateStaging`) passes the verdict, so a board whose price horizons have
+  not proven themselves is held `PLANNED` with no resting slices and a gate note naming
+  the horizon and its sample.
+- **Strategy grading (C-59).** Room schema **version 13** adds `settled`, `outcome` and
+  `resolvedAt` to `strategy_signal_ledger` through the production 12 → 13 additive
+  migration. Each §74 row is graded exactly once against the bar that follows it: a long
+  (short) is a HIT when its entry trades before its invalidation, and a MISS when the
+  invalidation trades first, when the bar touched both, or when neither level traded. A
+  NEUTRAL or level-less signal is UNGRADED and excluded from the rate.
+
+### Changed
+
+- **The confirmed 85% evidence floor (C-55).** The feeding gate is now 85% with
+  integer comparison, so exactly 85.0% qualifies, over a sample floor that scales with
+  how often a horizon settles: 20 for `1m`/`5m` and 4 for `15m`/`30m`/`1h`. It is still
+  evaluated per coin and per horizon, never as one blended rate.
+- **Unproven coins leave the campaign universe.** A coin with no proven price horizon is
+  no longer carried as a neutral asset with a "forecast withheld" note; it is removed
+  from the bridged list, so a board can never be shaped for a coin with no evidence.
+- **One header (C-57).** `AlphaPulseHeader` is the app's only header. It always shows the
+  AlphaPulse brand, screening status, session clock, readiness badges and refresh, and
+  gains the VIP block — live/offline chip, execution-mode pill, kill switch, orphan
+  guard, worst-case stop-out, ping, RAM and session lock — only in the host that mounts
+  the campaign engine. The base app passes no VIP block, so unlocking still cannot alter
+  the analysis screen. `TopBar` and `HeaderBar` are deleted, and the Chronos-Bolt /
+  TimesFM-2.5 quick actions moved onto the `ML ENSEMBLE WEIGHTS` card they feed.
+- **One navigation bar (C-57).** `AlphaPulseNavBar` renders exactly one `VIP Features`
+  slot before entitlement and the six canonical tabs (first labelled `Alpha Pulse`) once
+  the module is installed. The ProactiveMS workspace mounts the same `AlphaPulseTabBar`,
+  a cross-host launch carries its tab through `EXTRA_INITIAL_TAB`, and
+  `TraderHostActivity` refuses to mount without the persisted entitlement.
+- **Pattern hit rate over settled rows only.** The pattern ledger's rate divided by every
+  issued row, mixing ungraded predictions into the denominator; it now measures settled
+  rows and uses the confirmed 85% colour boundary.
+
 ## [19.3] — 2026-11-23
 
 §74's strategy signals survive the cycle that produced them.

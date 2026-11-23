@@ -27,7 +27,7 @@ import org.junit.Test
 class StrategySignalLedgerBddSpec {
 
     @Test
-    fun `given the schema when read then the twelve recorded fields are present in contract order`() {
+    fun `given the schema when read then the twelve recorded fields and the three grading fields are present in contract order`() {
         assertEquals(
             listOf(
                 "asset",
@@ -41,28 +41,68 @@ class StrategySignalLedgerBddSpec {
                 "zoneTouches",
                 "detail",
                 "barOpenTime",
-                "issuedTimestamp"
+                "issuedTimestamp",
+                "settled",
+                "outcome",
+                "resolvedAt"
             ),
             StrategySignalSchema.LEDGER_FIELDS
+        )
+        assertEquals(
+            listOf("settled", "outcome", "resolvedAt"),
+            StrategySignalSchema.OUTCOME_FIELDS
         )
     }
 
     @Test
-    fun `given the production eleven to twelve migration when its statement is read then it creates the table with every column and a primary key`() {
-        val ddl = StrategySignalSchema.DDL
+    fun `given the production twelve to thirteen migration when read then it adds grading columns without rewriting a signal`() {
+        val statements = StrategySignalSchema.MIGRATION_12_13_SQL
+
+        assertEquals(3, statements.size)
+        StrategySignalSchema.OUTCOME_FIELDS.forEach { field ->
+            assertTrue(
+                "The 12 -> 13 migration must add `$field`: $statements",
+                statements.any { it.contains("ADD COLUMN `$field`") }
+            )
+        }
+        assertTrue(
+            "An existing signal must read back as ungraded, not be discarded",
+            statements.any { it.contains("`settled` INTEGER NOT NULL DEFAULT 0") }
+        )
+    }
+
+    @Test
+    fun `given the production eleven to twelve migration when its statement is read then it creates the schema twelve table without the grading columns`() {
+        val ddl = StrategySignalSchema.DDL_V12
 
         assertTrue(
             "The migration must create the ledger table: $ddl",
             ddl.contains("CREATE TABLE IF NOT EXISTS `${StrategySignalSchema.TABLE}`")
         )
-        StrategySignalSchema.LEDGER_FIELDS.forEach { field ->
+        (StrategySignalSchema.LEDGER_FIELDS - StrategySignalSchema.OUTCOME_FIELDS.toSet()).forEach { field ->
             assertTrue("The migration must declare the `$field` column: $ddl", ddl.contains("`$field`"))
+        }
+        StrategySignalSchema.OUTCOME_FIELDS.forEach { field ->
+            assertFalse(
+                "Schema 12 must not create `$field`; the 12 -> 13 ALTER would add it twice",
+                ddl.contains("`$field`")
+            )
         }
         assertTrue("The row needs its key", ddl.contains("PRIMARY KEY(`${StrategySignalSchema.KEY_COLUMN}`)"))
         assertTrue(
             "The levels are optional: a rule that is not active defines none",
             ddl.contains("`entry` REAL, ") && ddl.contains("`invalidation` REAL, ")
         )
+    }
+
+    @Test
+    fun `given the schema thirteen definition when read then a fresh install creates the grading columns`() {
+        StrategySignalSchema.OUTCOME_FIELDS.forEach { field ->
+            assertTrue(
+                "A fresh install must create `$field`: ${StrategySignalSchema.DDL}",
+                StrategySignalSchema.DDL.contains("`$field`")
+            )
+        }
     }
 
     @Test
@@ -75,10 +115,14 @@ class StrategySignalLedgerBddSpec {
             "The entity must be registered, or the table is never created",
             database.contains("StrategySignalLedgerEntity::class")
         )
-        assertTrue("The schema must be version 12", database.contains("version = 12,"))
+        assertTrue("The schema must be version 13", database.contains("version = 13,"))
         assertTrue(
             "The 11 -> 12 migration must be registered, not only declared",
             database.contains("MIGRATION_11_12") && database.contains("MIGRATION_10_11, MIGRATION_11_12")
+        )
+        assertTrue(
+            "C-58's 12 -> 13 migration must be registered and applied",
+            database.contains("MIGRATION_12_13") && database.contains("MIGRATION_11_12,\n                    MIGRATION_12_13")
         )
         assertTrue(
             "The DAO must be reachable from the database",

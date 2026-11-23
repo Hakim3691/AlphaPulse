@@ -102,11 +102,33 @@ class SimulatedTraderManager(
             Toast.makeText(context, MODULE_UNAVAILABLE_MESSAGE, Toast.LENGTH_LONG).show()
             return
         }
+        startTraderActivity(context, initialTab = null)
+    }
+
+    /**
+     * C-57: opens the workspace on a specific tab from the shared navigation.
+     *
+     * The base app's bar and the workspace's bar are the same bar, so tapping `Replay`
+     * outside the workspace must land on Replay rather than reopening AlphaPulse. The
+     * tab is passed as its enum name; the host validates it and ignores an unknown value.
+     */
+    fun launchTraderTab(context: Context, tabName: String) {
+        if (installState.value != ModuleInstallState.INSTALLED) return
+        if (!isModuleHostPresent()) {
+            installState.value = ModuleInstallState.ERROR
+            Toast.makeText(context, MODULE_UNAVAILABLE_MESSAGE, Toast.LENGTH_LONG).show()
+            return
+        }
+        startTraderActivity(context, initialTab = tabName)
+    }
+
+    private fun startTraderActivity(context: Context, initialTab: String?) {
         // Reflection-free dynamic launch: the class lives only in the feature
         // module, so it is addressed by component name.
         val intent = Intent().apply {
             setClassName(context, TRADER_ACTIVITY)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (initialTab != null) putExtra(EXTRA_INITIAL_TAB, initialTab)
         }
         runCatching { context.startActivity(intent) }
             .onFailure { installState.value = ModuleInstallState.ERROR }
@@ -114,6 +136,8 @@ class SimulatedTraderManager(
 
     companion object {
         const val TRADER_ACTIVITY: String = "com.alphapulse.proactive.TraderHostActivity"
+        /** C-57: the tab a cross-host launch should open. */
+        const val EXTRA_INITIAL_TAB: String = "com.alphapulse.proactive.initial_tab"
         const val PREFS: String = "alphapulse_entitlements"
         const val KEY_UNLOCKED: String = "trader_plugin_unlocked"
         const val PROGRESS_STEP_MS: Long = 300

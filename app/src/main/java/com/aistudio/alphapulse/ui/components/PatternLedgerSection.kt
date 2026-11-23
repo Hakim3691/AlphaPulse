@@ -68,15 +68,19 @@ fun PatternLedgerSection(
     // A hit is a settled row whose realized geometry matched the prediction. The
     // ledger's `inCone` flag is not persisted, so reading it here reported 0% forever.
     val hitCount = filteredList.count { it.settled && it.realizedPattern == it.predictedPatternName }
-    val hitRateText = if (filteredList.isEmpty())
+    // C-57: the rate is measured over settled rows only. Dividing by every issued row
+    // mixed ungraded predictions into the denominator and reported a hit rate no settled
+    // sample could produce.
+    val settledRows = filteredList.count { it.settled }
+    val hitRateText = if (settledRows == 0)
         "Hit: -- (0/0)"
     else {
-        val rate = (hitCount.toDouble() / filteredList.size) * 100.0
-        "Hit: ${String.format(Locale.US, "%.1f", rate)}% ($hitCount/${filteredList.size})"
+        val rate = (hitCount.toDouble() / settledRows) * 100.0
+        "Hit: ${String.format(Locale.US, "%.1f", rate)}% ($hitCount/$settledRows)"
     }
 
-    val hitRateColor = if (filteredList.isEmpty()) TextTertiary else if (
-        (hitCount.toDouble() / filteredList.size) >= 0.6
+    val hitRateColor = if (settledRows == 0) TextTertiary else if (
+        (hitCount.toDouble() / settledRows) >= 0.85
     ) BrandBullish else BrandAmber
 
     var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }

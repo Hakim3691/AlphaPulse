@@ -42,10 +42,11 @@ import kotlin.math.sqrt
  *   stay quiet until the caller supplies a live measurement.
  * - Tactical/strategic bias: derived from AlphaPulse's forecast, never from candles.
  *
- * C-55: the forecast a campaign is priced from is the one this coin's own settlements
- * have proven. A horizon that has not settled twenty predictions at an 80% cone hit rate
- * is withheld (`SignalEvidence`), so a board cannot be planned on a horizon that never
- * called its cone. §22's staging gate (C-19) still applies its own > 90% on top.
+ * C-57: the forecast a campaign is priced from is the one this coin's own settlements
+ * have proven. A horizon that has not cleared its own 85% floor (`SignalEvidence`) is
+ * withheld, so a board cannot be planned on a horizon that never called its cone. A coin
+ * with no proven horizon is not part of the campaign universe at all: it is removed from
+ * the bridged list rather than carried as a neutral asset that can only disappoint.
  */
 class ScreenedUniverseBridge {
 
@@ -62,8 +63,21 @@ class ScreenedUniverseBridge {
         if (screened.isEmpty()) return emptyList()
         return screened
             .sortedBy { it.rank }
+            // C-57: an unproven coin is removed from the campaign universe. Carrying it
+            // as a neutral asset meant a board could be shaped for a coin that had never
+            // called a cone, and the only reading it added was taker flow.
+            .filter { isProven(forecasts[it.symbol].orEmpty()) }
             .map { entity -> toCryptoAsset(entity, forecasts[entity.symbol].orEmpty()) }
     }
+
+    /**
+     * C-57: true when at least one of this coin's price horizons has proven itself.
+     *
+     * This is the campaign universe's admission test, not a display filter: an unproven
+     * coin cannot be planned, so it does not enter the list in the first place.
+     */
+    fun isProven(predictions: List<PredictionEntity>): Boolean =
+        evidenceFor(predictions).any { it.qualified }
 
     /** One screen row plus its prediction ladder, on the engine's asset shape. */
     fun toCryptoAsset(
@@ -176,13 +190,9 @@ class ScreenedUniverseBridge {
         evidence: List<SignalEvidence.HorizonEvidence>
     ): String {
         if (forecast == null) {
-            // C-55: a forecast withheld for lack of evidence is not an absent forecast,
-            // and the board says which horizon failed to prove itself.
-            val withheld = evidence.filter { it.settled > 0 }
-            if (withheld.isNotEmpty()) {
-                return "Forecast withheld until evidence: " +
-                    withheld.joinToString(" · ") { it.describe() }
-            }
+            // C-57: the evidence-withheld sentence is gone. Such a coin never reaches the
+            // campaign universe (`toCryptoAssets` filters it out); this branch remains for
+            // a direct single-asset bridge, where it states only what is awaited.
             return "Awaiting AlphaPulse forecast (flow bias $flowBias)"
         }
         val nearest = forecast.targets.first()

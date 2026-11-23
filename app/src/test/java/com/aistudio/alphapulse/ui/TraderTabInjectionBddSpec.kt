@@ -69,7 +69,13 @@ class TraderTabInjectionBddSpec {
         }
 
         val shell = repoFile("app/src/main/java/com/aistudio/alphapulse/ui/AppShell.kt").readText()
-        assertTrue("The shell must render the trader entry", shell.contains("VIP_TAB_TAG"))
+        val navBar = repoFile("app/src/main/java/com/aistudio/alphapulse/ui/AlphaPulseNavBar.kt")
+            .readText()
+        assertTrue(
+            "The shell must mount the shared bar that renders the trader entry",
+            shell.contains("AlphaPulseNavBar(")
+        )
+        assertTrue("The shared bar must render the VIP unlock", navBar.contains("VIP_TAB_TAG"))
         assertTrue(
             "The core surface must be a plain content slot",
             shell.contains("coreContent()")
@@ -79,11 +85,14 @@ class TraderTabInjectionBddSpec {
     @Test
     fun `given no entitlement when the bottom bar is built then it offers one VIP call to action and no floating trader button`() {
         val shell = repoFile("app/src/main/java/com/aistudio/alphapulse/ui/AppShell.kt").readText()
+        val navBar = repoFile("app/src/main/java/com/aistudio/alphapulse/ui/AlphaPulseNavBar.kt")
+            .readText()
 
-        // Directive §3: one bar entry before entitlement, then the same slot becomes
-        // the trader tab. The floating button and the redundant Analysis tab are gone.
-        assertTrue("The bar must offer the VIP unlock", shell.contains("VIP_TAB_TAG"))
-        assertTrue(shell.contains("Enable VIP Features"))
+        // Directive §3 / C-57: one bar entry before entitlement, then the same slot
+        // becomes the six-tab bar. The floating button and the redundant Analysis tab
+        // are gone.
+        assertTrue("The bar must offer the VIP unlock", navBar.contains("VIP_TAB_TAG"))
+        assertTrue(navBar.contains("VIP Features"))
         assertFalse(
             "The floating ENABLE VIP FEATURES button collided with the bottom cards",
             shell.contains("ENABLE VIP FEATURES")

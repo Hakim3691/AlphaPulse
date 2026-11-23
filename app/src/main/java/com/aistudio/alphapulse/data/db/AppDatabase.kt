@@ -26,7 +26,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PatternLedgerEntity::class, PatternSgdWeightsEntity::class,
         TradeIdeaEntity::class, ScreenedUniverseStateEntity::class,
         StrategySignalLedgerEntity::class],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -172,7 +172,17 @@ abstract class AppDatabase : RoomDatabase() {
          */
         internal val MIGRATION_11_12 = object : Migration(11, 12) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(StrategySignalSchema.DDL)
+                db.execSQL(StrategySignalSchema.DDL_V12)
+            }
+        }
+
+        /**
+         * C-58: strategy signals become gradeable. Additive columns only, so every row
+         * written under C-56 keeps its signal and simply reads back as ungraded.
+         */
+        internal val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                StrategySignalSchema.MIGRATION_12_13_SQL.forEach { db.execSQL(it) }
             }
         }
 
@@ -195,7 +205,8 @@ abstract class AppDatabase : RoomDatabase() {
                     "alphapulse_db"
                 ).addMigrations(
                     MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                    MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12
+                    MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
+                    MIGRATION_12_13
                 )
                     .addCallback(CATALOGUE_SEED)
                     .fallbackToDestructiveMigration().build()

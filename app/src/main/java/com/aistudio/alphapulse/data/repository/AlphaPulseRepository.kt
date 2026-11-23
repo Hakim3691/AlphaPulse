@@ -63,6 +63,9 @@ import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
 import com.aistudio.alphapulse.domain.pattern.PatternSgdModel
 import com.aistudio.alphapulse.domain.strategy.QuantStrategyEngine
 import com.aistudio.alphapulse.domain.strategy.ScreenerSignal
+import com.aistudio.alphapulse.domain.strategy.SignalDirection
+import com.aistudio.alphapulse.domain.strategy.StrategyOutcome
+import com.aistudio.alphapulse.domain.strategy.StrategyOutcomeGrader
 import com.aistudio.alphapulse.domain.strategy.StrategyCandle
 import com.aistudio.alphapulse.domain.strategy.StrategySignal
 import com.aistudio.alphapulse.domain.strategy.TechnicalScreeners
@@ -1418,7 +1421,8 @@ class AlphaPulseRepository(
             symbol = symbol,
             signals = strategySignals,
             barOpenTime = strategyCandles.lastOrNull()?.openTime ?: now,
-            now = now
+            now = now,
+            candles = strategyCandles
         )
 
         AssetEvaluationResult(
@@ -1458,11 +1462,15 @@ class AlphaPulseRepository(
         symbol: String,
         signals: List<StrategySignal>,
         barOpenTime: Long,
-        now: Long
+        now: Long,
+        candles: List<StrategyCandle>
     ) {
         if (signals.isEmpty()) return
         runCatching {
             val dao = database.strategySignalLedgerDao()
+            // C-58: grade anything whose following bar has now closed before writing
+            // this bar, so a row is graded exactly once and never by its own bar.
+            gradePendingStrategySignals(dao, symbol, candles, now)
             dao.upsertAll(
                 signals.map { it.toLedgerRow(symbol, barOpenTime, now) }
             )
@@ -1471,6 +1479,60 @@ class AlphaPulseRepository(
             Log.d("AlphaPulseRepository", "§74 signal ledger write skipped: ${it.message}")
         }
     }
+
+    /**
+     * C-58: grades every pending §74 row against the bar that followed it.
+     *
+     * A row is graded only when its following bar exists in the series the rules read,
+     * so a signal is never judged by the bar that produced it. A neutral or level-less
+     * row is resolved as `UNGRADED` rather than left pending forever; it still counts as
+     * read, but it is excluded from the strategy layer's hit rate.
+     */
+    private suspend fun gradePendingStrategySignals(
+        dao: com.aistudio.alphapulse.data.db.StrategySignalLedgerDao,
+        symbol: String,
+        candles: List<StrategyCandle>,
+        now: Long
+    ) {
+        val newestBar = candles.maxOfOrNull { it.openTime } ?: return
+        val pending = dao.pendingBefore(symbol, newestBar)
+        if (pending.isEmpty()) return
+        val ordered = candles.sortedBy { it.openTime }
+        val indexByBar = ordered.mapIndexed { index, candle -> candle.openTime to index }.toMap()
+
+        pending.forEach { row ->
+            val index = indexByBar[row.barOpenTime] ?: return@forEach
+            val gradingBar = ordered.getOrNull(index + 1) ?: return@forEach
+            val direction = runCatching { SignalDirection.valueOf(row.direction) }
+                .getOrDefault(SignalDirection.NEUTRAL)
+            val outcome = StrategyOutcomeGrader.grade(
+                direction = direction,
+                entry = row.entry,
+                invalidation = row.invalidation,
+                open = gradingBar.open,
+                high = gradingBar.high,
+                low = gradingBar.low,
+                close = gradingBar.close
+            )
+            dao.resolve(row.id, outcome.name, now)
+        }
+    }
+
+    /**
+     * C-58: the strategy layer's sample for one coin — graded calls only.
+     *
+     * @return graded (hit, miss) counts, excluding UNGRADED rows
+     */
+    suspend fun strategyEvidenceCounts(symbol: String): Pair<Int, Int> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val rows = database.strategySignalLedgerDao().graded(symbol)
+                val graded = rows.filter {
+                    it.outcome == StrategyOutcome.HIT.name || it.outcome == StrategyOutcome.MISS.name
+                }
+                graded.count { it.outcome == StrategyOutcome.HIT.name } to graded.size
+            }.getOrDefault(0 to 0)
+        }
 
     /** C-56: the recorded §74 signals for one asset, newest bar first. */
     suspend fun strategySignalLedger(symbol: String, limit: Int = 50): List<StrategySignal> =

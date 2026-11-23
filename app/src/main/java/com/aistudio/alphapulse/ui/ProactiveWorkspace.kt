@@ -13,17 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Sensors
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,8 +23,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -46,8 +33,9 @@ import com.aistudio.alphapulse.data.model.Campaign
 import com.aistudio.alphapulse.data.model.ExecutionMode
 import com.aistudio.alphapulse.engine.SimulationScenario
 import com.aistudio.alphapulse.engine.proactive.ProductionExecutionConfig
+import com.aistudio.alphapulse.ui.components.AlphaPulseHeader
 import com.aistudio.alphapulse.ui.components.ManualOverrideDialog
-import com.aistudio.alphapulse.ui.components.TopBar
+import com.aistudio.alphapulse.ui.components.VipHeaderState
 import com.aistudio.alphapulse.ui.screens.DashboardScreen
 import com.aistudio.alphapulse.ui.screens.RiskGuardrailsScreen
 import com.aistudio.alphapulse.ui.screens.SimulationScreen
@@ -101,6 +89,22 @@ data class ProactiveWorkspaceActions(
     val onRunReplay: (baseline: Boolean) -> Unit = {}
 )
 
+/**
+ * The AlphaPulse chrome the workspace header shows on every tab: the same session
+ * clock, readiness badges and screening status the analysis screen shows. It is passed
+ * in explicitly so the workspace never invents a second timer or a second readiness
+ * reading.
+ */
+data class AlphaPulseHeaderChrome(
+    val sessionElapsedSeconds: Long = 0,
+    val isLTFReady: Boolean = false,
+    val isMTFReady: Boolean = false,
+    val isHTFReady: Boolean = false,
+    val pipelineRunning: Boolean = false,
+    val pipelineSecondsRemaining: Int = 0,
+    val onRefreshClick: () -> Unit = {}
+)
+
 /** Test tags the guard specs address instead of matching raw label strings. */
 object ProactiveWorkspaceTags {
     const val WORKSPACE = "proactive_workspace"
@@ -118,22 +122,24 @@ fun ProactiveWorkspaceScreen(
     actions: ProactiveWorkspaceActions,
     alphaPulseTab: @Composable () -> Unit,
     preLaunchVerdict: String = "",
+    headerChrome: AlphaPulseHeaderChrome = AlphaPulseHeaderChrome(),
     modifier: Modifier = Modifier
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize().testTag(ProactiveWorkspaceTags.WORKSPACE),
         containerColor = BrandDark,
-        // One inset set for the whole surface, and the chrome owns it: the header pads
-        // itself below the status bar (`TopBar`), the bottom bar carries the
-        // navigation-bar inset, and no tab body applies window insets of its own. The
+        // One inset set for the whole surface, and the chrome owns it: the shared
+        // `AlphaPulseHeader` pads itself below the status bar, the single shared tab bar
+        // carries the navigation-bar inset, and no tab body applies window insets of its own. The
         // AlphaPulse tab in particular mounts `AlphaPulseScreenContent`, not the full
         // `AlphaPulseScreen`, whose Scaffold would otherwise add safe-drawing padding a
         // second time and leave the cards squeezed on a phone.
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            ProactiveBottomBar(
+            AlphaPulseTabBar(
                 activeTab = workspace.activeTab,
-                onSelectTab = actions.onSelectTab
+                onSelectTab = actions.onSelectTab,
+                tag = ProactiveWorkspaceTags.BOTTOM_BAR
             )
         }
     ) { innerPadding ->
@@ -143,19 +149,28 @@ fun ProactiveWorkspaceScreen(
                 .padding(innerPadding)
                 .background(BrandDark)
         ) {
-            // Exactly one header for the whole workspace, on every tab. The AlphaPulse
-            // tab used to hide it and mount the full `AlphaPulseScreen`, which drew a
-            // second header underneath this one's place and re-applied the safe-drawing
-            // insets inside the workspace's own Scaffold.
-            TopBar(
-                executionMode = state.executionMode,
-                onModeChange = actions.onModeChange,
-                riskEnvelope = state.riskEnvelope,
-                venueHealth = state.venueHealth,
-                isSessionActive = state.isSessionActive,
-                isLiveUniverse = state.isLiveUniverse,
-                onToggleKillSwitch = actions.onToggleKillSwitch,
-                onOpenOrphanWarning = actions.onOpenOrphanWarning
+            // Exactly one header for the whole app, on every tab: the same
+            // `AlphaPulseHeader` the analysis screen mounts, with the workspace's VIP
+            // controls added as its optional block. The AlphaPulse tab used to hide the
+            // header and mount the full `AlphaPulseScreen`, which drew a second one.
+            AlphaPulseHeader(
+                sessionElapsedSeconds = headerChrome.sessionElapsedSeconds,
+                isLTFReady = headerChrome.isLTFReady,
+                isMTFReady = headerChrome.isMTFReady,
+                isHTFReady = headerChrome.isHTFReady,
+                pipelineRunning = headerChrome.pipelineRunning,
+                pipelineSecondsRemaining = headerChrome.pipelineSecondsRemaining,
+                onRefreshClick = headerChrome.onRefreshClick,
+                vip = VipHeaderState(
+                    executionMode = state.executionMode,
+                    riskEnvelope = state.riskEnvelope,
+                    venueHealth = state.venueHealth,
+                    isSessionActive = state.isSessionActive,
+                    isLiveUniverse = state.isLiveUniverse,
+                    onModeChange = actions.onModeChange,
+                    onToggleKillSwitch = actions.onToggleKillSwitch,
+                    onOpenOrphanWarning = actions.onOpenOrphanWarning
+                )
             )
 
             // C-22: there is no second coin selector. AlphaPulse's institutional screen
@@ -219,10 +234,15 @@ fun ProactiveWorkspaceScreen(
 @Composable
 fun ProactiveWorkspaceScreen(
     viewModel: MainViewModel,
-    alphaPulseViewModel: AlphaPulseViewModel
+    alphaPulseViewModel: AlphaPulseViewModel,
+    initialTab: ProactiveMsTab? = null
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    var workspace by remember { mutableStateOf(ProactiveMsWorkspaceState()) }
+    // C-57: the shared bar launches a *specific* tab, so the host hands the requested
+    // tab in rather than every cross-host launch landing on AlphaPulse.
+    var workspace by remember {
+        mutableStateOf(ProactiveMsWorkspaceState(activeTab = initialTab ?: ProactiveMsTab.ALPHA_PULSE))
+    }
 
     // The engine is the source of truth for the universe and the inspected coin. The
     // workspace only mirrors it, so a selection can never drift between them.
@@ -250,6 +270,15 @@ fun ProactiveWorkspaceScreen(
         state = state,
         workspace = workspace,
         preLaunchVerdict = preLaunchVerdict,
+        headerChrome = AlphaPulseHeaderChrome(
+            sessionElapsedSeconds = alphaPulseState.sessionElapsedSeconds,
+            isLTFReady = alphaPulseState.isLTFReady,
+            isMTFReady = alphaPulseState.isMTFReady,
+            isHTFReady = alphaPulseState.isHTFReady,
+            pipelineRunning = alphaPulseState.pipelineRunning,
+            pipelineSecondsRemaining = alphaPulseState.pipelineSecondsRemaining,
+            onRefreshClick = { alphaPulseViewModel.showRefreshDialog(true) }
+        ),
         actions = ProactiveWorkspaceActions(
             onSelectTab = { tab -> workspace = workspace.selectTab(tab) },
             onToggleKillSwitch = viewModel::toggleKillSwitch,
@@ -286,69 +315,19 @@ fun ProactiveWorkspaceScreen(
 fun mountProactiveWorkspace(
     activity: ComponentActivity,
     mainViewModel: MainViewModel,
-    alphaPulseViewModel: AlphaPulseViewModel
+    alphaPulseViewModel: AlphaPulseViewModel,
+    initialTab: ProactiveMsTab? = null
 ) {
     activity.enableEdgeToEdge()
     activity.setContent {
         MyApplicationTheme {
             ProactiveWorkspaceScreen(
                 viewModel = mainViewModel,
-                alphaPulseViewModel = alphaPulseViewModel
+                alphaPulseViewModel = alphaPulseViewModel,
+                initialTab = initialTab
             )
         }
     }
-}
-
-@Composable
-private fun ProactiveBottomBar(
-    activeTab: ProactiveMsTab,
-    onSelectTab: (ProactiveMsTab) -> Unit
-) {
-    NavigationBar(
-        modifier = Modifier.testTag(ProactiveWorkspaceTags.BOTTOM_BAR),
-        containerColor = CardBackground,
-        contentColor = SlateTextPrimary,
-        tonalElevation = 0.dp
-    ) {
-        // The bar is the contract's tab order, one equal slot each (§72 / C-22).
-        ProactiveMsWorkspaceState.TAB_ORDER.forEach { tab ->
-            val selected = tab == activeTab
-            NavigationBarItem(
-                selected = selected,
-                onClick = { onSelectTab(tab) },
-                icon = {
-                    Icon(
-                        imageVector = tab.icon(),
-                        contentDescription = "${tab.label} tab",
-                        modifier = Modifier.size(18.dp)
-                    )
-                },
-                label = {
-                    Text(
-                        text = tab.label,
-                        fontSize = 8.sp,
-                        maxLines = 1,
-                        color = if (selected) CyanAccent else SlateTextMuted
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    indicatorColor = Color(0xFF1E293B),
-                    selectedIconColor = CyanAccent,
-                    unselectedIconColor = SlateTextMuted
-                ),
-                modifier = Modifier.testTag(ProactiveWorkspaceTags.tab(tab))
-            )
-        }
-    }
-}
-
-private fun ProactiveMsTab.icon(): ImageVector = when (this) {
-    ProactiveMsTab.ALPHA_PULSE -> Icons.Default.Bolt
-    ProactiveMsTab.DASHBOARD -> Icons.Default.Dashboard
-    ProactiveMsTab.TELEMETRY -> Icons.Default.Sensors
-    ProactiveMsTab.GUARDRAILS -> Icons.Default.Security
-    ProactiveMsTab.REPLAY -> Icons.Default.Insights
-    ProactiveMsTab.AUDIT -> Icons.Default.History
 }
 
 /**

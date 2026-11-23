@@ -7,9 +7,11 @@ import androidx.activity.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.alphapulse.billing.SimulatedTraderManager
 import com.aistudio.alphapulse.engine.OrphanInterceptDialog
 import com.aistudio.alphapulse.engine.OrphanInterceptLifecycle
 import com.aistudio.alphapulse.ui.MainViewModel
+import com.aistudio.alphapulse.ui.ProactiveMsTab
 import com.aistudio.alphapulse.ui.mountProactiveWorkspace
 import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 import kotlinx.coroutines.launch
@@ -54,6 +56,16 @@ class TraderHostActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // C-57: the workspace is a paid surface, and it now shares the app's one
+        // navigation bar. A host reached without the persisted entitlement (a stale
+        // deep link, an exported-launch attempt) closes instead of mounting the
+        // campaign engine for an unentitled user. The manifest keeps the activity
+        // unexported; this is the defensive second check.
+        if (!isVipEntitled()) {
+            finish()
+            return
+        }
+
         // §3: ON_STOP is the only signal that reaches the policy. ON_PAUSE is not used,
         // so a permission sheet or a system dialog cannot wipe a live session.
         lifecycle.addObserver(OrphanInterceptLifecycle { viewModel.onAppBackgrounded() })
@@ -61,7 +73,8 @@ class TraderHostActivity : ComponentActivity() {
         mountProactiveWorkspace(
             activity = this,
             mainViewModel = viewModel,
-            alphaPulseViewModel = alphaPulseViewModel
+            alphaPulseViewModel = alphaPulseViewModel,
+            initialTab = requestedInitialTab()
         )
 
         // §3: mirror the policy's verdict into the platform dialog exactly once.
@@ -77,6 +90,16 @@ class TraderHostActivity : ComponentActivity() {
         interceptDialog = null
         super.onDestroy()
     }
+
+    /** The persisted simulated entitlement, the same key the base bar reads. */
+    private fun isVipEntitled(): Boolean =
+        getSharedPreferences(SimulatedTraderManager.PREFS, MODE_PRIVATE)
+            .getBoolean(SimulatedTraderManager.KEY_UNLOCKED, false)
+
+    /** C-57: the shared bar's requested tab; an unknown value falls back to AlphaPulse. */
+    private fun requestedInitialTab(): ProactiveMsTab? =
+        intent?.getStringExtra(SimulatedTraderManager.EXTRA_INITIAL_TAB)
+            ?.let { name -> runCatching { ProactiveMsTab.valueOf(name) }.getOrNull() }
 
     private fun syncIntercept(isOpen: Boolean) {
         if (isOpen) {

@@ -82,8 +82,13 @@ class DynamicFeatureContractBddSpec {
             activity.contains("mountProactiveWorkspace")
         )
         assertTrue(
-            "The workspace must render the canonical tab order",
-            workspace.contains("ProactiveMsWorkspaceState.TAB_ORDER")
+            "The workspace must mount the one shared tab bar",
+            workspace.contains("AlphaPulseTabBar(")
+        )
+        assertTrue(
+            "The shared tab bar must render the canonical tab order",
+            repoFile("app/src/main/java/com/aistudio/alphapulse/ui/AlphaPulseNavBar.kt")
+                .readText().contains("ProactiveMsWorkspaceState.TAB_ORDER")
         )
         assertFalse(
             "The retired Analysis tab must not return",

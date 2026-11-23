@@ -7,6 +7,7 @@ import com.aistudio.alphapulse.data.model.LadderSlice
 import com.aistudio.alphapulse.data.model.OrderType
 import com.aistudio.alphapulse.data.model.RiskEnvelope
 import com.aistudio.alphapulse.data.model.VenueHealth
+import com.aistudio.alphapulse.domain.campaign.LayeredEvidenceVerdict
 import com.aistudio.alphapulse.domain.campaign.StagingPreconditionVerdict
 import com.aistudio.alphapulse.engine.proactive.PreLaunchVerdict
 
@@ -43,11 +44,17 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
         venueHealth: VenueHealth,
         hasActiveSession: Boolean,
         stagingPrecondition: StagingPreconditionVerdict,
-        preLaunchAcceptance: PreLaunchVerdict? = null
+        preLaunchAcceptance: PreLaunchVerdict? = null,
+        /**
+         * C-57: the layered price/pattern/strategy verdict for this asset. Null means
+         * the caller has no layered evidence to state; when present, an unproven PRICE
+         * layer holds the board exactly like an unmet §22 component.
+         */
+        layeredEvidence: LayeredEvidenceVerdict? = null
     ): List<GatedCampaign> = campaigns.map { c ->
         gateCampaign(
             c, mode, envelope, venueHealth, hasActiveSession, campaigns,
-            stagingPrecondition, preLaunchAcceptance
+            stagingPrecondition, preLaunchAcceptance, layeredEvidence
         )
     }
 
@@ -59,7 +66,8 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
         hasActiveSession: Boolean,
         existing: List<Campaign>,
         stagingPrecondition: StagingPreconditionVerdict,
-        preLaunchAcceptance: PreLaunchVerdict?
+        preLaunchAcceptance: PreLaunchVerdict?,
+        layeredEvidence: LayeredEvidenceVerdict?
     ): GatedCampaign {
         // Only this gate may put a reason on the card, so a board that no longer holds
         // never keeps the previous cycle's sentence.
@@ -82,6 +90,19 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
                     gateNote = stagingPrecondition.displayNote()
                 ),
                 stagingPrecondition.note()
+            )
+        }
+        // C-57: the price layer is the only blocking evidence layer. A board whose
+        // price horizon has not cleared its own 85% floor is held as a visible plan,
+        // never routed, and the note names the horizon and its sample.
+        if (layeredEvidence != null && !layeredEvidence.canStage) {
+            return GatedCampaign(
+                campaign.copy(
+                    status = CampaignState.PLANNED,
+                    entryLadder = campaign.entryLadder.map { it.copy(isResting = false) },
+                    gateNote = layeredEvidence.summary()
+                ),
+                layeredEvidence.summary()
             )
         }
         return when (mode) {

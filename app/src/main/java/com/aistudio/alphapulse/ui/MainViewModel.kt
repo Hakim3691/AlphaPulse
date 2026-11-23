@@ -47,6 +47,10 @@ import com.aistudio.alphapulse.engine.MarketDataRepository
 import com.aistudio.alphapulse.engine.OrphanInterceptDecision
 import com.aistudio.alphapulse.engine.OrphanInterceptPolicy
 import com.aistudio.alphapulse.engine.OrderBookSnapshot
+import com.aistudio.alphapulse.domain.campaign.LayerEvidence
+import com.aistudio.alphapulse.domain.campaign.LayeredEvidenceGate
+import com.aistudio.alphapulse.domain.campaign.LayeredEvidenceVerdict
+import com.aistudio.alphapulse.domain.strategy.StrategyOutcome
 import com.aistudio.alphapulse.domain.campaign.StagingObservations
 import com.aistudio.alphapulse.domain.campaign.StagingPrecondition
 import com.aistudio.alphapulse.domain.campaign.StagingPreconditionVerdict
@@ -152,6 +156,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Latest forecast ladder per symbol, refreshed with each universe load. */
     @Volatile
     private var forecastsBySymbol: Map<String, List<ForecastTarget>> = emptyMap()
+
+    /**
+     * C-57: the PRICE layer per symbol, derived from the same persisted prediction rows
+     * the forecast ladder is derived from, so the two can never disagree.
+     */
+    @Volatile
+    private var priceEvidenceBySymbol: Map<String, List<LayerEvidence>> = emptyMap()
+
+    /**
+     * C-57: PATTERN and STRATEGY evidence for the inspected coin only, recomputed on the
+     * evaluation cycle. They are additive and never withhold a board the price layer has
+     * proven, so only the coin the user is examining needs them.
+     */
+    @Volatile
+    private var additiveEvidenceBySymbol:
+        Map<String, Pair<List<LayerEvidence>, LayerEvidence?>> = emptyMap()
 
     /** §22 Liquidity Heatmap Ready: newest observed heatmap timestamp per symbol. */
     @Volatile
@@ -268,6 +288,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }.getOrDefault(emptyMap())
         forecastsBySymbol = forecasts.mapValues { (_, rows) -> universeBridge.forecastTargetsFor(rows) }
+        priceEvidenceBySymbol = forecasts.mapValues { (_, rows) ->
+            universeBridge.evidenceFor(rows).map {
+                LayeredEvidenceGate.price(it.horizonId, it.settled, it.hits)
+            }
+        }
+        _uiState.value.selectedAsset?.symbol?.let { refreshAdditiveEvidence(it) }
         return liveProvider.universeFrom(screened, forecasts)
     }
 
@@ -987,6 +1013,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val currentLevelMap = _uiState.value.levelMap ?: structureEngine.buildLevelMap(updatedAsset)
                 val evidence = liveProvider.buildEvidenceFrame(updatedAsset)
 
+                // C-57: the inspected coin's pattern and strategy layers are recomputed
+                // on the evaluation cycle, which is also the cadence their ledgers move on.
+                refreshAdditiveEvidence(updatedAsset.symbol)
+
                 // §31/§25: the automation loop owns the monitoring cadences (score,
                 // survival, capital routing). The base app still plans and risk-gates
                 // its own boards, so the loop is asked not to append new campaigns.
@@ -1277,7 +1307,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 state.venueHealth,
                 sessionManager.hasValidActiveSession(),
                 stagingPrecondition = stagingPreconditionFor(asset),
-                preLaunchAcceptance = proactiveCycle.preLaunchVerdict()
+                preLaunchAcceptance = proactiveCycle.preLaunchVerdict(),
+                layeredEvidence = layeredEvidenceFor(asset).takeIf { it.price.isNotEmpty() }
             )
         }
         val feedStale = ExecutionGuardrails.staleFeedAction(state.venueHealth) ==
@@ -1342,6 +1373,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      *
      * Anything not observed is `UNOBSERVED`, which blocks staging rather than passing.
      */
+    /**
+     * C-57: the layered verdict for [symbol].
+     *
+     * PRICE comes from the persisted prediction rows (the same source as the forecast
+     * ladder), PATTERN from the settled §73 rows and STRATEGY from the graded §74 rows.
+     * Price is the only blocking layer; the other two merely state whether they are now
+     * an additional input.
+     */
+    fun layeredEvidenceFor(symbol: String): LayeredEvidenceVerdict {
+        val price = priceEvidenceBySymbol[symbol].orEmpty()
+        val (pattern, strategy) = additiveEvidenceBySymbol[symbol]
+            ?: (emptyList<LayerEvidence>() to null)
+        return LayeredEvidenceGate.assess(price, pattern, strategy)
+    }
+
+    /**
+     * Recomputes the two additive layers for the inspected coin from the ledgers that
+     * already hold their outcomes. Called from the evaluation cycle, never from a
+     * render, so a screen recomposition never touches Room.
+     */
+    private suspend fun refreshAdditiveEvidence(symbol: String) {
+        val db = AlphaDatabase.getDatabase(getApplication())
+        val patterns = runCatching { db.patternLedgerDao().forAsset(symbol) }
+            .getOrDefault(emptyList())
+        val patternLayers = patterns.asSequence()
+            .filter { it.settled }
+            .groupBy { it.horizon }
+            .map { (horizon, rows) ->
+                LayeredEvidenceGate.pattern(
+                    horizonId = horizon,
+                    settled = rows.size,
+                    hits = rows.count { it.realizedPattern == it.predictedPatternName }
+                )
+            }
+            .sortedBy { it.scope }
+
+        // C-58: only graded calls count. UNGRADED rows are read (they are settled) but
+        // credited to neither side of the rate.
+        val strategyRows = runCatching { db.strategySignalLedgerDao().graded(symbol) }
+            .getOrDefault(emptyList())
+            .filter {
+                it.outcome == StrategyOutcome.HIT.name || it.outcome == StrategyOutcome.MISS.name
+            }
+        val strategy = if (strategyRows.isNotEmpty()) {
+            LayeredEvidenceGate.strategy(
+                symbol = symbol,
+                settled = strategyRows.size,
+                hits = strategyRows.count { it.outcome == StrategyOutcome.HIT.name }
+            )
+        } else {
+            null
+        }
+        additiveEvidenceBySymbol = additiveEvidenceBySymbol + (symbol to (patternLayers to strategy))
+    }
+
     fun stagingPreconditionFor(symbol: String): StagingPreconditionVerdict {
         val forecasts = forecastsBySymbol[symbol].orEmpty()
         val book = _uiState.value.orderBook

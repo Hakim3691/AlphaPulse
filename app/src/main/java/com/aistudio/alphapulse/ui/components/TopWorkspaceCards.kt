@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aistudio.alphapulse.data.model.ModelDownloadState
 import com.aistudio.alphapulse.domain.decision.DecisionReport
 import com.aistudio.alphapulse.domain.presentation.NeutralAttribution
 import com.aistudio.alphapulse.domain.presentation.StrategyConflicts
@@ -62,7 +63,10 @@ fun TopWorkspaceCards(
     decision: DecisionReport? = null,
     strategySignals: List<StrategySignal> = emptyList(),
     painPathPrior: String? = null,
-    onExportUniverseClick: () -> Unit = {}
+    onExportUniverseClick: () -> Unit = {},
+    // Directive §3 / C-57: the two TSFM quick actions live on the weights card now.
+    modelStates: Map<String, ModelDownloadState> = emptyMap(),
+    onDownloadModel: (String) -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -98,7 +102,9 @@ fun TopWorkspaceCards(
             modelState = modelState,
             totalSettled = totalSettled,
             coneHitRate = coneHitRate,
-            mountedModelIds = mountedModelIds
+            mountedModelIds = mountedModelIds,
+            modelStates = modelStates,
+            onDownloadModel = onDownloadModel
         )
 
         // Row 3: the verdict those weights actually produced, with its reason.
@@ -389,7 +395,9 @@ fun MlEnsembleWeightsCard(
     modelState: ModelState,
     totalSettled: Int,
     coneHitRate: Double?,
-    mountedModelIds: List<String> = emptyList()
+    mountedModelIds: List<String> = emptyList(),
+    modelStates: Map<String, ModelDownloadState> = emptyMap(),
+    onDownloadModel: (String) -> Unit = {}
 ) {
     val weightedMembers = EnsembleWeighting.weightVector(modelState, mountedModelIds)
     val totalWeight = weightedMembers.sumOf { it.weight }
@@ -420,20 +428,31 @@ fun MlEnsembleWeightsCard(
                     fontWeight = FontWeight.Bold
                 )
 
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(BrandCard)
-                        .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = modelState.mode,
-                        color = if (modelState.mode.contains("SGD")) BrandAccent else TextSecondary,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
+                    // The Chronos-Bolt / TimesFM quick actions sit on the weights they
+                    // produce, not in the header (C-57).
+                    HeaderModelActions(
+                        modelStates = modelStates,
+                        onDownloadModel = onDownloadModel
                     )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(BrandCard)
+                            .border(1.dp, BrandBorder, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = modelState.mode,
+                            color = if (modelState.mode.contains("SGD")) BrandAccent else TextSecondary,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 

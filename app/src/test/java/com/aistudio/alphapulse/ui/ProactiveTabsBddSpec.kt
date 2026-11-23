@@ -159,10 +159,14 @@ class ProactiveTabsBddSpec {
         )
 
         compose.onNodeWithText("ALPHA_PULSE_BODY").assertExists()
-        // One header, not two: the workspace's identity appears exactly once above the
-        // body, so nothing is stacked there twice.
-        compose.onAllNodesWithText("ProactiveMS").assertCountEquals(1)
-        compose.onAllNodesWithText("Cancellation-First Trading Automation").assertCountEquals(1)
+        // One header, not two: the single AlphaPulse identity appears exactly once above
+        // the body, so nothing is stacked there twice (C-57).
+        compose.onAllNodesWithText("AlphaPulse").assertCountEquals(1)
+        assertEquals(
+            "The retired second header must not come back",
+            0,
+            compose.onAllNodesWithText("ProactiveMS").fetchSemanticsNodes().size
+        )
     }
 
     @Test
@@ -183,15 +187,15 @@ class ProactiveTabsBddSpec {
             workspace.contains("AlphaPulseScreen(viewModel = alphaPulseViewModel)")
         )
 
-        // The standalone screen keeps its own Scaffold, header and safe-drawing insets...
+        // The standalone screen keeps its own Scaffold, the shared header and insets...
         val standalone = functionBody(screen, "fun AlphaPulseScreen(")
         assertTrue(standalone.contains("Scaffold("))
-        assertTrue(standalone.contains("HeaderBar("))
+        assertTrue(standalone.contains("AlphaPulseHeader("))
         assertTrue(standalone.contains("WindowInsets.safeDrawing"))
 
         // ...and the embedded entry is the same analysis surface with none of that.
         val embedded = functionBody(screen, "fun AlphaPulseScreenContent(")
-        for (chrome in listOf("Scaffold(", "HeaderBar(", "WindowInsets")) {
+        for (chrome in listOf("Scaffold(", "AlphaPulseHeader(", "WindowInsets")) {
             assertFalse(
                 "AlphaPulseScreenContent must not draw '$chrome'; the workspace owns it",
                 embedded.contains(chrome)
@@ -235,8 +239,13 @@ class ProactiveTabsBddSpec {
             host.contains("bodyText")
         )
         assertTrue(
-            "C-22: the seven tabs are the workspace's bottom bar, one slot each",
-            workspace.contains("ProactiveMsWorkspaceState.TAB_ORDER")
+            "C-57: the workspace mounts the one shared tab bar, one slot each",
+            workspace.contains("AlphaPulseTabBar(")
+        )
+        assertTrue(
+            "The one shared tab bar renders the contract's tab order",
+            repoFile("app/src/main/java/com/aistudio/alphapulse/ui/AlphaPulseNavBar.kt")
+                .readText().contains("ProactiveMsWorkspaceState.TAB_ORDER")
         )
 
         // Every tab is the product screen an operator expects, not a summary line.

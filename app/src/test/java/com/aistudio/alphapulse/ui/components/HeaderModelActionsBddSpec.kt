@@ -33,22 +33,17 @@ class HeaderModelActionsBddSpec {
     @get:Rule
     val compose = createComposeRule()
 
+    /**
+     * C-57: the quick actions now live on the ML ensemble weights card. The spec renders
+     * the shared [HeaderModelActions] row the card mounts, so the contract is the same
+     * interaction at its new home rather than a header that no longer owns it.
+     */
     @Composable
     private fun header(
         states: Map<String, ModelDownloadState> = emptyMap(),
         onDownload: (String) -> Unit = {}
     ) {
-        HeaderBar(
-            sessionElapsedSeconds = 0,
-            isLTFReady = false,
-            isMTFReady = false,
-            isHTFReady = false,
-            pipelineRunning = false,
-            pipelineSecondsRemaining = 0,
-            onRefreshClick = {},
-            modelStates = states,
-            onDownloadModel = onDownload
-        )
+        HeaderModelActions(modelStates = states, onDownloadModel = onDownload)
     }
 
     @Test

@@ -10,6 +10,7 @@ import com.aistudio.alphapulse.data.model.LevelZone
 import com.aistudio.alphapulse.data.model.MarketRegime
 import com.aistudio.alphapulse.data.model.ZoneType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,30 +38,41 @@ class ScreenedUniverseBridgeBddSpec {
     @Test
     fun `given screened rows ranked by alpha pulse, when bridged, then upstream rank decides order`() {
         // Given: AlphaPulse ranked ETH first and BTC second, and the rows arrive reversed.
+        // Both coins have proven a 5m horizon, so both are admissible (C-57).
         val rows = listOf(
             screened("BTCUSDT", rank = 2, price = 60_000.0),
             screened("ETHUSDT", rank = 1, price = 3_000.0)
         )
+        val forecasts = mapOf(
+            "BTCUSDT" to proof("BTCUSDT", "5m", 60_000.0),
+            "ETHUSDT" to proof("ETHUSDT", "5m", 3_000.0)
+        )
 
         // When:
-        val assets = bridge.toCryptoAssets(rows, emptyMap())
+        val assets = bridge.toCryptoAssets(rows, forecasts)
 
-        // Then: the upstream order survives and neither coin is re-filtered away.
+        // Then: the upstream order survives and neither proven coin is dropped.
         assertEquals(listOf("ETHUSDT", "BTCUSDT"), assets.map { it.symbol })
     }
 
     @Test
-    fun `given a coin with no forecast, when bridged, then it stays a usable neutral asset`() {
-        // Given: a screened coin whose predictions have not run yet, taker flow bullish.
-        val row = screened("SOLUSDT", rank = 1, price = 150.0, takerBuyRatio = 62.0)
+    fun `given a coin with no proven horizon, when the universe is bridged, then it is removed rather than carried as a neutral asset`() {
+        // Given: a screened coin whose predictions have not proven any horizon yet.
+        val rows = listOf(
+            screened("SOLUSDT", rank = 1, price = 150.0, takerBuyRatio = 62.0),
+            screened("INJUSDT", rank = 2, price = 21.0)
+        )
+        val forecasts = mapOf("INJUSDT" to proof("INJUSDT", "5m", 21.0))
 
         // When:
-        val asset = bridge.toCryptoAsset(row, emptyList())
+        val assets = bridge.toCryptoAssets(rows, forecasts)
 
-        // Then: it is not dropped, and the only directional reading carried over is flow.
-        assertEquals(MarketRegime.BALANCE, asset.regime)
-        assertTrue("flow bias should be positive", asset.tacticalBias > 0)
-        assertTrue("a forecast is still awaited", asset.primaryPainPath.contains("Awaiting AlphaPulse forecast"))
+        // Then: only the proven coin reaches the campaign engine. Carrying SOL as a
+        // neutral asset would let a board be shaped for a coin with no evidence, and
+        // its only reading would have been taker flow.
+        assertEquals(listOf("INJUSDT"), assets.map { it.symbol })
+        assertTrue(bridge.isProven(forecasts.getValue("INJUSDT")))
+        assertFalse(bridge.isProven(emptyList()))
     }
 
     @Test
@@ -135,35 +147,33 @@ class ScreenedUniverseBridgeBddSpec {
     }
 
     @Test
-    fun `given a horizon the coin has never proven, when bridged, then its forecast is withheld and the pain path says why`() {
-        // Given: one fresh 1h forecast beside only nine settlements at a perfect rate.
-        // C-55 requires twenty settled at 80%, so nine lucky calls are an anecdote.
+    fun `given a horizon the coin has never proven, when the universe is bridged, then the coin is withheld entirely`() {
+        // Given: one fresh 1h forecast beside only three settlements at a perfect rate.
+        // C-57's hourly floor is four, so three lucky calls are an anecdote.
         val row = screened("TIAUSDT", rank = 1, price = 8.0)
         val predictions = listOf(
             prediction("TIAUSDT", "1h", minutes = 60, base = 8.0, predicted = 8.24)
-        ) + List(9) { settledProof("TIAUSDT", "1h", 8.0) }
+        ) + List(3) { settledProof("TIAUSDT", "1h", 8.0) }
 
         // When:
-        val asset = bridge.toCryptoAsset(row, predictions)
+        val targets = bridge.forecastTargetsFor(predictions)
+        val assets = bridge.toCryptoAssets(listOf(row), mapOf("TIAUSDT" to predictions))
 
-        // Then: the forecast is not fed, the bias falls back to flow, and the reason is
-        // printed rather than hidden.
-        assertEquals(0, bridge.forecastTargetsFor(predictions).size)
-        assertTrue(asset.tacticalBias <= 0)
-        assertTrue(
-            "The board must say the forecast was withheld for lack of evidence",
-            asset.primaryPainPath.contains("Forecast withheld until evidence: 1h 100.0% of 9 settled")
-        )
+        // Then: no forecast is fed, and the coin is removed from the campaign universe
+        // rather than carried with a "withheld" note.
+        assertEquals(0, targets.size)
+        assertTrue(assets.isEmpty())
     }
 
     @Test
     fun `given one proven and one unproven horizon, when bridged, then only the proven horizon reaches the campaign`() {
-        // Given: 5m has called its cone 21 times at 90%, 1h has settled four times.
+        // Given: 5m has called its cone 21 times at 90%, 1h has settled four times at
+        // 75% (3 of 4), which is below C-57's 85% floor even though the sample is full.
         val predictions = listOf(
             prediction("ARBUSDT", "5m", minutes = 5, base = 0.90, predicted = 0.92),
             prediction("ARBUSDT", "1h", minutes = 60, base = 0.90, predicted = 0.95)
         ) + List(21) { settledProof("ARBUSDT", "5m", 0.90, inCone = it < 19) } +
-            List(4) { settledProof("ARBUSDT", "1h", 0.90) }
+            List(4) { settledProof("ARBUSDT", "1h", 0.90, inCone = it < 3) }
 
         // When:
         val targets = bridge.forecastTargetsFor(predictions)

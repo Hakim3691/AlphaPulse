@@ -60,17 +60,16 @@ fun AlphaPulseScreen(
                 .padding(innerPadding)
                 .background(BrandDark)
         ) {
-            // Sticky Top Header
-            HeaderBar(
+            // The one shared header. The base app passes no VIP block, so unlocking
+            // the feature still adds nothing to this screen (C-33).
+            AlphaPulseHeader(
                 sessionElapsedSeconds = uiState.sessionElapsedSeconds,
                 isLTFReady = uiState.isLTFReady,
                 isMTFReady = uiState.isMTFReady,
                 isHTFReady = uiState.isHTFReady,
                 pipelineRunning = uiState.pipelineRunning,
                 pipelineSecondsRemaining = uiState.pipelineSecondsRemaining,
-                onRefreshClick = { viewModel.showRefreshDialog(true) },
-                modelStates = uiState.modelDownloads,
-                onDownloadModel = { viewModel.downloadModel(it) }
+                onRefreshClick = { viewModel.showRefreshDialog(true) }
             )
 
             AlphaPulseAnalysis(viewModel = viewModel, uiState = uiState)
@@ -197,7 +196,9 @@ private fun AlphaPulseAnalysis(
                 decision = uiState.decision,
                 strategySignals = uiState.strategySignals,
                 painPathPrior = uiState.painPathPrior,
-                onExportUniverseClick = { viewModel.export4TabUniverseCsv() }
+                onExportUniverseClick = { viewModel.export4TabUniverseCsv() },
+                modelStates = uiState.modelDownloads,
+                onDownloadModel = { viewModel.downloadModel(it) }
             )
 
             // Collapsible Accordions (Risk Adjusted, Technical Microstructure, Institutional Filters, Forecasts, Canvas Chart, Cognitive Brief)

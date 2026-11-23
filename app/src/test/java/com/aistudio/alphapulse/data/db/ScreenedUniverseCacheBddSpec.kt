@@ -100,7 +100,7 @@ class ScreenedUniverseCacheBddSpec {
 
         assertEquals(
             "Room must record the upgraded version",
-            12,
+            13,
             queryInt(raw, "PRAGMA user_version")
         )
         assertEquals(
@@ -409,6 +409,10 @@ class ScreenedUniverseCacheBddSpec {
             listOf(entity("BTCUSDT", rank = 1), entity("PAXGUSDT", rank = 2))
         )
         raw.execSQL("DROP TABLE `${UniverseCacheSchema.TABLE}`")
+        // C-56/C-59: the strategy ledger did not exist at version 10 either. Without
+        // dropping it the fixture would start at 10 with the table already present and
+        // the 11 -> 12 create or the 12 -> 13 ALTER would collide with it.
+        raw.execSQL("DROP TABLE IF EXISTS `${StrategySignalSchema.TABLE}`")
         raw.execSQL("PRAGMA user_version = 10")
 
         assertEquals(10, queryInt(raw, "PRAGMA user_version"))
@@ -420,9 +424,15 @@ class ScreenedUniverseCacheBddSpec {
             .allowMainThreadQueries()
             // The fixture files are all version 10 or the current one, so these are the
             // only production migrations they can walk — 10 -> 11 adds the universe
-            // state, 11 -> 12 adds the §74 signal ledger (C-56). Listing them is what
-            // makes the upgrade test run the app's own migration objects.
-            .addMigrations(AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12)
+            // state, 11 -> 12 adds the §74 signal ledger (C-56), 12 -> 13 adds its
+            // grading columns (C-59). Listing them is what makes the upgrade test run
+            // the app's own migration objects, and a missing link would surface here as
+            // "a migration from 10 to 13 was required but not found".
+            .addMigrations(
+                AppDatabase.MIGRATION_10_11,
+                AppDatabase.MIGRATION_11_12,
+                AppDatabase.MIGRATION_12_13
+            )
             .build()
 
     private fun queryInt(raw: androidx.sqlite.db.SupportSQLiteDatabase, sql: String): Int =

@@ -35,6 +35,7 @@ import com.aistudio.alphapulse.engine.proactive.ProactiveEvidenceRuntime
 import com.aistudio.alphapulse.service.AlphaPulseService
 import com.aistudio.alphapulse.ui.AlphaPulseScreen
 import com.aistudio.alphapulse.ui.AppShell
+import com.aistudio.alphapulse.ui.ProactiveMsTab
 import com.aistudio.alphapulse.ui.theme.MyApplicationTheme
 import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 
@@ -111,6 +112,13 @@ class MainActivity : ComponentActivity() {
                         // A WAITING tab is inert: launching before INSTALLED is a
                         // no-op, never a crash or a half-installed dashboard.
                         traderManager.launchTraderDashboard(this@MainActivity)
+                    },
+                    onSelectTab = { tab ->
+                        // C-57: the shared bar launches the requested tab. AlphaPulse
+                        // is this screen already, so only a workspace tab navigates.
+                        if (tab != ProactiveMsTab.ALPHA_PULSE) {
+                            traderManager.launchTraderTab(this@MainActivity, tab.name)
+                        }
                     }
                 ) {
                     AlphaPulseScreen(viewModel = viewModel)
