@@ -26,6 +26,9 @@ import org.junit.Test
  *    and regime follow the forecast.
  *  - given the same predictions, when campaigns are planned, then each take-profit is
  *    priced at the predicted price for its horizon and the long side outranks the short.
+ *  - given a horizon this coin has not proven (C-55), when it is bridged, then its
+ *    forecast is withheld and the pain path says why, while a proven horizon on the
+ *    same coin still feeds the campaign.
  */
 class ScreenedUniverseBridgeBddSpec {
 
@@ -62,12 +65,12 @@ class ScreenedUniverseBridgeBddSpec {
 
     @Test
     fun `given bullish horizon predictions, when bridged, then bias and regime follow the forecast`() {
-        // Given: AlphaPulse predicts +1.2% at 5m and +3.0% at 1h.
+        // Given: AlphaPulse predicts +1.2% at 5m and +3.0% at 1h, both proven (C-55).
         val row = screened("INJUSDT", rank = 1, price = 21.0)
         val predictions = listOf(
             prediction("INJUSDT", "5m", minutes = 5, base = 21.0, predicted = 21.25),
             prediction("INJUSDT", "1h", minutes = 60, base = 21.0, predicted = 21.63)
-        )
+        ) + proof("INJUSDT", "5m", 21.0) + proof("INJUSDT", "1h", 21.0)
 
         // When:
         val asset = bridge.toCryptoAsset(row, predictions)
@@ -82,19 +85,15 @@ class ScreenedUniverseBridgeBddSpec {
     @Test
     fun `given bullish predictions, when campaigns are planned, then targets use forecast prices`() {
         // Given: a support zone under a coin AlphaPulse forecasts upward.
+        val predictions = listOf(
+            prediction("SUIUSDT", "5m", minutes = 5, base = 2.00, predicted = 2.02),
+            prediction("SUIUSDT", "1h", minutes = 60, base = 2.00, predicted = 2.08)
+        ) + proof("SUIUSDT", "5m", 2.00) + proof("SUIUSDT", "1h", 2.00)
         val asset = bridge.toCryptoAsset(
             screened("SUIUSDT", rank = 1, price = 2.00, low = 1.90, high = 2.10),
-            listOf(
-                prediction("SUIUSDT", "5m", minutes = 5, base = 2.00, predicted = 2.02),
-                prediction("SUIUSDT", "1h", minutes = 60, base = 2.00, predicted = 2.08)
-            )
+            predictions
         )
-        val forecastTargets = bridge.forecastTargetsFor(
-            listOf(
-                prediction("SUIUSDT", "5m", minutes = 5, base = 2.00, predicted = 2.02),
-                prediction("SUIUSDT", "1h", minutes = 60, base = 2.00, predicted = 2.08)
-            )
-        )
+        val forecastTargets = bridge.forecastTargetsFor(predictions)
         val levelMap = LevelMap(
             asset = asset.symbol,
             zones = listOf(
@@ -134,6 +133,68 @@ class ScreenedUniverseBridgeBddSpec {
             supportLong.priorityScore > resistanceShort.priorityScore
         )
     }
+
+    @Test
+    fun `given a horizon the coin has never proven, when bridged, then its forecast is withheld and the pain path says why`() {
+        // Given: one fresh 1h forecast beside only nine settlements at a perfect rate.
+        // C-55 requires twenty settled at 80%, so nine lucky calls are an anecdote.
+        val row = screened("TIAUSDT", rank = 1, price = 8.0)
+        val predictions = listOf(
+            prediction("TIAUSDT", "1h", minutes = 60, base = 8.0, predicted = 8.24)
+        ) + List(9) { settledProof("TIAUSDT", "1h", 8.0) }
+
+        // When:
+        val asset = bridge.toCryptoAsset(row, predictions)
+
+        // Then: the forecast is not fed, the bias falls back to flow, and the reason is
+        // printed rather than hidden.
+        assertEquals(0, bridge.forecastTargetsFor(predictions).size)
+        assertTrue(asset.tacticalBias <= 0)
+        assertTrue(
+            "The board must say the forecast was withheld for lack of evidence",
+            asset.primaryPainPath.contains("Forecast withheld until evidence: 1h 100.0% of 9 settled")
+        )
+    }
+
+    @Test
+    fun `given one proven and one unproven horizon, when bridged, then only the proven horizon reaches the campaign`() {
+        // Given: 5m has called its cone 21 times at 90%, 1h has settled four times.
+        val predictions = listOf(
+            prediction("ARBUSDT", "5m", minutes = 5, base = 0.90, predicted = 0.92),
+            prediction("ARBUSDT", "1h", minutes = 60, base = 0.90, predicted = 0.95)
+        ) + List(21) { settledProof("ARBUSDT", "5m", 0.90, inCone = it < 19) } +
+            List(4) { settledProof("ARBUSDT", "1h", 0.90) }
+
+        // When:
+        val targets = bridge.forecastTargetsFor(predictions)
+
+        // Then: the unproven 1h target is withheld while 5m feeds the campaign, per coin
+        // and per horizon — not as one blended rate.
+        assertEquals(listOf("5m"), targets.map { it.horizonId })
+        assertEquals(
+            listOf("1h", "5m"),
+            bridge.evidenceFor(predictions).map { it.horizonId }
+        )
+    }
+
+    /** Twenty settled calls of one horizon: the minimum sample C-55 calls evidence. */
+    private fun proof(symbol: String, horizonId: String, base: Double): List<PredictionEntity> =
+        List(20) { settledProof(symbol, horizonId, base) }
+
+    /** A settled prediction whose cone was called; [inCone] decides whether it was right. */
+    private fun settledProof(
+        symbol: String,
+        horizonId: String,
+        base: Double,
+        inCone: Boolean = true
+    ): PredictionEntity = prediction(
+        symbol = symbol,
+        horizonId = horizonId,
+        minutes = if (horizonId == "1h") 60 else 5,
+        base = base,
+        predicted = base
+        // Older than the fresh row the scenario issues, so "newest wins" still picks it.
+    ).copy(settled = true, inCone = inCone, issuedTimestamp = 0L)
 
     private fun screened(
         symbol: String,

@@ -7,6 +7,21 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.2] — 2026-11-23
+
+A forecast reaches a campaign only once that coin's own settlements have proven it.
+
+### Added
+
+- **The §22 feeding gate (C-55).** `SignalEvidence` requires at least 20 settled
+  predictions at an 80% cone hit rate — per coin and per horizon, because a coin's 5m
+  cone can be excellent while its 1h cone is worse than a coin flip. The gate fails
+  closed: `ScreenedUniverseBridge.forecastTargetsFor` admits only proven horizons, an
+  unproven forecast shapes neither the asset's bias nor its regime, and the board's
+  pain path now reads `Forecast withheld until evidence: 1h 71% of 34 settled (needs
+  80% of 20)` instead of blaming a missing forecast. §22's staging gate (C-19) still
+  requires its own > 90% before a board may stage.
+
 ## [19.1] — 2026-11-23
 
 The legacy Screener tab is retired, and every remaining tab works from AlphaPulse.

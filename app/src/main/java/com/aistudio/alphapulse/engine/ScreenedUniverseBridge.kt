@@ -6,6 +6,7 @@ import com.aistudio.alphapulse.data.model.CryptoAsset
 import com.aistudio.alphapulse.data.model.ForecastTarget
 import com.aistudio.alphapulse.data.model.LiquidationContext
 import com.aistudio.alphapulse.data.model.MarketRegime
+import com.aistudio.alphapulse.domain.campaign.SignalEvidence
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.sqrt
@@ -40,6 +41,11 @@ import kotlin.math.sqrt
  *   discovery pass this change removes. They are zeroed; venue guardrails simply
  *   stay quiet until the caller supplies a live measurement.
  * - Tactical/strategic bias: derived from AlphaPulse's forecast, never from candles.
+ *
+ * C-55: the forecast a campaign is priced from is the one this coin's own settlements
+ * have proven. A horizon that has not settled twenty predictions at an 80% cone hit rate
+ * is withheld (`SignalEvidence`), so a board cannot be planned on a horizon that never
+ * called its cone. §22's staging gate (C-19) still applies its own > 90% on top.
  */
 class ScreenedUniverseBridge {
 
@@ -64,7 +70,10 @@ class ScreenedUniverseBridge {
         entity: ScreenedCoinEntity,
         predictions: List<PredictionEntity>
     ): CryptoAsset {
-        val forecast = ForecastBias.from(predictions.map { it.toForecastTarget() })
+        // C-55: only proven horizons shape the bias, so an unproven forecast cannot tilt
+        // a board's direction or its regime.
+        val evidence = evidenceFor(predictions)
+        val forecast = ForecastBias.from(forecastTargetsFor(predictions, evidence))
         val price = entity.lastPrice.takeIf { it > 0.0 } ?: entity.openPrice
 
         // AlphaPulse's daily range, volatility-scaled to each decision timeframe.
@@ -96,17 +105,53 @@ class ScreenedUniverseBridge {
             regime = classifyRegime(forecast),
             tacticalBias = forecast?.score ?: flowBias,
             strategicBias = forecast?.strategicScore ?: flowBias,
-            primaryPainPath = describePath(forecast, flowBias),
+            primaryPainPath = describePath(forecast, flowBias, evidence),
             liquidationContext = LiquidationContext.EMPTY
         )
     }
 
     /**
-     * AlphaPulse's forecast rows for one asset, reduced to the per-horizon targets the
-     * campaign engine prices against. Newest prediction per horizon wins.
+     * C-55: this coin's settlement record, one row per horizon it has issued.
+     *
+     * The unit is the horizon, not the coin, because the forecast is issued and graded
+     * per horizon: a coin's 5m cone can be excellent while its 1h cone is worse than a
+     * coin flip, and a blended rate hides exactly that.
      */
-    fun forecastTargetsFor(predictions: List<PredictionEntity>): List<ForecastTarget> =
-        predictions
+    fun evidenceFor(predictions: List<PredictionEntity>): List<SignalEvidence.HorizonEvidence> =
+        predictions.groupBy { it.horizonId }
+            .map { (horizonId, rows) ->
+                val settled = rows.filter { it.settled }
+                SignalEvidence.assess(
+                    horizonId = horizonId,
+                    settled = settled.size,
+                    hits = settled.count { it.inCone == true }
+                )
+            }
+            .sortedBy { it.horizonId }
+
+    /**
+     * C-55: the predictions whose horizon this coin has proven, and nothing else.
+     *
+     * Fail-closed: a horizon with no evidence is withheld rather than trusted.
+     */
+    fun admittedPredictions(
+        predictions: List<PredictionEntity>,
+        evidence: List<SignalEvidence.HorizonEvidence> = evidenceFor(predictions)
+    ): List<PredictionEntity> {
+        val proven = evidence.filter { it.qualified }.map { it.horizonId }.toSet()
+        return predictions.filter { it.horizonId in proven }
+    }
+
+    /**
+     * AlphaPulse's forecast rows for one asset, reduced to the per-horizon targets the
+     * campaign engine prices against. Newest prediction per horizon wins, and only a
+     * horizon with evidence behind it is admitted at all (C-55).
+     */
+    fun forecastTargetsFor(
+        predictions: List<PredictionEntity>,
+        evidence: List<SignalEvidence.HorizonEvidence> = evidenceFor(predictions)
+    ): List<ForecastTarget> =
+        admittedPredictions(predictions, evidence)
             .groupBy { it.horizonId }
             .mapNotNull { (_, rows) -> rows.maxByOrNull { it.issuedTimestamp } }
             .map { it.toForecastTarget() }
@@ -125,8 +170,19 @@ class ScreenedUniverseBridge {
         }
     }
 
-    private fun describePath(forecast: ForecastBias?, flowBias: Int): String {
+    private fun describePath(
+        forecast: ForecastBias?,
+        flowBias: Int,
+        evidence: List<SignalEvidence.HorizonEvidence>
+    ): String {
         if (forecast == null) {
+            // C-55: a forecast withheld for lack of evidence is not an absent forecast,
+            // and the board says which horizon failed to prove itself.
+            val withheld = evidence.filter { it.settled > 0 }
+            if (withheld.isNotEmpty()) {
+                return "Forecast withheld until evidence: " +
+                    withheld.joinToString(" · ") { it.describe() }
+            }
             return "Awaiting AlphaPulse forecast (flow bias $flowBias)"
         }
         val nearest = forecast.targets.first()
