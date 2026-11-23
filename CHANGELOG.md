@@ -7,6 +7,27 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.3] — 2026-11-23
+
+§74's strategy signals survive the cycle that produced them.
+
+### Added
+
+- **The strategy signal ledger (C-56).** The nine quantitative models and seven technical
+  screeners were executable, but their output lived only inside the evaluation that
+  computed it: the board painted the last call and the previous call's entry, stop and
+  invalidation were gone. Room schema **version 12** now reaches
+  `strategy_signal_ledger` through the production 11 → 12 migration, and every evaluation
+  records one row per strategy for the bar the rules read — rule id and name, direction,
+  entry/exit/invalidation, ATR distance, zone touches, the rule's own detail text, the bar
+  time and the issue time. NEUTRAL readings are recorded too, because "this rule saw
+  nothing on this bar" is evidence.
+- The row is keyed `asset/strategyId/barOpenTime` and written with `REPLACE`, so a
+  ten-second cycle re-reading the same bar replaces its rows instead of appending
+  duplicates, and the table is bounded to a seven-day window per asset. A ledger write
+  failure is logged rather than allowed to abort an evaluation cycle, and the price and
+  pattern ledgers' schemas are untouched (C-23).
+
 ## [19.2] — 2026-11-23
 
 A forecast reaches a campaign only once that coin's own settlements have proven it.

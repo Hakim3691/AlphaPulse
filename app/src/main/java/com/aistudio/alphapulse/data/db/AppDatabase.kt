@@ -24,8 +24,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ModelRegistryEntity::class, SessionEntity::class, DecisionRecordEntity::class,
         EnsembleWeightsEntity::class, ProactiveAuditLedgerEntity::class,
         PatternLedgerEntity::class, PatternSgdWeightsEntity::class,
-        TradeIdeaEntity::class, ScreenedUniverseStateEntity::class],
-    version = 11,
+        TradeIdeaEntity::class, ScreenedUniverseStateEntity::class,
+        StrategySignalLedgerEntity::class],
+    version = 12,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -47,6 +48,9 @@ abstract class AppDatabase : RoomDatabase() {
 
     /** D7: the persisted Trade Ideas Catalog the decision engine queries. */
     abstract fun tradeIdeaDao(): TradeIdeaDao
+
+    /** C-56: the §74 strategy signals, one row per strategy per bar. */
+    abstract fun strategySignalLedgerDao(): StrategySignalLedgerDao
 
     companion object {
         @Volatile
@@ -162,6 +166,17 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * C-56: the §74 strategy signals get their own table, so the price ledger's
+         * baseline schema is untouched (C-23's rule). One row per strategy per bar; the
+         * key is the row's identity, so re-evaluating the same bar replaces it.
+         */
+        internal val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(StrategySignalSchema.DDL)
+            }
+        }
+
+        /**
          * A fresh install creates the catalogue table empty, so the published rows
          * are inserted here. Both paths share [CatalogueSchema.seedStatements], so a
          * fresh install and an upgrade can never hold different catalogues.
@@ -180,7 +195,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "alphapulse_db"
                 ).addMigrations(
                     MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8,
-                    MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11
+                    MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12
                 )
                     .addCallback(CATALOGUE_SEED)
                     .fallbackToDestructiveMigration().build()

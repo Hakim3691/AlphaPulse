@@ -100,7 +100,7 @@ class ScreenedUniverseCacheBddSpec {
 
         assertEquals(
             "Room must record the upgraded version",
-            11,
+            12,
             queryInt(raw, "PRAGMA user_version")
         )
         assertEquals(
@@ -418,10 +418,11 @@ class ScreenedUniverseCacheBddSpec {
     private fun openAtCurrentVersion(): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
             .allowMainThreadQueries()
-            // The fixture files are all version 10 or the current one, so this is the
-            // only production migration they can walk. Listing it is what makes the
-            // upgrade test run the app's own migration object.
-            .addMigrations(AppDatabase.MIGRATION_10_11)
+            // The fixture files are all version 10 or the current one, so these are the
+            // only production migrations they can walk — 10 -> 11 adds the universe
+            // state, 11 -> 12 adds the §74 signal ledger (C-56). Listing them is what
+            // makes the upgrade test run the app's own migration objects.
+            .addMigrations(AppDatabase.MIGRATION_10_11, AppDatabase.MIGRATION_11_12)
             .build()
 
     private fun queryInt(raw: androidx.sqlite.db.SupportSQLiteDatabase, sql: String): Int =

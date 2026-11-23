@@ -9,6 +9,8 @@ import com.aistudio.alphapulse.data.db.PatternSgdWeightsEntity
 import com.aistudio.alphapulse.data.db.PredictionEntity
 import com.aistudio.alphapulse.data.db.ScreenedCoinEntity
 import com.aistudio.alphapulse.data.db.ScreenedUniverseStateEntity
+import com.aistudio.alphapulse.data.db.toLedgerRow
+import com.aistudio.alphapulse.data.db.toSignal
 import com.aistudio.alphapulse.data.model.*
 import com.aistudio.alphapulse.domain.quality.MicrostructureGuard
 import com.aistudio.alphapulse.domain.quant.DepthSnapshot
@@ -101,6 +103,9 @@ private const val DECISION_RECENT_WINDOW_MS = 5 * 60 * 1000L
  * run for days. This retains roughly a day of routing decisions per asset.
  */
 private const val DECISION_RECORD_RETENTION = 10_000
+
+/** C-56: how much §74 signal history one asset keeps. Nine rows a minute, bounded to a week. */
+private const val STRATEGY_SIGNAL_RETENTION_MS = 7L * 24L * 60L * 60L * 1000L
 
 /** Verdicts the on-screen decision log holds; the ledger itself keeps far more. */
 private const val DECISION_HISTORY_LIMIT = 50
@@ -1405,6 +1410,16 @@ class AlphaPulseRepository(
         // klines source. On a fetch failure the cached series (or this snapshot) is used;
         // a rule with too little history still reports NEUTRAL rather than a guess.
         val strategyCandles = strategySeries(symbol, now, klines)
+        val strategySignals = QuantStrategyEngine.evaluateAll(strategyCandles)
+        // C-56: each bar's §74 verdicts are recorded, so the library is auditable after
+        // the cycle that produced it has ended. Anchored on the bar the rules read, so a
+        // ten-second cycle re-evaluating the same bar replaces its rows.
+        recordStrategySignals(
+            symbol = symbol,
+            signals = strategySignals,
+            barOpenTime = strategyCandles.lastOrNull()?.openTime ?: now,
+            now = now
+        )
 
         AssetEvaluationResult(
             spotPrice = currentSpot,
@@ -1423,7 +1438,7 @@ class AlphaPulseRepository(
             executiveBrief = executiveBrief,
             decision = decision,
             screenerSignals = TechnicalScreeners.evaluateAll(strategyCandles),
-            strategySignals = QuantStrategyEngine.evaluateAll(strategyCandles),
+            strategySignals = strategySignals,
             catalogueCandidates = catalogueCandidates,
             painPathPrior = PainPathPrior.of(
                 spotPrice = currentSpot,
@@ -1432,6 +1447,38 @@ class AlphaPulseRepository(
             )
         )
     }
+
+    /**
+     * C-56: write one row per strategy for the bar the §74 rules evaluated.
+     *
+     * A ledger failure must never abort an evaluation cycle — the board still renders the
+     * live signals — so this is logged and swallowed rather than propagated.
+     */
+    private suspend fun recordStrategySignals(
+        symbol: String,
+        signals: List<StrategySignal>,
+        barOpenTime: Long,
+        now: Long
+    ) {
+        if (signals.isEmpty()) return
+        runCatching {
+            val dao = database.strategySignalLedgerDao()
+            dao.upsertAll(
+                signals.map { it.toLedgerRow(symbol, barOpenTime, now) }
+            )
+            dao.prune(symbol, now - STRATEGY_SIGNAL_RETENTION_MS)
+        }.onFailure {
+            Log.d("AlphaPulseRepository", "§74 signal ledger write skipped: ${it.message}")
+        }
+    }
+
+    /** C-56: the recorded §74 signals for one asset, newest bar first. */
+    suspend fun strategySignalLedger(symbol: String, limit: Int = 50): List<StrategySignal> =
+        withContext(Dispatchers.IO) {
+            runCatching { database.strategySignalLedgerDao().latest(symbol, limit) }
+                .getOrDefault(emptyList())
+                .map { it.toSignal() }
+        }
 
     /**
      * D7: the catalogue rows this regime permits, strongest empirical edge first.
