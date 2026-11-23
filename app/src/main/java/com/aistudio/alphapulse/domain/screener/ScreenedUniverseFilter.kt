@@ -59,6 +59,73 @@ data class DailyFilterSnapshot(
     fun passesFourFilterGate(): Boolean = ScreenedUniverseFilter.dayPasses(this)
 }
 
+/**
+ * Which of the four legs one session cleared, evaluated once so the verdict and the
+ * funnel counters cannot disagree about the same candle.
+ */
+data class ScreeningLegs(
+    val volume: Boolean,
+    val taker: Boolean,
+    val velocity: Boolean,
+    val displacement: Boolean
+) {
+    /** Every leg held: this session passes the gate. */
+    val all: Boolean get() = volume && taker && velocity && displacement
+
+    /**
+     * True when every leg up to and including [index] held, so a funnel can count the
+     * survivors of each step from one evaluation of the same candle.
+     *
+     * Legs are ordered as the gate applies them: 0 volume, 1 taker, 2 velocity,
+     * 3 displacement.
+     */
+    fun survivedThrough(index: Int): Boolean = when (index) {
+        0 -> volume
+        1 -> volume && taker
+        2 -> volume && taker && velocity
+        else -> all
+    }
+}
+
+/**
+ * What a screen did to the pairs it read, leg by leg, in the order the gate applies them.
+ *
+ * Why this exists
+ * ---------------
+ * A universe that shrinks says only that it shrank. The operator (and the log) could not
+ * tell whether the venue returned fewer pairs, or the volume floor rejected them, or the
+ * open-interest leg could not be read — the three failures have nothing in common and
+ * two of them are bugs. Each counter is the number of pairs still standing after that
+ * leg, so the last step is the number admitted.
+ *
+ * Spec Ref: §65, C-37
+ */
+data class UniverseFunnel(
+    val pairsRead: Int = 0,
+    val volumeLeg: Int = 0,
+    val takerLeg: Int = 0,
+    val velocityLeg: Int = 0,
+    val displacementLeg: Int = 0,
+    val admittedToday: Int = 0,
+    val admittedByPersistence: Int = 0,
+    /** Pairs whose open interest neither Binance nor CoinGlass could price. */
+    val openInterestUnread: Int = 0
+) {
+    /** Coins this run admitted, whether on today's candle or on its history. */
+    val admitted: Int get() = admittedToday + admittedByPersistence
+
+    /**
+     * The one-line account of the run: `298 pairs → ... → 5 admitted`.
+     *
+     * Deliberately a single line: it sits in the pipeline subtitle and in the notice the
+     * workspace shows when it keeps a cached universe.
+     */
+    fun summary(): String =
+        "${pairsRead}p → ${volumeLeg}v → ${takerLeg}t → ${velocityLeg}oi → " +
+            "${displacementLeg}d → $admitted" +
+            (if (openInterestUnread > 0) " (${openInterestUnread} OI unread)" else "")
+}
+
 /** What the four-filter gate decided for one coin, today and over its history. */
 data class UniverseFilterAssessment(
     /** Every leg of today's candle cleared its threshold. */
@@ -85,25 +152,63 @@ object ScreenedUniverseFilter {
     /** The close finished away from the open relative to the day's range. */
     const val MIN_CONVICTION_DISPLACEMENT = 0.40
 
-    /** §65 persistence rule: eight of the last ten sessions. */
-    const val PERSISTENCE_DAYS_REQUIRED = 8
+    /**
+     * §65 persistence rule: six of the last ten sessions.
+     *
+     * Relaxed from eight of ten by C-37: with the honest, strict gate in place a coin that
+     * is merely quiet today was being evicted after two bad sessions, and the shipped
+     * universe collapsed to a handful of pairs. Six still requires a majority of the
+     * window and still rejects one lucky day.
+     */
+    const val PERSISTENCE_DAYS_REQUIRED = 6
 
     /** How many sessions the persistence window holds. */
     const val PERSISTENCE_WINDOW_DAYS = 10
 
+    /** Each of the four legs of one session, in the order the funnel counts them. */
+    fun legs(day: DailyFilterSnapshot): ScreeningLegs = ScreeningLegs(
+        volume = day.quoteVolume24hUsdt >= MIN_DAILY_QUOTE_VOLUME_USDT,
+        taker = day.takerBuyRatio >= MIN_TAKER_BUY_RATIO,
+        velocity = day.volumeToOiVelocity > MIN_VOLUME_TO_OI_VELOCITY,
+        displacement = day.convictionDisplacement >= MIN_CONVICTION_DISPLACEMENT
+    )
+
     /** True when every leg of one session clears its threshold. */
-    fun dayPasses(day: DailyFilterSnapshot): Boolean {
-        return day.quoteVolume24hUsdt >= MIN_DAILY_QUOTE_VOLUME_USDT &&
-            day.takerBuyRatio >= MIN_TAKER_BUY_RATIO &&
-            day.volumeToOiVelocity > MIN_VOLUME_TO_OI_VELOCITY &&
-            day.convictionDisplacement >= MIN_CONVICTION_DISPLACEMENT
+    fun dayPasses(day: DailyFilterSnapshot): Boolean = legs(day).all
+
+    /**
+     * Today's snapshot with the venue's trailing 24-hour volume instead of the partial one.
+     *
+     * Why this exists
+     * ---------------
+     * `/fapi/v1/klines?interval=1d` returns the UTC day that is still forming, so its
+     * `quoteVolume` is however much of a day has elapsed — at 06:00 UTC it is a quarter of
+     * a day's turnover. Dividing that by the *live* open interest understated the velocity
+     * leg by up to twelve times, and the universe therefore depended on the time of day:
+     * the same coin was admitted at midnight and rejected at dawn.
+     *
+     * The ticker's `quoteVolume` is a rolling 24 hours, so it is comparable with live open
+     * interest whenever the screen runs. The candle's own fields stay: the taker-buy ratio
+     * and the displacement are ratios of that candle and do not shrink with the day.
+     *
+     * @param rollingQuoteVolume24h the venue's trailing 24-hour quote volume, or 0.0 when
+     *   the ticker gave none — in which case the candle's own volume is the honest fallback
+     */
+    fun todayFromKline(
+        kline: DailyFilterSnapshot,
+        rollingQuoteVolume24h: Double
+    ): DailyFilterSnapshot = if (rollingQuoteVolume24h > 0.0) {
+        kline.copy(quoteVolume24hUsdt = rollingQuoteVolume24h)
+    } else {
+        kline
     }
 
     /**
      * Applies §65 to today's candle and the sessions before it.
      *
      * @param requireStrict8Of10PersistenceWhenTodayFails when true (the §65 rule), a
-     *   coin that fails today still qualifies if eight of the supplied sessions passed;
+     *   coin that fails today still qualifies if six of the supplied sessions passed
+     *   ([PERSISTENCE_DAYS_REQUIRED]);
      *   when false, a single historical pass is enough.
      */
     fun assess(

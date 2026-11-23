@@ -39,10 +39,12 @@ import com.aistudio.alphapulse.data.network.CycleNetworkBudget
 import com.aistudio.alphapulse.data.network.ResilientBinanceClient
 import com.aistudio.alphapulse.domain.quant.KlineData
 import com.aistudio.alphapulse.domain.screener.DailyFilterSnapshot
+import com.aistudio.alphapulse.domain.screener.ScreeningLegs
 import com.aistudio.alphapulse.domain.screener.ScreenedUniverseFilter
 import com.aistudio.alphapulse.domain.screener.ScreenedUniverseRefresh
 import com.aistudio.alphapulse.domain.screener.ScreenedUniverseRevalidation
 import com.aistudio.alphapulse.domain.screener.ScreenedUniverseSnapshot
+import com.aistudio.alphapulse.domain.screener.UniverseFunnel
 import com.aistudio.alphapulse.domain.screener.UniverseRefreshOutcome
 import com.aistudio.alphapulse.domain.quant.PredictionStateMachine
 import com.aistudio.alphapulse.domain.quant.TapeMetrics
@@ -463,11 +465,26 @@ class AlphaPulseRepository(
     }
 
     /**
-     * Runs the §65 screen and returns the universe to show plus why it is that one.
+     * What one pair's screen attempt produced, including the legs it failed.
+     *
+     * The funnel needs the legs of a *rejected* pair as much as the admitted ones, so the
+     * attempt carries them instead of the loop re-deriving thresholds.
+     */
+    private data class ScreeningAttempt(
+        val coin: ScreenedCoin?,
+        val legs: ScreeningLegs?,
+        val verifiedByPersistence: Boolean,
+        val openInterestUnread: Boolean
+    )
+
+    /**
+     * §65 screen over the venue's USDT perpetuals and the universe to show plus why it is
+     * that one.
      *
      * The result is never a bare list: a failed run must be distinguishable from a run
      * that legitimately admitted nothing, or the caller cannot tell the user the dropdown
-     * is the cached one.
+     * is the cached one. It also carries the [UniverseFunnel] for the run, so a universe
+     * that shrank says which leg rejected the pairs.
      */
     suspend fun runInstitutionalScreening(
         onProgressUpdate: (stepTitle: String, subtitle: String, progress: Float) -> Unit
@@ -510,9 +527,12 @@ class AlphaPulseRepository(
 
         val step1PassedCoins = mutableListOf<ScreenedCoin>()
         val batches = activePairs.chunked(15)
+        // §65 / C-37: one survivor count per leg, so a universe that shrank says which
+        // leg rejected the pairs instead of only that it shrank.
+        var funnel = UniverseFunnel(pairsRead = activePairs.size)
 
         for ((bIdx, batch) in batches.withIndex()) {
-            val batchResults = batch.map { coin ->
+            val batchResults: List<ScreeningAttempt> = batch.map { coin ->
                 async {
                     val sym = coin["symbol"] as String
                     val lastP = coin["lastPrice"] as Double
@@ -520,6 +540,9 @@ class AlphaPulseRepository(
                     val lowP = coin["lowPrice"] as Double
                     val openP = coin["openPrice"] as Double
                     val changePct = coin["priceChangePercent"] as Double
+                    // The ticker's quoteVolume is a rolling 24 hours, unlike the daily
+                    // kline of the day still forming (see `todayFromKline`).
+                    val rollingVolume = coin["quoteVolume"] as Double
 
                     try {
                         val klinesArr = client.getJsonArray("/fapi/v1/klines?symbol=$sym&interval=1d&limit=10")
@@ -528,61 +551,85 @@ class AlphaPulseRepository(
                             val liveOiQuote = liveOpenInterestQuote(sym, lastP)
                             val lastIndex = klinesArr.length() - 1
 
-                            // Today's candle plus the sessions before it, both as the same
-                            // snapshot type the pinned §65 gate reads.
+                            // The sessions before today, as the snapshot type the pinned
+                            // §65 gate reads.
                             val history = (0 until lastIndex).map { i ->
                                 klinesArr.getJSONArray(i).toFilterSnapshot(
                                     historicalOiQuote(oiData, dayIndex = i, lastIndex = lastIndex)
                                 )
                             }
-                            val today = klinesArr.getJSONArray(lastIndex).toFilterSnapshot(liveOiQuote)
+                            // Today's candle, but with a comparable volume: dividing a
+                            // quarter of a day by live open interest rejected coins for
+                            // the hour the screen happened to run.
+                            val today = ScreenedUniverseFilter.todayFromKline(
+                                klinesArr.getJSONArray(lastIndex).toFilterSnapshot(liveOiQuote),
+                                rollingVolume
+                            )
 
-                            // The gate is the shared one: 8 of the last 10 sessions when
+                            // The gate is the shared one: six of the last ten sessions when
                             // today fails, and never a fabricated open interest.
                             val assessment = ScreenedUniverseFilter.assess(today, history)
 
-                            if (assessment.verified) {
-                                val historicalWon = assessment.verifiedByPersistence
-                                val daysPassedAll = assessment.historicalPassDays +
-                                    if (assessment.todayPasses) 1 else 0
-                                ScreenedCoin(
-                                    symbol = sym,
-                                    lastPrice = lastP,
-                                    highPrice = highP,
-                                    lowPrice = lowP,
-                                    openPrice = openP,
-                                    volume = today.quoteVolume24hUsdt,
-                                    realTakerBuyRatio = today.takerBuyRatio * 100.0,
-                                    displacement = today.convictionDisplacement,
-                                    exactOI = liveOiQuote,
-                                    volToOiRatio = today.volumeToOiVelocity,
-                                    priceChangePercent = changePct,
-                                    calmarRatio = 0.0,
-                                    sharpeRatio = 0.0,
-                                    annualizedVol = 0.0,
-                                    maxDrawdown = 0.0,
-                                    daysPassedAll = daysPassedAll,
-                                    passedTodayAll = assessment.todayPasses,
-                                    passed10DRule = historicalWon,
-                                    filter1 = FilterBadgeData(true, if (historicalWon) "Hist ($daysPassedAll/10)" else "$${(today.quoteVolume24hUsdt / 1000000).toInt()}M Vol"),
-                                    filter2 = FilterBadgeData(true, if (historicalWon) "10D Rule" else "${String.format(Locale.US, "%.1f", today.takerBuyRatio * 100.0)}%"),
-                                    filter3 = FilterBadgeData(true, if (historicalWon) "10D Rule" else "${String.format(Locale.US, "%.2f", today.volumeToOiVelocity)}x"),
-                                    filter4 = FilterBadgeData(true, if (historicalWon) "10D Rule" else "${String.format(Locale.US, "%.1f", today.convictionDisplacement * 100)}% Ext")
-                                )
-                            } else null
-                        } else null
+                            ScreeningAttempt(
+                                coin = if (assessment.verified) {
+                                    val historicalWon = assessment.verifiedByPersistence
+                                    val daysPassedAll = assessment.historicalPassDays +
+                                        if (assessment.todayPasses) 1 else 0
+                                    ScreenedCoin(
+                                        symbol = sym,
+                                        lastPrice = lastP,
+                                        highPrice = highP,
+                                        lowPrice = lowP,
+                                        openPrice = openP,
+                                        volume = today.quoteVolume24hUsdt,
+                                        realTakerBuyRatio = today.takerBuyRatio * 100.0,
+                                        displacement = today.convictionDisplacement,
+                                        exactOI = liveOiQuote,
+                                        volToOiRatio = today.volumeToOiVelocity,
+                                        priceChangePercent = changePct,
+                                        calmarRatio = 0.0,
+                                        sharpeRatio = 0.0,
+                                        annualizedVol = 0.0,
+                                        maxDrawdown = 0.0,
+                                        daysPassedAll = daysPassedAll,
+                                        passedTodayAll = assessment.todayPasses,
+                                        passed10DRule = historicalWon,
+                                        filter1 = FilterBadgeData(true, if (historicalWon) "Hist ($daysPassedAll/10)" else "$${(today.quoteVolume24hUsdt / 1000000).toInt()}M Vol"),
+                                        filter2 = FilterBadgeData(true, if (historicalWon) "10D Rule" else "${String.format(Locale.US, "%.1f", today.takerBuyRatio * 100.0)}%"),
+                                        filter3 = FilterBadgeData(true, if (historicalWon) "10D Rule" else "${String.format(Locale.US, "%.2f", today.volumeToOiVelocity)}x"),
+                                        filter4 = FilterBadgeData(true, if (historicalWon) "10D Rule" else "${String.format(Locale.US, "%.1f", today.convictionDisplacement * 100)}% Ext")
+                                    )
+                                } else null,
+                                legs = ScreenedUniverseFilter.legs(today),
+                                verifiedByPersistence = assessment.verifiedByPersistence,
+                                openInterestUnread = liveOiQuote <= 0.0
+                            )
+                        } else ScreeningAttempt(null, null, false, false)
                     } catch (e: Exception) {
-                        null
+                        ScreeningAttempt(null, null, false, false)
                     }
                 }
             }.awaitAll()
 
-            step1PassedCoins.addAll(batchResults.filterNotNull())
+            step1PassedCoins.addAll(batchResults.mapNotNull { it.coin })
+            funnel = funnel.copy(
+                volumeLeg = funnel.volumeLeg + batchResults.count { it.legs?.survivedThrough(0) == true },
+                takerLeg = funnel.takerLeg + batchResults.count { it.legs?.survivedThrough(1) == true },
+                velocityLeg = funnel.velocityLeg + batchResults.count { it.legs?.survivedThrough(2) == true },
+                displacementLeg = funnel.displacementLeg + batchResults.count { it.legs?.survivedThrough(3) == true },
+                admittedToday = funnel.admittedToday +
+                    batchResults.count { it.coin != null && !it.verifiedByPersistence },
+                admittedByPersistence = funnel.admittedByPersistence +
+                    batchResults.count { it.coin != null && it.verifiedByPersistence },
+                openInterestUnread = funnel.openInterestUnread +
+                    batchResults.count { it.openInterestUnread }
+            )
             val processedCount = min(activePairs.size, (bIdx + 1) * 15)
             val prog = 0.08f + ((bIdx + 1).toFloat() / batches.size) * 0.52f
             onProgressUpdate(
                 "Step 1: Institutional 4-Filter Screen",
-                "Screened $processedCount/${activePairs.size} pairs (${step1PassedCoins.size} verified)...",
+                "Screened $processedCount/${activePairs.size} pairs " +
+                    "(${step1PassedCoins.size} verified · ${funnel.summary()})...",
                 prog
             )
         }
@@ -729,6 +776,7 @@ class AlphaPulseRepository(
         )
         val previous = loadCachedScreenedUniverse()
         val refresh = ScreenedUniverseRevalidation.decide(previous, run)
+            .copy(funnel = funnel)
 
         if (refresh.outcome == UniverseRefreshOutcome.REFRESHED) {
             val state = ScreenedUniverseStateEntity(

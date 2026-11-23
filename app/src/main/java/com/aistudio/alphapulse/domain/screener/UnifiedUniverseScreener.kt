@@ -14,8 +14,8 @@ package com.aistudio.alphapulse.domain.screener
  *
  * What replaces the band
  * ----------------------
- * Four intraday filters, all of which must hold today (or on eight of the last ten
- * days, so one quiet session does not evict a coin that is otherwise persistent):
+ * Four intraday filters, all of which must hold today (or on six of the last ten
+ * days, so a quiet session does not evict a coin that is otherwise persistent):
  *
  *  - $5M daily quote volume — the absolute floor below which a ladder cannot be staged
  *    without the market noticing;
@@ -86,7 +86,7 @@ data class ScreenedAssetVerdict(
  *
  * @param riskFreeRate the rate the Sharpe hurdle is measured against
  * @param requireStrict8Of10PersistenceWhenTodayFails when true (the §65 rule), a coin
- *   that fails today's flow gate still qualifies if eight of the last ten days passed;
+ *   that fails today's flow gate still qualifies if six of the last ten days passed;
  *   when false, a single historical pass is enough. The strict setting is the default
  *   because the looser one lets a coin in on one lucky session.
  */

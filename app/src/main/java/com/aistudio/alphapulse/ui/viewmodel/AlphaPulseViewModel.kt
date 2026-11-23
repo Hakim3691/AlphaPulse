@@ -557,6 +557,9 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
             // blamed the network for the gate's own verdict — and saying nothing at all when
             // there was no cache left an empty screen with no explanation.
             val cachedAge = refresh.snapshot?.ageLabel(System.currentTimeMillis())
+            // §65 / C-37: the run's funnel rides with the notice, so a universe that shrank
+            // says which leg rejected the pairs instead of only that it shrank.
+            val funnelNote = refresh.funnel?.summary()?.let { " · $it" }.orEmpty()
             val retainedNotice = when (refresh.outcome) {
                 UniverseRefreshOutcome.KEPT_PREVIOUS ->
                     "Universe refresh failed — still showing the universe from $cachedAge"
@@ -567,7 +570,7 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 UniverseRefreshOutcome.NOTHING_QUALIFIED_NO_CACHE ->
                     "No coin passed the screen this run — nothing cached to fall back on"
                 UniverseRefreshOutcome.REFRESHED -> null
-            }
+            }?.plus(funnelNote)
 
             countdownJob?.cancel()
             _uiState.update {

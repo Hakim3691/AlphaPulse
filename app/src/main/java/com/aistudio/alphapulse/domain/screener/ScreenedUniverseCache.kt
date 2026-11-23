@@ -75,10 +75,16 @@ enum class UniverseRefreshOutcome {
     NO_DATA
 }
 
-/** The universe to show, and why it is the one being shown. */
+/**
+ * The universe to show, why it is the one being shown, and what the run did to get there.
+ *
+ * [funnel] is deliberately not persisted: it describes one run, not the cache, so adding
+ * it needs no schema migration and an aged cache cannot claim a fresh run's counters.
+ */
 data class ScreenedUniverseRefresh(
     val snapshot: ScreenedUniverseSnapshot?,
-    val outcome: UniverseRefreshOutcome
+    val outcome: UniverseRefreshOutcome,
+    val funnel: UniverseFunnel? = null
 )
 
 /**

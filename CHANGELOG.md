@@ -7,6 +7,35 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.0] — 2026-11-23
+
+The screened universe stops depending on the hour it was taken, and a small universe can
+now say which leg rejected the pairs.
+
+### Fixed
+
+- **The velocity leg was judged on a half-formed day.** `/fapi/v1/klines?interval=1d`
+  returns the UTC day still forming, so its `quoteVolume` at 06:00 is about a quarter of
+  a day's turnover. Divided by full live open interest, a coin that really turns over
+  1.6x a day measured 0.4x and failed the §65 velocity leg — the same coin was admitted
+  at midnight and rejected at dawn, which is exactly the "drastic reduction in screened
+  coins" reported after v1.0.15. Today's snapshot is now built from the ticker's
+  **rolling 24-hour** quote volume (`todayFromKline`), which is comparable with live open
+  interest whenever the screen runs; the taker-buy ratio and the displacement stay the
+  candle's own, because those are ratios of that candle (C-37).
+- **A shrinking universe said only that it shrank.** The screen now counts survivors per
+  leg — `pairs → volume → taker → velocity → displacement → admitted`, plus the pairs
+  whose open interest neither Binance nor CoinGlass could price — and reports the funnel
+  on the pipeline subtitle and on the notice shown when a cached universe is retained
+  (`UniverseFunnel`). A failed open-interest read is still never substituted.
+
+### Changed
+
+- **Persistence is six of the last ten sessions, not eight.** With the honest, strict
+  gate in place, two quiet sessions were evicting a coin that is otherwise persistent,
+  and the universe collapsed to a handful of pairs. Six still requires a majority of the
+  window, so one lucky day is still not a universe (C-37).
+
 ## [18.7] — 2026-11-22
 
 The ProactiveMS workspace draws one header and one set of window insets for all seven
