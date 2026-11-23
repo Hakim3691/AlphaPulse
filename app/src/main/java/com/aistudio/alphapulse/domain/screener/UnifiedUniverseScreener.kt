@@ -96,13 +96,11 @@ class UnifiedUniverseScreener(
 ) {
 
     /**
-     * @param btcOnlyOverride the desk's "BTC only" switch: the gate still runs, so a
-     *   BTC-only book never arms on a BTC that would not otherwise qualify
+     * The desk's `+ BTC ONLY` switch is retired (C-22): it was a second universe list
+     * beside AlphaPulse's screen, and a coin the gate rejects must never be admitted by
+     * any override — so there is nothing left to override with.
      */
-    fun screenUniverse(
-        candidates: List<CandidateAssetInput>,
-        btcOnlyOverride: Boolean = false
-    ): List<ScreenedAssetVerdict> {
+    fun screenUniverse(candidates: List<CandidateAssetInput>): List<ScreenedAssetVerdict> {
         val filtered = candidates.mapNotNull { candidate ->
             // Both venue feeds are inclusion requirements, not preferences: a coin the
             // app cannot price on spot and futures cannot be hedged.
@@ -139,19 +137,11 @@ class UnifiedUniverseScreener(
         }
 
         // Best risk-adjusted candidate first: the campaign queue is built in this order.
-        val ranked = filtered.sortedByDescending { it.sharpe }
-
-        return if (btcOnlyOverride) {
-            ranked.filter { it.symbol == BTC_ONLY_SYMBOL }
-        } else {
-            ranked
-        }
+        return filtered.sortedByDescending { it.sharpe }
     }
 
     private companion object {
         /** A passive ladder may not stage into a spread at or above this width. */
         const val MAX_PASSIVE_STAGING_SPREAD_PCT = 0.10
-
-        const val BTC_ONLY_SYMBOL = "BTCUSDT"
     }
 }

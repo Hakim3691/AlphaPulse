@@ -31,7 +31,7 @@ import java.util.UUID
  * §63 (Definition of Done), §73 (Pattern Ledger)
  *
  * Covers:
- * - 7-tab navigation (Screener, AlphaPulse, Dashboard, Telemetry, Guardrails, Replay, Audit)
+ * - six-tab navigation (AlphaPulse, Dashboard, Telemetry, Guardrails, Replay, Audit)
  * - App launches and renders main UI
  * - Prediction audit ledger persistence, against the current 8-field record
  * - Synchronized symbol selection across tabs (no cross-symbol leakage)

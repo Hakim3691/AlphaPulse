@@ -22,13 +22,14 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Phase 1 §7 / Phase 2 §32 / C-22 — the seven ProactiveMS tabs are a real workspace.
+ * Phase 1 §7 / Phase 2 §32 / C-22 — the ProactiveMS tabs are a real workspace.
  *
  * The shipped host used to print each tab as joined plain text: a cyan heading, symbol
  * labels and one `TextView` body. Two of those tabs were visibly redundant with the
  * AlphaPulse screen (the AlphaPulse tab was a four-line summary instead of the analysis
  * screen, and the Screener tab was a bare list), and none of them looked like the rest of
- * the app.
+ * the app. The Screener tab and the shared symbol strip are now retired outright: the
+ * AlphaPulse screen is the one coin selector (C-22).
  *
  * These scenarios drive the composed workspace that replaced it: the same one the
  * `:proactive_trader` host mounts. They assert what an operator sees and does — the shared
@@ -44,10 +45,7 @@ class ProactiveTabsBddSpec {
     @get:Rule
     val compose = createComposeRule()
 
-    private val workspace = ProactiveMsWorkspaceState(
-        activeSymbol = "PAXGUSDT",
-        verifiedSymbols = listOf("BTCUSDT", "PAXGUSDT", "SOPHUSDT")
-    )
+    private val workspace = ProactiveMsWorkspaceState(activeSymbol = "PAXGUSDT")
 
     private fun render(
         state: MainUiState = MainUiState(),
@@ -66,42 +64,35 @@ class ProactiveTabsBddSpec {
     }
 
     @Test
-    fun `given a screened universe when the Screener tab renders then it shows the verified symbols and selecting one changes the shared symbol`() {
-        var selected: String? = null
-        render(
-            workspace = workspace.copy(activeTab = ProactiveMsTab.SCREENER),
-            actions = ProactiveWorkspaceActions(
-                onSelectTab = {},
-                onSelectSymbol = { selected = it }
-            )
-        )
+    fun `given the workspace renders then the retired Screener tab and its symbol strip are not mounted at all`() {
+        // C-22 retired the second coin selector: AlphaPulse's institutional screen picks the
+        // coin, and a strip listing the same universe could only disagree with it.
+        render(workspace = workspace.copy(activeTab = ProactiveMsTab.DASHBOARD))
 
-        compose.onAllNodesWithText("BTCUSDT", substring = true).assertCountEquals(1)
-        compose.onAllNodesWithText("SOPHUSDT", substring = true).assertCountEquals(1)
+        compose.onNodeWithTag(ProactiveWorkspaceTags.WORKSPACE).assertExists()
         assertTrue(
-            "The active coin is shown in the shared symbol strip",
-            compose.onAllNodesWithText("PAXGUSDT", substring = true).fetchSemanticsNodes().isNotEmpty()
+            "The legacy screener screen must not be mounted",
+            compose.onAllNodesWithTag("screener_screen").fetchSemanticsNodes().isEmpty()
         )
-        compose.onNodeWithTag("screener_screen").assertExists()
-
-        compose.onNodeWithTag(ProactiveWorkspaceTags.symbol("SOPHUSDT")).performClick()
-
-        assertEquals(
-            "Selecting a coin anywhere selects it for every tab (C-22)",
-            "SOPHUSDT",
-            selected
+        assertTrue(
+            "The shared symbol strip is retired",
+            compose.onAllNodesWithText("SHARED SYMBOL", substring = true).fetchSemanticsNodes().isEmpty()
+        )
+        assertTrue(
+            "The `+ BTC ONLY` universe lock is retired",
+            compose.onAllNodesWithText("BTC ONLY", substring = true).fetchSemanticsNodes().isEmpty()
         )
     }
 
     @Test
-    fun `given no coin is selected yet when the workspace renders then it says so instead of inventing a symbol`() {
-        render(
-            state = MainUiState(),
-            workspace = ProactiveMsWorkspaceState(activeTab = ProactiveMsTab.SCREENER)
-        )
+    fun `given no coin is selected yet when the workspace renders then it invents no symbol and still mounts the tabs`() {
+        render(state = MainUiState(), workspace = ProactiveMsWorkspaceState())
 
-        compose.onNodeWithText("The screener has not admitted a coin yet").assertExists()
-        compose.onAllNodesWithText("BTCUSDT", substring = true).assertCountEquals(0)
+        compose.onNodeWithTag(ProactiveWorkspaceTags.WORKSPACE).assertExists()
+        assertTrue(
+            "No coin has been screened, so no ticker is painted",
+            compose.onAllNodesWithText("USDT", substring = true).fetchSemanticsNodes().isEmpty()
+        )
     }
 
     @Test
@@ -111,7 +102,7 @@ class ProactiveTabsBddSpec {
             workspace = workspace.copy(activeTab = ProactiveMsTab.DASHBOARD)
         )
 
-        compose.onNodeWithText("Select an asset from the Screener").assertExists()
+        compose.onNodeWithText("Select a coin in AlphaPulse").assertExists()
     }
 
     @Test
@@ -213,13 +204,13 @@ class ProactiveTabsBddSpec {
     }
 
     @Test
-    fun `given the workspace when it renders then the seven canonical tabs are its bottom bar`() {
+    fun `given the workspace when it renders then the six canonical tabs are its bottom bar`() {
         render()
 
         ProactiveMsWorkspaceState.TAB_ORDER.forEach { tab ->
             compose.onNodeWithTag(ProactiveWorkspaceTags.tab(tab)).assertExists()
         }
-        assertEquals(7, ProactiveMsWorkspaceState.TAB_ORDER.size)
+        assertEquals(6, ProactiveMsWorkspaceState.TAB_ORDER.size)
     }
 
     @Test
@@ -251,7 +242,6 @@ class ProactiveTabsBddSpec {
         // Every tab is the product screen an operator expects, not a summary line.
         for (screen in listOf(
             "AlphaPulseScreenContent(",
-            "ScreenerScreen(",
             "DashboardScreen(",
             "ProactiveTelemetryTab(",
             "RiskGuardrailsScreen(",
@@ -260,6 +250,10 @@ class ProactiveTabsBddSpec {
         )) {
             assertTrue("The workspace must mount $screen for its tab", workspace.contains(screen))
         }
+        assertFalse(
+            "C-22 retired the second screener tab; the workspace must not mount it",
+            workspace.contains("ScreenerScreen")
+        )
     }
 
     @Test

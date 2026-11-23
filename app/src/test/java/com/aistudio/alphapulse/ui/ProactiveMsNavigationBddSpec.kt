@@ -8,21 +8,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * §72 / Contract C-22 — the unified seven-tab navigation and its shared active symbol.
+ * §72 / Contract C-22 — the unified tab navigation and its shared active symbol.
  *
  * The tab order and the workspace state live in production
  * (`ui/ProactiveMsNavigation.kt`); this spec drives them, so dropping a tab, reordering
  * the bar, or letting a tab keep its own symbol breaks the build.
+ *
+ * The legacy `Screener` tab is retired (C-22): AlphaPulse's institutional screen is the
+ * one coin selector, so there is no second list and no `+ BTC ONLY` universe lock that
+ * could disagree with it.
  *
  * Spec Ref: §72, C-22
  */
 class ProactiveMsNavigationBddSpec {
 
     @Test
-    fun `given the ProactiveMS bottom navigation when inspected then exactly seven tabs are mounted in the specified order`() {
+    fun `given the ProactiveMS bottom navigation when inspected then exactly six tabs are mounted in the specified order`() {
         assertEquals(
             listOf(
-                "Screener",
                 "AlphaPulse",
                 "Dashboard",
                 "Telemetry",
@@ -32,14 +35,24 @@ class ProactiveMsNavigationBddSpec {
             ),
             ProactiveMsWorkspaceState.TAB_ORDER.map { it.label }
         )
-        assertEquals(7, ProactiveMsTab.entries.size)
+        assertEquals(6, ProactiveMsTab.entries.size)
+        assertTrue(
+            "The retired Screener tab must not come back as a second coin selector",
+            ProactiveMsTab.entries.none { it.name == "SCREENER" }
+        )
     }
 
     @Test
-    fun `given a coin is selected in the Screener tab when the operator moves to the Audit tab then the same symbol is active with no re-selection`() {
-        var workspace = ProactiveMsWorkspaceState(
-            verifiedSymbols = listOf("BTCUSDT", "PAXGUSDT", "SOPHUSDT")
+    fun `given the workspace opens when no tab has been chosen then it opens on AlphaPulse, the one coin selector`() {
+        assertEquals(
+            ProactiveMsTab.ALPHA_PULSE,
+            ProactiveMsWorkspaceState().activeTab
         )
+    }
+
+    @Test
+    fun `given a coin is selected in AlphaPulse when the operator moves to the Audit tab then the same symbol is active with no re-selection`() {
+        var workspace = ProactiveMsWorkspaceState()
 
         workspace = workspace.selectSymbol("PAXGUSDT")
         workspace = workspace.selectTab(ProactiveMsTab.AUDIT)
@@ -47,27 +60,10 @@ class ProactiveMsNavigationBddSpec {
         assertEquals(ProactiveMsTab.AUDIT, workspace.activeTab)
         assertEquals("PAXGUSDT", workspace.activeSymbol)
 
-        // Every other tab reports the same selection: it is one value, not seven copies.
+        // Every other tab reports the same selection: it is one value, not six copies.
         for (tab in ProactiveMsTab.entries) {
             assertEquals("PAXGUSDT", workspace.selectTab(tab).activeSymbol)
         }
-    }
-
-    @Test
-    fun `given the plus BTC Only lock is enabled when the operator inspects the universe then only BTCUSDT remains selectable and active`() {
-        val workspace = ProactiveMsWorkspaceState(
-            activeTab = ProactiveMsTab.SCREENER,
-            activeSymbol = "PAXGUSDT",
-            verifiedSymbols = listOf("BTCUSDT", "PAXGUSDT", "SOPHUSDT")
-        ).setBtcOnly(true)
-
-        assertEquals(listOf("BTCUSDT"), workspace.availableSymbols)
-        assertEquals("BTCUSDT", workspace.activeSymbol)
-
-        // Lifting the lock restores the full verified universe and keeps the BTC selection.
-        val unlocked = workspace.setBtcOnly(false)
-        assertEquals(3, unlocked.availableSymbols.size)
-        assertEquals("BTCUSDT", unlocked.activeSymbol)
     }
 
     @Test
@@ -75,8 +71,62 @@ class ProactiveMsNavigationBddSpec {
         val workspace = ProactiveMsWorkspaceState()
 
         assertNull(workspace.activeSymbol)
-        assertEquals(ProactiveMsTab.SCREENER, workspace.activeTab)
-        assertTrue(workspace.availableSymbols.isEmpty())
+    }
+
+    @Test
+    fun `given the workspace sources when scanned then the retired screener screen, symbol strip and BTC lock are gone`() {
+        // C-22 retired the second selector on purpose: it listed the same coins AlphaPulse
+        // had already screened, under the `$50M-$750M` band C-17 removed, and its selection
+        // could disagree with the campaign engine's.
+        val appSources = repoFile("app/src/main/java").walkTopDown()
+            .filter { it.isFile && it.name.endsWith(".kt") }
+            .toList()
+
+        val removed = listOf(
+            "ScreenerScreen.kt" to "the legacy mid-cap screener screen",
+            "SymbolStrip" to "the shared symbol strip",
+            "availableSymbols" to "the strip's universe list",
+            "BTC_ONLY_SYMBOL" to "the `+ BTC ONLY` universe lock"
+        )
+        for ((token, what) in removed) {
+            val offenders = appSources.filter { file ->
+                if (token.endsWith(".kt")) file.name == token else file.readText().contains(token)
+            }
+            assertTrue(
+                "C-22 retired $what; it is still present in: " +
+                    offenders.joinToString { it.name },
+                offenders.isEmpty()
+            )
+        }
+
+        assertFalse(
+            "The workspace must not mount a second screener tab",
+            repoFile("app/src/main/java/com/aistudio/alphapulse/ui/ProactiveWorkspace.kt")
+                .readText()
+                .contains("ProactiveMsTab.SCREENER")
+        )
+    }
+
+    @Test
+    fun `given AlphaPulse selects a coin when the workspace is wired then the campaign engine adopts the screened coin`() {
+        // The rest of the tabs work from the screened universe, so AlphaPulse's selection
+        // must reach the engine, not only the workspace's own label.
+        val workspace = repoFile(
+            "app/src/main/java/com/aistudio/alphapulse/ui/ProactiveWorkspace.kt"
+        ).readText()
+        val mainViewModel = repoFile(
+            "app/src/main/java/com/aistudio/alphapulse/ui/MainViewModel.kt"
+        ).readText()
+
+        assertTrue(
+            "The workspace must mirror AlphaPulse's selection into the engine",
+            workspace.contains("adoptScreenedUniverse(")
+        )
+        assertTrue(
+            "The engine must adopt a screened coin, reloading the screened universe when needed",
+            mainViewModel.contains("fun adoptScreenedUniverse(") &&
+                mainViewModel.contains("alphaPulseUniverseSnapshot()")
+        )
     }
 
     @Test

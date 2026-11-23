@@ -484,10 +484,10 @@
   },
   {
     "section": 70,
-    "requirement": "Unified 7-Tab UI",
+    "requirement": "Unified Tab UI",
     "status": "Done",
-    "implementation": "`ui/AlphaPulseScreen.kt`, `MainActivity.kt` (7 tabs: Screener",
-    "tests": "AlphaPulse | Dashboard | Telemetry | Guardrails | Replay | Audit) | `androidTest/UserJourneyBddTest.kt`, `androidTest/ui/UserJourneyBddSpec.kt`, `ui/ProactiveMsNavigationBddSpec.kt`"
+    "implementation": "`ui/ProactiveMsNavigation.kt`, `ui/ProactiveWorkspace.kt` (6 tabs: AlphaPulse | Dashboard | Telemetry | Guardrails | Replay | Audit; the legacy Screener tab and its symbol strip are retired, so AlphaPulse is the one coin selector)",
+    "tests": "`androidTest/UserJourneyBddTest.kt`, `androidTest/ui/UserJourneyBddSpec.kt`, `ui/ProactiveMsNavigationBddSpec.kt`, `ui/ProactiveTabsBddSpec.kt`"
   },
   {
     "section": 71,

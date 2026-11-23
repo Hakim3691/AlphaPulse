@@ -7,6 +7,31 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.1] — 2026-11-23
+
+The legacy Screener tab is retired, and every remaining tab works from AlphaPulse.
+
+### Removed
+
+- **The `Screener` tab, the shared symbol strip and `+ BTC ONLY`.** The tab listed the
+  same coins AlphaPulse had already screened, under the `$50M–$750M` mid-cap band C-17
+  removed, and it made a second coin selector that could disagree with the campaign
+  engine. The workspace now has six tabs — `AlphaPulse`, `Dashboard`, `Telemetry`,
+  `Guardrails`, `Replay`, `Audit` — and opens on `AlphaPulse`, and
+  `UnifiedUniverseScreener.screenUniverse` no longer takes a BTC-only override, because
+  nothing may override the gate's verdict (C-22).
+- `ScreenerScreen.kt`, `SymbolStrip`, `SymbolChip`, `availableSymbols`, `btcOnly` and
+  `BTC_ONLY_SYMBOL` are deleted rather than left unused.
+
+### Changed
+
+- **AlphaPulse is the one coin selector.** A coin chosen in its institutional screen is
+  mirrored into the workspace and adopted by the campaign engine through the new
+  `MainViewModel.adoptScreenedUniverse`, which reloads the screened universe from the
+  same store the campaigns read and never invents a symbol the screen did not admit.
+- The Dashboard's empty state now says `Select a coin in AlphaPulse`, and §72 / C-22, the
+  traceability matrix and the audits record six tabs instead of seven.
+
 ## [19.0] — 2026-11-23
 
 The screened universe stops depending on the hour it was taken, and a small universe can

@@ -483,10 +483,10 @@ def main():
             "checks": ["Room v7 schema", "25-field audit ledger", "CSV/JSON/line export", "5->6 migration", "6->7 migration", "One row per evaluation"]
         },
         22: {
-            "description": "Unified 7-Tab Navigation UI, Notifications & Observability",
+            "description": "Unified Tab Navigation UI, Notifications & Observability",
             "subsections": [],
             "expected_tests": ["ProactiveMsNavigationBddSpec.kt", "UserJourneyBddTest.kt", "DecisionCardBddSpec.kt", "DecisionHistorySectionBddSpec.kt", "Needle3StatusBannerBddSpec.kt", "NotificationVetoBddSpec.kt", "ModelDockUiTest.kt"],
-            "checks": ["7-tab navigation (Screener, AlphaPulse, Dashboard, Telemetry, Guardrails, Replay, Audit)", "Synchronized symbol selection", "Notifications", "Observability dashboard"]
+            "checks": ["6-tab navigation (AlphaPulse, Dashboard, Telemetry, Guardrails, Replay, Audit)", "Legacy Screener tab and shared symbol strip retired", "Synchronized symbol selection", "Notifications", "Observability dashboard"]
         },
         23: {
             "description": "Operational Guardrails, Failure Handling, Configuration & Engineering Build Checklists",

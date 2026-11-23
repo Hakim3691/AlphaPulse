@@ -5,29 +5,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material3.Icon
@@ -44,7 +34,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
@@ -61,7 +50,6 @@ import com.aistudio.alphapulse.ui.components.ManualOverrideDialog
 import com.aistudio.alphapulse.ui.components.TopBar
 import com.aistudio.alphapulse.ui.screens.DashboardScreen
 import com.aistudio.alphapulse.ui.screens.RiskGuardrailsScreen
-import com.aistudio.alphapulse.ui.screens.ScreenerScreen
 import com.aistudio.alphapulse.ui.screens.SimulationScreen
 import com.aistudio.alphapulse.ui.theme.BrandDark
 import com.aistudio.alphapulse.ui.theme.CardBackground
@@ -94,8 +82,6 @@ import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 /** Everything the workspace can ask the engine to do. Defaults keep previews/tests quiet. */
 data class ProactiveWorkspaceActions(
     val onSelectTab: (ProactiveMsTab) -> Unit,
-    val onSelectSymbol: (String) -> Unit = {},
-    val onToggleBtcOnly: (Boolean) -> Unit = {},
     val onToggleKillSwitch: () -> Unit = {},
     val onModeChange: (ExecutionMode) -> Unit = {},
     val onOpenOrphanWarning: () -> Unit = {},
@@ -119,13 +105,9 @@ data class ProactiveWorkspaceActions(
 object ProactiveWorkspaceTags {
     const val WORKSPACE = "proactive_workspace"
     const val BOTTOM_BAR = "proactive_bottom_bar"
-    const val SYMBOL_STRIP = "proactive_symbol_strip"
-    const val BTC_ONLY = "proactive_btc_only"
     const val PRE_LAUNCH_GATE = "proactive_pre_launch_gate"
 
     fun tab(tab: ProactiveMsTab): String = "proactive_tab_${tab.name.lowercase()}"
-
-    fun symbol(symbol: String): String = "proactive_symbol_$symbol"
 }
 
 /** The stateless workspace: one tab body, one shared symbol, one bottom bar. */
@@ -176,28 +158,11 @@ fun ProactiveWorkspaceScreen(
                 onOpenOrphanWarning = actions.onOpenOrphanWarning
             )
 
-            // The shared symbol strip is workspace chrome; the AlphaPulse tab already
-            // carries its own coin selector, so it does not get a second one.
-            if (workspace.activeTab != ProactiveMsTab.ALPHA_PULSE) {
-                SymbolStrip(
-                    workspace = workspace,
-                    onSelectSymbol = actions.onSelectSymbol,
-                    onToggleBtcOnly = actions.onToggleBtcOnly
-                )
-            }
-
+            // C-22: there is no second coin selector. AlphaPulse's institutional screen
+            // picks the coin for every tab, so the workspace carries no symbol strip and
+            // the retired `Screener` tab's mid-cap list is gone with it.
             Box(modifier = Modifier.fillMaxSize().weight(1f)) {
                 when (workspace.activeTab) {
-                    ProactiveMsTab.SCREENER -> ScreenerScreen(
-                        assets = state.assets.filter { asset ->
-                            workspace.availableSymbols.isEmpty() ||
-                                asset.symbol in workspace.availableSymbols
-                        },
-                        selectedAsset = state.selectedAsset,
-                        isLiveUniverse = state.isLiveUniverse,
-                        onSelectAsset = actions.onSelectSymbol
-                    )
-
                     // C-22: the AlphaPulse tab is AlphaPulse, not a summary of it — its
                     // analysis body, under this workspace's single header and insets.
                     ProactiveMsTab.ALPHA_PULSE -> alphaPulseTab()
@@ -261,11 +226,20 @@ fun ProactiveWorkspaceScreen(
 
     // The engine is the source of truth for the universe and the inspected coin. The
     // workspace only mirrors it, so a selection can never drift between them.
-    LaunchedEffect(state.assets, state.selectedAsset?.symbol) {
-        workspace = workspace.copy(
-            verifiedSymbols = state.assets.map { it.symbol },
-            activeSymbol = state.selectedAsset?.symbol ?: workspace.activeSymbol
-        )
+    LaunchedEffect(state.selectedAsset?.symbol) {
+        val symbol = state.selectedAsset?.symbol ?: return@LaunchedEffect
+        workspace = workspace.selectSymbol(symbol)
+    }
+
+    // C-22: AlphaPulse is the one coin selector. A coin chosen in its institutional
+    // screen becomes the workspace's coin *and* the campaign engine's asset, so every
+    // tab works from the screened universe rather than from a second picker.
+    val alphaPulseState by alphaPulseViewModel.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(alphaPulseState.selectedSymbol) {
+        val symbol = alphaPulseState.selectedSymbol
+        if (symbol.isBlank()) return@LaunchedEffect
+        workspace = workspace.selectSymbol(symbol)
+        if (state.selectedAsset?.symbol != symbol) viewModel.adoptScreenedUniverse(symbol)
     }
 
     val preLaunchVerdict = remember(state.executionMode) {
@@ -278,11 +252,6 @@ fun ProactiveWorkspaceScreen(
         preLaunchVerdict = preLaunchVerdict,
         actions = ProactiveWorkspaceActions(
             onSelectTab = { tab -> workspace = workspace.selectTab(tab) },
-            onSelectSymbol = { symbol ->
-                workspace = workspace.selectSymbol(symbol)
-                viewModel.selectAsset(symbol)
-            },
-            onToggleBtcOnly = { enabled -> workspace = workspace.setBtcOnly(enabled) },
             onToggleKillSwitch = viewModel::toggleKillSwitch,
             onModeChange = viewModel::setExecutionMode,
             onOpenOrphanWarning = viewModel::openOrphanedOrderWarning,
@@ -374,123 +343,12 @@ private fun ProactiveBottomBar(
 }
 
 private fun ProactiveMsTab.icon(): ImageVector = when (this) {
-    ProactiveMsTab.SCREENER -> Icons.AutoMirrored.Filled.List
     ProactiveMsTab.ALPHA_PULSE -> Icons.Default.Bolt
     ProactiveMsTab.DASHBOARD -> Icons.Default.Dashboard
     ProactiveMsTab.TELEMETRY -> Icons.Default.Sensors
     ProactiveMsTab.GUARDRAILS -> Icons.Default.Security
     ProactiveMsTab.REPLAY -> Icons.Default.Insights
     ProactiveMsTab.AUDIT -> Icons.Default.History
-}
-
-/** The one symbol every tab shares, plus the `+ BTC Only` universe lock. */
-@Composable
-private fun SymbolStrip(
-    workspace: ProactiveMsWorkspaceState,
-    onSelectSymbol: (String) -> Unit,
-    onToggleBtcOnly: (Boolean) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(CardBackground)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
-            .testTag(ProactiveWorkspaceTags.SYMBOL_STRIP)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "SHARED SYMBOL",
-                color = SlateTextMuted,
-                fontSize = 8.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = workspace.activeSymbol ?: "No coin selected",
-                color = if (workspace.activeSymbol == null) SlateTextMuted else CyanAccent,
-                fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold
-            )
-        }
-
-        if (workspace.availableSymbols.isEmpty()) {
-            Text(
-                text = "The screener has not admitted a coin yet",
-                color = SlateTextMuted,
-                fontSize = 10.sp,
-                modifier = Modifier.padding(top = 6.dp)
-            )
-            return@Column
-        }
-
-        LazyRow(
-            modifier = Modifier.padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-            contentPadding = PaddingValues(end = 4.dp)
-        ) {
-            items(workspace.availableSymbols, key = { it }) { symbol ->
-                SymbolChip(
-                    label = symbol,
-                    selected = symbol == workspace.activeSymbol,
-                    testTag = ProactiveWorkspaceTags.symbol(symbol),
-                    onClick = { onSelectSymbol(symbol) }
-                )
-            }
-            item {
-                SymbolChip(
-                    label = "+ BTC ONLY",
-                    selected = workspace.btcOnly,
-                    tint = CyanAccent,
-                    testTag = ProactiveWorkspaceTags.BTC_ONLY,
-                    onClick = { onToggleBtcOnly(!workspace.btcOnly) }
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SymbolChip(
-    label: String,
-    selected: Boolean,
-    tint: Color = CyanAccent,
-    testTag: String? = null,
-    onClick: () -> Unit
-) {
-    val shape = RoundedCornerShape(8.dp)
-    Box(
-        modifier = Modifier
-            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier)
-            .clip(shape)
-            .background(if (selected) tint.copy(alpha = 0.16f) else Color(0xFF0D1526))
-            .border(1.dp, if (selected) tint.copy(alpha = 0.7f) else CardBorder, shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(tint)
-                )
-                Spacer(modifier = Modifier.width(5.dp))
-            }
-            Text(
-                text = label,
-                color = if (selected) tint else SlateTextSecondary,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-    }
 }
 
 /**

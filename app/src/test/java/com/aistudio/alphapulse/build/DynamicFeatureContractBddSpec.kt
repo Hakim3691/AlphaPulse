@@ -65,7 +65,7 @@ class DynamicFeatureContractBddSpec {
     }
 
     @Test
-    fun `given the feature host when read then it renders the canonical seven ProactiveMS tabs and no native code`() {
+    fun `given the feature host when read then it renders the canonical ProactiveMS tabs and no native code`() {
         val activity = repoFile(
             "proactive_trader/src/main/java/com/alphapulse/proactive/TraderHostActivity.kt"
         ).readText()

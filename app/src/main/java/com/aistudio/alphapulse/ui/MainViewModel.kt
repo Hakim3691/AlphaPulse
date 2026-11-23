@@ -502,6 +502,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * §72 / C-22: adopt the coin AlphaPulse's institutional screen selected.
+     *
+     * AlphaPulse is the workspace's only coin selector, so the campaign engine must
+     * follow it. A coin already in the current universe is a plain selection; one the
+     * engine has not seen yet means the screened universe moved on, so this reloads it
+     * from the same store the campaign universe comes from and adopts the coin only if
+     * the screen actually admitted it — a symbol with no screened row is never invented.
+     */
+    fun adoptScreenedUniverse(symbol: String) {
+        if (symbol.isBlank()) return
+        if (_uiState.value.assets.any { it.symbol == symbol }) {
+            selectAsset(symbol)
+            return
+        }
+        viewModelScope.launch {
+            val snapshot = runCatching { alphaPulseUniverseSnapshot() }.getOrNull() ?: return@launch
+            val chosen = snapshot.assets.find { it.symbol == symbol } ?: return@launch
+            if (_uiState.value.selectedAsset?.symbol == symbol) return@launch
+            applyUniverseAndRecompute(snapshot.assets, chosen, snapshot.isLive)
+        }
+    }
+
     /** §5 Dormant Polling: refresh the screener universe on a light REST cadence. */
     private fun startDormantUniversePolling() {
         dormantPollingJob?.cancel()

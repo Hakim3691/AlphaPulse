@@ -171,7 +171,7 @@ class UnifiedUniverseScreenerBddSpec {
     }
 
     @Test
-    fun `given btc only override is toggled on when screening multi coin universe then only BTCUSDT is emitted to both tabs`() {
+    fun `given a multi coin universe when screened then every qualifying coin is returned because the BTC only override is retired`() {
         val screener = UnifiedUniverseScreener()
         val coins = listOf("BTCUSDT", "PAXGUSDT", "XAUTUSDT", "SOPHUSDT").map { sym ->
             CandidateAssetInput(
@@ -188,9 +188,13 @@ class UnifiedUniverseScreenerBddSpec {
             )
         }
 
-        val results = screener.screenUniverse(coins, btcOnlyOverride = true)
+        val results = screener.screenUniverse(coins)
 
-        assertEquals(1, results.size)
-        assertEquals("BTCUSDT", results.first().symbol)
+        // C-22 retired the `+ BTC ONLY` universe lock: it was a second list beside
+        // AlphaPulse's screen, and nothing may override the gate's verdict.
+        assertEquals(
+            setOf("BTCUSDT", "PAXGUSDT", "XAUTUSDT", "SOPHUSDT"),
+            results.map { it.symbol }.toSet()
+        )
     }
 }

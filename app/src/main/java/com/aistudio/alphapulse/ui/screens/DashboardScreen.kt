@@ -60,7 +60,7 @@ fun DashboardScreen(
             modifier = modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            Text("Select an asset from the Screener", color = SlateTextMuted)
+            Text("Select a coin in AlphaPulse", color = SlateTextMuted)
         }
         return
     }
