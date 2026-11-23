@@ -11,6 +11,8 @@ import androidx.compose.ui.test.performClick
 import com.aistudio.alphapulse.data.model.AuditLogAction
 import com.aistudio.alphapulse.data.model.AuditLogEntry
 import com.aistudio.alphapulse.data.model.ExecutionMode
+import com.aistudio.alphapulse.domain.campaign.EvidenceLayer
+import com.aistudio.alphapulse.domain.campaign.LayeredEvidenceGate
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -124,6 +126,33 @@ class ProactiveTabsBddSpec {
         assertTrue(
             "The current execution mode must be visible",
             compose.onAllNodesWithText("PAPER", substring = true).fetchSemanticsNodes().isNotEmpty()
+        )
+    }
+
+    @Test
+    fun `given a proven price layer when Guardrails renders then it names which layers are active for the inspected coin`() {
+        render(
+            state = MainUiState(
+                layeredEvidence = LayeredEvidenceGate.assess(
+                    price = listOf(LayeredEvidenceGate.price("1h", settled = 8, hits = 8))
+                )
+            ),
+            workspace = workspace.copy(activeTab = ProactiveMsTab.GUARDRAILS)
+        )
+
+        // C-58: the operator can read the gate's own state, not only the risk limits it acts on.
+        compose.onNodeWithTag(ProactiveWorkspaceTags.LAYERED_EVIDENCE).assertExists()
+        EvidenceLayer.entries.forEach { layer ->
+            compose.onNodeWithTag(ProactiveWorkspaceTags.layer(layer.name)).assertExists()
+        }
+        assertTrue(
+            "A proven price layer must read as an active input",
+            compose.onAllNodesWithText("ACTIVE").fetchSemanticsNodes().isNotEmpty()
+        )
+        assertTrue(
+            "A layer with no sample must say so instead of implying it is live",
+            compose.onAllNodesWithText("no graded strategy calls", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
         )
     }
 

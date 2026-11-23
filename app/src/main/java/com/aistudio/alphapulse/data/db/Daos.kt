@@ -200,6 +200,13 @@ interface DecisionRecordDao {
     )
     fun getDecisionHistoryFlow(symbol: String, limit: Int): Flow<List<DecisionRecordEntity>>
 
+    /** The newest verdict for one symbol, for the coalescing check (C-29). */
+    @Query(
+        "SELECT * FROM decision_records WHERE symbol = :symbol " +
+            "ORDER BY issuedTimestamp DESC LIMIT 1"
+    )
+    suspend fun latest(symbol: String): DecisionRecordEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: DecisionRecordEntity)
 

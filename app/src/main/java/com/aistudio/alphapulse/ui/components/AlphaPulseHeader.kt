@@ -127,9 +127,9 @@ fun AlphaPulseHeader(
             .background(BrandSurface)
             .windowInsetsPadding(WindowInsets.statusBars)
             .border(width = 1.dp, color = BrandBorder)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
             .testTag("alpha_pulse_header"),
-        verticalArrangement = Arrangement.spacedBy(7.dp)
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         // Row 1 — identity, honesty chip, pipeline state.
         Row(
@@ -143,24 +143,24 @@ fun AlphaPulseHeader(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .size(26.dp)
+                        .clip(RoundedCornerShape(7.dp))
                         .background(BrandAccent.copy(alpha = 0.15f))
-                        .border(1.dp, BrandAccent.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                        .border(1.dp, BrandAccent.copy(alpha = 0.3f), RoundedCornerShape(7.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Shield,
                         contentDescription = "AlphaPulse Logo",
                         tint = BrandAccent,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                 }
                 Text(
                     text = "AlphaPulse",
                     color = TextPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
+                    fontSize = 16.sp,
                     letterSpacing = (-0.3).sp
                 )
             }
@@ -185,7 +185,7 @@ fun AlphaPulseHeader(
                     .clip(RoundedCornerShape(6.dp))
                     .background(BrandCard)
                     .border(1.dp, BrandBorder, RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .padding(horizontal = 7.dp, vertical = 3.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -195,7 +195,7 @@ fun AlphaPulseHeader(
                         imageVector = Icons.Default.Timer,
                         contentDescription = "Session Timer",
                         tint = BrandAccent,
-                        modifier = Modifier.size(13.dp)
+                        modifier = Modifier.size(12.dp)
                     )
                     Text(
                         text = "SESSION:",
@@ -224,7 +224,7 @@ fun AlphaPulseHeader(
                 onClick = onRefreshClick,
                 modifier = Modifier
                     .testTag("manual_refresh_button")
-                    .size(32.dp)
+                    .size(28.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(BrandCard)
                     .border(1.dp, BrandBorder, RoundedCornerShape(6.dp))
@@ -233,7 +233,7 @@ fun AlphaPulseHeader(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = "Manual Refresh",
                     tint = BrandAccent,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(15.dp)
                 )
             }
         }
@@ -275,13 +275,13 @@ fun AlphaPulseHeader(
                 Text(
                     text = "Ping: ${vip.venueHealth.binancePingMs}ms",
                     color = if (vip.venueHealth.isLatencySpike) CrimsonBear else EmeraldBull,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
                     text = "RAM: ${vip.venueHealth.availableRamMb}MB",
                     color = if (vip.venueHealth.isRamConstrained) AmberWarning else SlateTextSecondary,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
                     fontFamily = FontFamily.Monospace
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -398,7 +398,7 @@ private fun KillSwitchButton(engaged: Boolean, onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier
             .testTag("kill_switch_button")
-            .size(34.dp)
+            .size(28.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(if (engaged) CrimsonBear else Color(0xFF2A1519))
             .border(1.dp, CrimsonBear, RoundedCornerShape(8.dp))
@@ -407,7 +407,7 @@ private fun KillSwitchButton(engaged: Boolean, onClick: () -> Unit) {
             imageVector = Icons.Default.Dangerous,
             contentDescription = "Emergency Kill Switch",
             tint = if (engaged) Color.White else CrimsonBear,
-            modifier = Modifier.size(19.dp)
+            modifier = Modifier.size(16.dp)
         )
     }
 }
@@ -418,7 +418,7 @@ private fun OrphanWarningButton(onClick: () -> Unit) {
         onClick = onClick,
         modifier = Modifier
             .testTag("orphan_warning_button")
-            .size(34.dp)
+            .size(28.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Color(0xFF2D2512))
             .border(1.dp, AmberWarning, RoundedCornerShape(8.dp))
@@ -427,7 +427,7 @@ private fun OrphanWarningButton(onClick: () -> Unit) {
             imageVector = Icons.Default.Warning,
             contentDescription = "Orphaned Order Guardrail Intercept",
             tint = AmberWarning,
-            modifier = Modifier.size(17.dp)
+            modifier = Modifier.size(15.dp)
         )
     }
 }
@@ -477,12 +477,12 @@ fun ReadinessBadge(label: String, isReady: Boolean) {
             .clip(RoundedCornerShape(4.dp))
             .background(bg)
             .border(1.dp, border, RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 3.dp)
+            .padding(horizontal = 5.dp, vertical = 2.dp)
     ) {
         Text(
             text = label,
             color = text,
-            fontSize = 9.sp,
+            fontSize = 8.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold
         )

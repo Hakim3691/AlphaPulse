@@ -115,7 +115,7 @@ fun DashboardScreen(
 
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
-                            text = "$${asset.lastPrice}",
+                            text = com.aistudio.alphapulse.core.Formatters.formatPrice5Dec(asset.lastPrice),
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
@@ -123,7 +123,7 @@ fun DashboardScreen(
                             )
                         )
                         Text(
-                            text = "ATR(5m): $${asset.atr5m}",
+                            text = "ATR(5m): ${com.aistudio.alphapulse.core.Formatters.formatPrice5Dec(asset.atr5m)}",
                             style = MaterialTheme.typography.labelSmall.copy(
                                 color = SlateTextMuted,
                                 fontFamily = FontFamily.Monospace,

@@ -72,6 +72,7 @@ import com.aistudio.alphapulse.engine.SessionSecurityManager
 import com.aistudio.alphapulse.engine.SimulationHarness
 import com.aistudio.alphapulse.engine.SimulationScenario
 import com.aistudio.alphapulse.engine.UniverseScreener
+import com.aistudio.alphapulse.engine.UniverseSelection
 import com.aistudio.alphapulse.engine.UserDataOrderUpdate
 import com.aistudio.alphapulse.engine.UserDataStreamLoop
 import com.aistudio.alphapulse.engine.UniverseSnapshot
@@ -101,6 +102,8 @@ data class MainUiState(
     val campaigns: List<Campaign> = emptyList(),
     val selectedCampaign: Campaign? = null,
     val liveEvidence: EvidenceFrame? = null,
+    /** C-58: the layered PRICE/PATTERN/STRATEGY verdict for the inspected coin. */
+    val layeredEvidence: LayeredEvidenceVerdict? = null,
     val orderBook: OrderBookSnapshot? = null,
     val takerTrades: List<TakerTrade> = emptyList(),
     val riskEnvelope: RiskEnvelope = RiskEnvelope(),
@@ -414,7 +417,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             selectedCampaign = gatedCampaigns.firstOrNull(),
             liveEvidence = evidence,
             calibration = calibration,
-            isLiveUniverse = isLive
+            isLiveUniverse = isLive,
+            layeredEvidence = layeredEvidenceFor(chosen.symbol)
         )
         routeLiveBoards(gatedCampaigns)
         startUserDataStreamIfNeeded()
@@ -545,10 +549,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             val snapshot = runCatching { alphaPulseUniverseSnapshot() }.getOrNull() ?: return@launch
-            val chosen = snapshot.assets.find { it.symbol == symbol } ?: return@launch
+            // C-58: an unproven coin is absent from the campaign universe, but the operator
+            // selected it and C-22 makes that selection the workspace's coin. It is still a
+            // real screened row, so it is inspected with its boards held rather than
+            // silently replaced by another coin.
+            val chosen = snapshot.assets.find { it.symbol == symbol }
+                ?: inspectedAssetFor(symbol)
+                ?: return@launch
             if (_uiState.value.selectedAsset?.symbol == symbol) return@launch
             applyUniverseAndRecompute(snapshot.assets, chosen, snapshot.isLive)
         }
+    }
+
+    /**
+     * The inspected coin as the engine's asset shape, even when C-58 has withheld it from
+     * the campaign universe.
+     *
+     * Removing an unproven coin from the *campaign* universe must not make it
+     * un-inspectable: the AlphaPulse screen is the only selector (C-22), and the guardrail
+     * tab has to be able to say which of its layers are still waiting. Built from the same
+     * screen row and prediction ladder the universe bridge reads, so nothing is invented.
+     */
+    private suspend fun inspectedAssetFor(symbol: String): CryptoAsset? {
+        val alphaDb = AlphaDatabase.getDatabase(getApplication())
+        val entity = runCatching { alphaDb.screenedCoinDao().getAllScreenedCoins() }
+            .getOrDefault(emptyList())
+            .find { it.symbol == symbol } ?: return null
+        val predictions = runCatching { alphaDb.predictionDao().getPredictionsBySymbol(symbol) }
+            .getOrDefault(emptyList())
+        return universeBridge.toCryptoAsset(entity, predictions)
     }
 
     /** §5 Dormant Polling: refresh the screener universe on a light REST cadence. */
@@ -556,8 +585,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         dormantPollingJob?.cancel()
         dormantPollingJob = viewModelScope.launch {
             liveProvider.dormantUniversePolling(load = { alphaPulseUniverseSnapshot() }).collect { snapshot ->
-                val currentSymbol = _uiState.value.selectedAsset?.symbol
-                val chosen = snapshot.assets.find { it.symbol == currentSymbol } ?: snapshot.assets.firstOrNull()
+                // C-22/C-58: a refresh may update the inspected coin, never replace it.
+                // The old `?: snapshot.assets.firstOrNull()` fallback is what swapped the
+                // operator's USDBRLUSDT for SOLUSDT on the next poll once unproven coins
+                // stopped entering the campaign universe.
+                val chosen = UniverseSelection.keepInspected(_uiState.value.selectedAsset, snapshot.assets)
                 if (chosen != null) {
                     applyUniverseAndRecompute(snapshot.assets, chosen, snapshot.isLive)
                 }
@@ -1426,6 +1458,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             null
         }
         additiveEvidenceBySymbol = additiveEvidenceBySymbol + (symbol to (patternLayers to strategy))
+        // C-58: the Guardrails readout reacts to the cycle, so the inspected coin's verdict
+        // is republished whenever one of its layers is recomputed.
+        if (_uiState.value.selectedAsset?.symbol == symbol) {
+            _uiState.value = _uiState.value.copy(layeredEvidence = layeredEvidenceFor(symbol))
+        }
     }
 
     fun stagingPreconditionFor(symbol: String): StagingPreconditionVerdict {

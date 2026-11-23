@@ -5,8 +5,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aistudio.alphapulse.data.model.Campaign
 import com.aistudio.alphapulse.data.model.ExecutionMode
 import com.aistudio.alphapulse.engine.SimulationScenario
+import com.aistudio.alphapulse.domain.campaign.LayeredEvidencePresentation
 import com.aistudio.alphapulse.engine.proactive.ProductionExecutionConfig
 import com.aistudio.alphapulse.ui.components.AlphaPulseHeader
 import com.aistudio.alphapulse.ui.components.ManualOverrideDialog
@@ -39,10 +42,12 @@ import com.aistudio.alphapulse.ui.components.VipHeaderState
 import com.aistudio.alphapulse.ui.screens.DashboardScreen
 import com.aistudio.alphapulse.ui.screens.RiskGuardrailsScreen
 import com.aistudio.alphapulse.ui.screens.SimulationScreen
+import com.aistudio.alphapulse.ui.theme.AmberWarning
 import com.aistudio.alphapulse.ui.theme.BrandDark
 import com.aistudio.alphapulse.ui.theme.CardBackground
 import com.aistudio.alphapulse.ui.theme.CardBorder
 import com.aistudio.alphapulse.ui.theme.CyanAccent
+import com.aistudio.alphapulse.ui.theme.EmeraldBull
 import com.aistudio.alphapulse.ui.theme.MyApplicationTheme
 import com.aistudio.alphapulse.ui.theme.SlateTextMuted
 import com.aistudio.alphapulse.ui.theme.SlateTextPrimary
@@ -110,8 +115,13 @@ object ProactiveWorkspaceTags {
     const val WORKSPACE = "proactive_workspace"
     const val BOTTOM_BAR = "proactive_bottom_bar"
     const val PRE_LAUNCH_GATE = "proactive_pre_launch_gate"
+    /** C-58: which of PRICE / PATTERN / STRATEGY are live for the inspected coin. */
+    const val LAYERED_EVIDENCE = "guardrails_layered_evidence"
 
     fun tab(tab: ProactiveMsTab): String = "proactive_tab_${tab.name.lowercase()}"
+
+    /** One layer's row inside [LAYERED_EVIDENCE]. */
+    fun layer(name: String): String = "guardrails_layer_${name.lowercase()}"
 }
 
 /** The stateless workspace: one tab body, one shared symbol, one bottom bar. */
@@ -343,6 +353,9 @@ private fun ProactiveGuardrailsTab(
 ) {
     val config = ProductionExecutionConfig.PRODUCTION
     Column(modifier = Modifier.fillMaxSize()) {
+        // C-58: the gate's own state, before the limits it acts on: the operator needs to
+        // know whether PATTERN and STRATEGY are inputs yet, not only that risk is capped.
+        LayeredEvidenceCard(state)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -404,5 +417,106 @@ private fun ProactiveGuardrailsTab(
                 onRunDiagnostics = actions.onRunDiagnostics
             )
         }
+    }
+}
+
+/**
+ * C-58: which of PRICE, PATTERN and STRATEGY are live for the coin under inspection.
+ *
+ * PRICE is the only layer that withholds a board, so an unproven price layer reads
+ * `BLOCKING`; PATTERN and STRATEGY read `INACTIVE` until their own 85% floor is met and
+ * then become additional inputs without ever un-blocking anything. Each row prints the
+ * evidence it is being judged on, so "not yet" always names the sample still missing.
+ *
+ * The projection is [LayeredEvidencePresentation], pinned by its own scenario, so the
+ * wording does not depend on this layout.
+ */
+@Composable
+private fun LayeredEvidenceCard(state: MainUiState) {
+    val rows = LayeredEvidencePresentation.rows(state.layeredEvidence)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, top = 12.dp)
+            .background(CardBackground, RoundedCornerShape(10.dp))
+            .border(1.dp, CardBorder, RoundedCornerShape(10.dp))
+            .padding(12.dp)
+            .testTag(ProactiveWorkspaceTags.LAYERED_EVIDENCE)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "LAYERED EVIDENCE GATE",
+                color = SlateTextSecondary,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = state.selectedAsset?.let { asset ->
+                    "${asset.symbol.replace("USDT", "")} · 85% floor"
+                } ?: "no coin selected",
+                color = CyanAccent,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .testTag(ProactiveWorkspaceTags.layer(row.layer.name)),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = row.layer.name,
+                    color = SlateTextPrimary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                val tone = when {
+                    row.active -> EmeraldBull
+                    row.statusLabel == LayeredEvidencePresentation.BLOCKING -> AmberWarning
+                    else -> SlateTextMuted
+                }
+                Box(
+                    modifier = Modifier
+                        .background(tone.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                        .border(1.dp, tone.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = row.statusLabel,
+                        color = tone,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+            Text(
+                text = row.detail,
+                color = SlateTextMuted,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+
+        Text(
+            text = "PRICE holds staging; PATTERN and STRATEGY add inputs only once proven.",
+            color = SlateTextMuted,
+            fontSize = 8.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(top = 8.dp)
+        )
     }
 }

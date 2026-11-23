@@ -17,11 +17,17 @@ package com.aistudio.alphapulse.domain.campaign
  * database and no network, so the dashboard can evaluate it on every tick and the
  * BDD scenarios can pin every boundary without a fixture.
  *
- * The hit-rate floor is strict: a horizon whose cone hit rate is *exactly* 90.0% is
- * not ready. The specification asks for greater than 90%, and treating the boundary
- * as passing would quietly lower the floor each time the check is re-derived.
+ * The hit-rate floor is the confirmed 85% of [SignalEvidence], compared inclusively: a
+ * horizon whose cone hit rate is exactly 85.0% is ready and 84.99% is not. The helper used
+ * to carry its own strict `> 90%` default, which meant the same coin could be judged ready
+ * by one gate and unready by the other; it now reads the floor from the one constant the
+ * layered gate uses (C-57/C-58), so the two can never disagree.
  *
- * Spec Ref: §68 Readiness Gate, C-19
+ * The helper stays a pure pre-check: production staging runs through
+ * `ExecutionEngine.gateStaging` with the layered verdict, which holds a board whose PRICE
+ * layer has not proven itself.
+ *
+ * Spec Ref: §68 Readiness Gate, C-19, C-57, C-58
  */
 
 /** Where a campaign sits in its lifecycle. */
@@ -100,11 +106,30 @@ data class GateEvaluationResult(
 /**
  * Decides whether a planned campaign may be staged.
  *
- * @param minConeHitRateExclusivePct the floor a governing horizon must *exceed*
+ * @param minConeHitRateInclusivePct the floor a governing horizon must reach; defaults to
+ *   the same 85% the layered gate proves a price horizon against
  */
 class CampaignReadinessGate(
-    private val minConeHitRateExclusivePct: Double = 90.0
+    val minConeHitRateInclusivePct: Double = SignalEvidence.MIN_HIT_RATE_PCT
 ) {
+
+    /** The floor as it is written into a refusal, e.g. `85`. */
+    private val floorLabel: String =
+        if (minConeHitRateInclusivePct % 1.0 == 0.0) {
+            minConeHitRateInclusivePct.toInt().toString()
+        } else {
+            minConeHitRateInclusivePct.toString()
+        }
+
+    /**
+     * True when [ratePct] reaches the floor. Compared at basis-point precision so the
+     * boundary is decided by the number the ledger measured, not by binary rounding: 85.0%
+     * qualifies, 84.99% does not, and a missing measurement never passes.
+     */
+    private fun reachesFloor(ratePct: Double): Boolean {
+        if (ratePct.isNaN()) return false
+        return Math.round(ratePct * 100.0) >= Math.round(minConeHitRateInclusivePct * 100.0)
+    }
 
     /**
      * @param telemetry the current readiness snapshot
@@ -130,8 +155,8 @@ class CampaignReadinessGate(
             // A governing horizon with no measurement is not ready: silence from the
             // cone tracker must never be read as a passing hit rate.
             val hitRate = telemetry.horizonConeHitRatePct[horizon] ?: 0.0
-            if (hitRate <= minConeHitRateExclusivePct) {
-                reasons.add("HORIZON_${horizon}_CONE_HIT_RATE_BELOW_OR_EQUAL_90_PCT($hitRate%)")
+            if (!reachesFloor(hitRate)) {
+                reasons.add("HORIZON_${horizon}_CONE_HIT_RATE_BELOW_${floorLabel}_PCT($hitRate%)")
             }
         }
 

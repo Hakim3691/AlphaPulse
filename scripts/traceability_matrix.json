@@ -465,7 +465,7 @@
     "section": 67,
     "requirement": "Readiness Gate (>90% Cone Hit Rate)",
     "status": "Done",
-    "implementation": "`domain/campaign/CampaignReadinessGate.kt` (per-horizon settled cone hit rate > 90%, 5/5 LTF+MTF+HTF + 2/2 dock)",
+    "implementation": "`domain/campaign/CampaignReadinessGate.kt` (per-horizon settled cone hit rate >= 85% inclusive, the C-57/C-58 floor; 5/5 LTF+MTF+HTF + 2/2 dock)",
     "tests": "`domain/campaign/CampaignReadinessGateBddSpec.kt`"
   },
   {

@@ -1394,18 +1394,23 @@ class AlphaPulseRepository(
         // issued by this cycle carry, so the export can attribute each row to the
         // decision that produced it. Retention is bounded - see
         // DECISION_RECORD_RETENTION - so a 24/7 device cannot grow this table forever.
-        database.decisionRecordDao().insert(
-            DecisionRecordEntity(
-                id = DecisionAuditJoin.idOf(symbol, now),
-                symbol = symbol,
-                issuedTimestamp = now,
-                state = decision.state.name,
-                confidence = decision.confidence,
-                source = decision.source.name,
-                referenceHorizon = DECISION_REFERENCE_HORIZON,
-                reason = decision.reason
-            )
+        val record = DecisionRecordEntity(
+            id = DecisionAuditJoin.idOf(symbol, now),
+            symbol = symbol,
+            issuedTimestamp = now,
+            state = decision.state.name,
+            confidence = decision.confidence,
+            source = decision.source.name,
+            referenceHorizon = DECISION_REFERENCE_HORIZON,
+            reason = decision.reason
         )
+        // C-29: a cycle that repeats the verdict at the top of the log is the same verdict.
+        // Without this, a quiet coin's NEUTRAL answer wrote a row every ten seconds and the
+        // ledger became a column of identical rows seconds apart.
+        val previous = runCatching { database.decisionRecordDao().latest(symbol) }.getOrNull()
+        if (!DecisionCoalescing.supersedes(previous, record)) {
+            database.decisionRecordDao().insert(record)
+        }
         database.decisionRecordDao().prune(symbol, DECISION_RECORD_RETENTION)
 
         // §74: the screeners and models need more history than the 40-bar forecast

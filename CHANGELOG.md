@@ -7,6 +7,44 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.5] — 2026-11-23
+
+The gate is readable, the selected coin stays selected, and the chrome stops eating the screen.
+
+### Added
+
+- **The layered gate is visible where the limits are read (C-58).** The Guardrails tab now
+  renders PRICE, PATTERN and STRATEGY for the coin under inspection: `ACTIVE` with the
+  horizons behind it once proven, `BLOCKING` for a price layer that withholds boards, and
+  `INACTIVE` with the sample still missing for an additive layer. The projection is pure
+  (`LayeredEvidencePresentation`) and pinned by its own scenario.
+- **One row per verdict, not one per cycle (C-29).** A cycle that reproduces the newest
+  verdict for the same coin, reference horizon and answering router no longer writes a
+  second `decision_records` row (`DecisionCoalescing`), so a quiet coin's repeated
+  `NEUTRAL` stops filling the trade-decisions ledger every few seconds; a changed state,
+  horizon, router or coin is still recorded and nothing already written is rewritten.
+
+### Changed
+
+- **`CampaignReadinessGate` reads the confirmed 85% floor.** The unused helper carried its
+  own strict `> 90%` default, so the same coin could be judged ready by one gate and
+  unready by the other; it now uses `SignalEvidence.MIN_HIT_RATE_PCT` inclusively (85.0%
+  passes, 84.99% does not) and its guard spec exercises the shipped class.
+- **The inspected coin survives a universe refresh (C-22/C-58).** A refresh may update the
+  selected coin's data but never replace it, and a coin withheld from the campaign universe
+  because its price layer is unproven stays inspectable instead of being silently swapped
+  for the list's first row.
+- **Compact chrome.** The shared header is trimmed (smaller identity block, 6dp vertical
+  padding, tighter rows) and the shared bottom bar draws its own 48dp row over the
+  navigation-bar inset instead of the Material bar's 80dp plus item padding.
+
+### Fixed
+
+- **Oversized prices.** The Dashboard price and the Level Map `Last:` label printed the raw
+  `Double` (`$72.92500000000001`, wrapping onto a second line); both now use the shared
+  five-decimal formatter.
+- **The emulated billing dialog no longer quotes a `$49.99` price it does not charge.**
+
 ## [19.4] — 2026-11-23
 
 One header, one navigation bar, and a ProactiveMS gate that layers its evidence.

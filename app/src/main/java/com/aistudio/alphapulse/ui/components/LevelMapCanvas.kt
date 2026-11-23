@@ -72,7 +72,7 @@ fun LevelMapCanvas(
             )
             Spacer(modifier = Modifier.weight(1f))
             Text(
-                text = "Last: $$currentPrice",
+                text = "Last: ${com.aistudio.alphapulse.core.Formatters.formatPrice5Dec(currentPrice)}",
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
