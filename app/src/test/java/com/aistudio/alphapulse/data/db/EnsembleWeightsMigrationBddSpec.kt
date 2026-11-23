@@ -71,8 +71,8 @@ class EnsembleWeightsMigrationBddSpec {
         val raw = upgraded.openHelper.writableDatabase
 
         assertEquals(
-            "Room must record the upgraded version (12 adds the §74 signal ledger)",
-            12,
+            "Room must record the upgraded version (13 adds the §74 grading columns)",
+            13,
             queryInt(raw, "PRAGMA user_version")
         )
         assertEquals(
@@ -162,6 +162,8 @@ class EnsembleWeightsMigrationBddSpec {
         raw.execSQL("DROP TABLE `proactive_audit_ledger`")
         raw.execSQL("DROP TABLE `pattern_ledger`")
         raw.execSQL("DROP TABLE `pattern_sgd_weights`")
+        // C-56/C-59: the §74 strategy ledger is newer than version 5 as well.
+        raw.execSQL("DROP TABLE IF EXISTS `${StrategySignalSchema.TABLE}`")
         raw.execSQL("PRAGMA user_version = 5")
 
         assertEquals(5, queryInt(raw, "PRAGMA user_version"))
@@ -192,7 +194,8 @@ class EnsembleWeightsMigrationBddSpec {
                 // steps.
                 AppDatabase.MIGRATION_9_10,
                 AppDatabase.MIGRATION_10_11,
-                AppDatabase.MIGRATION_11_12
+                AppDatabase.MIGRATION_11_12,
+                AppDatabase.MIGRATION_12_13
             )
         }
         return builder.build()
