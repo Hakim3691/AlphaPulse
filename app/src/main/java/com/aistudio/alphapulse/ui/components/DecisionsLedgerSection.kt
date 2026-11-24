@@ -9,6 +9,11 @@ package com.aistudio.alphapulse.ui.components
  * still pending by default (settled rows are one toggle away), and each row reports
  * whether the call it made was right once the forecast it drove settled.
  *
+ * One row is one verdict (C-29), so the newest pending verdict per horizon is the call
+ * *still in force*: it says `IN FORCE` and shows the time its state began ("since
+ * HH:mm:ss") instead of the same `PENDING` a stale row used to show. Any older row is
+ * history — the verdict it recorded was already replaced.
+ *
  * Spec Ref: §21 Prediction Audit Ledger, §29 Quantitative Decision Router, C-10, C-29
  */
 
@@ -32,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import com.aistudio.alphapulse.core.Formatters
 import com.aistudio.alphapulse.data.repository.DecisionLedgerRow
 import com.aistudio.alphapulse.domain.presentation.TokenizedReason
+import com.aistudio.alphapulse.domain.presentation.VerdictInForce
 import com.aistudio.alphapulse.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -62,12 +68,13 @@ fun DecisionsLedgerSection(
     val hits = filteredRows.count { it.hit == true }
     val graded = filteredRows.count { it.settled }
     val visible = filteredRows.filter { showSettled || !it.settled }
+    // The one verdict per horizon that is still the live call; every other row is the
+    // history of a call that was replaced or already graded.
+    val inForceIds = VerdictInForce.ids(filteredRows)
 
     val summary = if (graded == 0) "Graded: -- (0/0)" else
         "Graded: ${String.format(Locale.US, "%.1f", hits * 100.0 / graded)}% ($hits/$graded)"
     val summaryColor = if (graded == 0) TextTertiary else BrandBullish
-
-    val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
 
     Column(
         modifier = Modifier
@@ -140,6 +147,7 @@ fun DecisionsLedgerSection(
         // together on one shared state (C-35).
         val tableRows = visible.map { row ->
             val record = row.record
+            val inForce = record.id in inForceIds
             LedgerPinnedRow(
                 pinned = {
                     Text(
@@ -208,7 +216,7 @@ fun DecisionsLedgerSection(
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                text = DecisionLogText.resultLabel(row),
+                                text = DecisionLogText.resultLabel(row, inForce),
                                 color = when (row.hit) {
                                     true -> BrandBullish
                                     false -> BrandBearish
@@ -228,12 +236,12 @@ fun DecisionsLedgerSection(
                         modifier = Modifier.width(90.dp)
                     )
                     Text(
-                        text = timeFmt.format(Date(record.issuedTimestamp)),
-                        color = TextTertiary,
+                        text = DecisionLogText.timeLabel(record.issuedTimestamp, inForce),
+                        color = if (inForce) BrandAmber else TextTertiary,
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         textAlign = TextAlign.End,
-                        modifier = Modifier.width(70.dp)
+                        modifier = Modifier.width(96.dp)
                     )
                 }
             )
@@ -252,7 +260,7 @@ fun DecisionsLedgerSection(
                 LedgerHeaderCell("REASON", 240.dp)
                 LedgerHeaderCell("RESULT", 90.dp)
                 LedgerHeaderCell("REALIZED", 90.dp)
-                LedgerHeaderCell("TIME", 70.dp)
+                LedgerHeaderCell("TIME", 96.dp)
             },
             rows = tableRows,
             emptyContent = {
@@ -289,18 +297,30 @@ internal object DecisionLogText {
 
     fun answeredOnDevice(source: String): Boolean = source == "NEEDLE3"
 
-    /** The graded outcome: the verdict's own hit, or the fact that it is still waiting. */
-    fun resultLabel(row: DecisionLedgerRow): String = when (row.hit) {
+    /** What a still-pending verdict reads: live, or waiting behind a newer call. */
+    const val IN_FORCE: String = "IN FORCE"
+
+    /**
+     * The graded outcome: the verdict's own hit, the fact that it is the call still in
+     * force, or the fact that it is still waiting.
+     */
+    fun resultLabel(row: DecisionLedgerRow, inForce: Boolean = false): String = when (row.hit) {
         true -> "✓ HIT"
         false -> "✗ MISS"
-        null -> "PENDING"
+        null -> if (inForce) IN_FORCE else "PENDING"
     }
 
     fun countLabel(total: Int, shown: Int): String =
         if (total == 0) "NONE RECORDED" else "NEWEST $shown OF $total"
 
-    fun timeLabel(issuedTimestamp: Long): String =
-        SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(issuedTimestamp))
+    /**
+     * A coalesced verdict keeps the timestamp its state began, so the live row says
+     * `since` rather than presenting that start time as the row's age.
+     */
+    fun timeLabel(issuedTimestamp: Long, inForce: Boolean = false): String {
+        val clock = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(issuedTimestamp))
+        return if (inForce) "since $clock" else clock
+    }
 
     fun reasonLabel(reason: String): String =
         reason.takeIf { it.isNotBlank() } ?: "No reason recorded."

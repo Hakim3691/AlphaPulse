@@ -7,6 +7,25 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.6] — 2026-11-24
+
+One verdict per row now says so: the trade-decisions ledger marks the call that is still in force.
+
+### Added
+
+- **`IN FORCE` and `since HH:mm:ss` on the live verdict (C-29).** Coalescing made the ledger
+  hold one row per verdict instead of one per ten-second cycle, but a lone `NEUTRAL` still
+  looked exactly like a stale row. The newest pending verdict per coin and reference horizon
+  now reads `IN FORCE`, and its time cell reads `since HH:mm:ss` — the moment its state
+  began — while every older row keeps `PENDING` and its plain clock. The projection is pure
+  (`VerdictInForce`): once the newest verdict for a horizon is graded, nothing on that
+  horizon claims to be in force, and a coin never inherits another coin's marker.
+
+### Changed
+
+- **The decisions ledger's `TIME` column is wide enough for the marker** (70dp → 96dp, header
+  and cells together) so `since 14:03:22` cannot clip at 360dp.
+
 ## [19.5] — 2026-11-23
 
 The gate is readable, the selected coin stays selected, and the chrome stops eating the screen.

@@ -40,11 +40,13 @@ class DecisionsLedgerSectionBddSpec {
         hit: Boolean? = null,
         realizedPrice: Double? = null,
         realizedPct: Double? = null,
-        horizon: String = "15m"
+        horizon: String = "15m",
+        symbol: String = "BTCUSDT",
+        issued: Long = this.issued
     ) = DecisionLedgerRow(
         record = DecisionRecordEntity(
             id = id,
-            symbol = "BTCUSDT",
+            symbol = symbol,
             issuedTimestamp = issued,
             state = state,
             confidence = 0.81,
@@ -137,4 +139,49 @@ class DecisionsLedgerSectionBddSpec {
         assertEquals("✓ HIT", DecisionLogText.resultLabel(row(id = "b", settled = true, hit = true)))
         assertEquals("✗ MISS", DecisionLogText.resultLabel(row(id = "c", settled = true, hit = false)))
     }
+
+    @Test
+    fun `given a coalesced neutral when the ledger renders then it reads as one verdict still in force`() {
+        compose.setContent {
+            DecisionsLedgerSection(rows = listOf(row(id = "a", state = "NEUTRAL")), onClearClick = {})
+        }
+
+        compose.onAllNodesWithText(DecisionLogText.IN_FORCE).assertCountEquals(1)
+        compose.onAllNodesWithText("PENDING").assertCountEquals(0)
+        compose.onAllNodesWithText(sinceLabel(issued)).assertCountEquals(1)
+    }
+
+    @Test
+    fun `given two pending verdicts on one horizon when the ledger renders then only the newest is in force`() {
+        val older = row(id = "a", state = "LONG", issued = issued - 600_000)
+        val newest = row(id = "b", state = "NEUTRAL", issued = issued)
+
+        compose.setContent { DecisionsLedgerSection(rows = listOf(newest, older), onClearClick = {}) }
+
+        compose.onAllNodesWithText(DecisionLogText.IN_FORCE).assertCountEquals(1)
+        compose.onAllNodesWithText("PENDING").assertCountEquals(1)
+        compose.onAllNodesWithText("since ", substring = true).assertCountEquals(1)
+    }
+
+    @Test
+    fun `given the newest verdict is graded when the ledger renders then nothing claims to be in force`() {
+        compose.setContent {
+            DecisionsLedgerSection(
+                rows = listOf(
+                    row(id = "a", settled = true, hit = true, realizedPrice = 100.5, realizedPct = 0.5),
+                    row(id = "b", state = "NEUTRAL", issued = issued - 600_000)
+                ),
+                onClearClick = {},
+                initiallyShowSettled = true
+            )
+        }
+
+        compose.onAllNodesWithText(DecisionLogText.IN_FORCE).assertCountEquals(0)
+        compose.onAllNodesWithText("since ", substring = true).assertCountEquals(0)
+    }
+
+    /** The clock string the live row appends to `since`, in this JVM's default zone. */
+    private fun sinceLabel(timestamp: Long): String =
+        "since " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date(timestamp))
 }
