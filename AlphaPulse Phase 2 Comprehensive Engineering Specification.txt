@@ -1,0 +1,476 @@
+ALPHAPULSE PHASE 2 COMPREHENSIVE SPECIFICATION
+Harmonized Proactive Market Structure Automation Dynamic Module (:proactive_trader) - Android Edition
+PHASE 2 FULL SPEC PLAY FEATURE DELIVERY DYNAMIC MODULE
+DOCUMENT STRUCTURE & MASTER INDEX
+OFFLINE-NATIVE ANDROID | PRODUCTION GRADE
+
+This document translates the complete 21-page Proactive Market Structure specification into an execution-grade blueprint harmonized with the AlphaPulse architecture.
+
+MASTER INDEX:
+Part I-II: Foundations & Data
+  • §1 System Philosophy & ML Betting
+  • §2 Zero-Cloud Mobile Architecture
+  • §3 API Security & Session Lifecycle
+  • §4 Data Sourcing & Feeds
+  • §5 Throttling & Delta Streams
+  • §6 AlphaPulse Screener Harmonization
+
+Part III-V: Models & Campaigns
+  • §7 Core Objects & Responsibilities
+  • §8 Level Detection & Path Modeling
+  • §9 Regime & Multi-Horizon Bias
+  • §10 Coin-Specific Calibration
+  • §11 Mathematical Scoring Formulas
+  • §12 Complete Campaign Taxonomy
+  • §13 The 6 Proactive Templates
+  • §14 Tactical vs Strategic Bias
+  • §15 Asymmetric Bias Score Model
+  • §16 Asymmetric Board Templates
+  • §17 Capital Routing Board Policy
+
+Part VI-VIII: Execution & Native Ops
+  • §18 Campaign Generation Algorithm
+  • §19 Campaign State Machine
+  • §20 Sizing & Exposure Constraints
+  • §21 Entry Ladder Math & Spacing
+  • §22 Proactive Order Architecture
+  • §23 Conflict Resolution Engine
+  • §24 Manual Operator Overrides
+  • §25 Monitoring Loop & Telemetry
+  • §26 Board Survival Monitoring
+  • §27 Invalidation Scoring Engine
+  • §28 Side-Agnostic Invalidation
+  • §29 Capital Routing Rules
+  • §30 Mobile Schemas & Contracts
+  • §31 Event APIs & Loop Pseudocode
+  • §32 Unified Operator Dashboard
+  • §33 Operational Safety Guardrails
+  • §34 Configuration Parameters
+  • §35 Engineering Build Checklist
+  • §36 Production Execution Modes
+  • §37 Simulation & Failure Modes
+  • §38 Pre-Launch Criteria & Summary
+  • Appendix A: Campaign Object Schema
+  • Appendix B: Android Native Tech Stack
+
+
+================================================================================
+PART I: SYSTEM OVERVIEW & MOBILE PHILOSOPHY
+================================================================================
+
+1. SYSTEM PURPOSE & HARMONIZED PHILOSOPHY
+The Phase 2 engine delivers automated, cancellation-first market structure trade execution natively on Android hardware. Instead of lagging the market by waiting for reactive indicator confirmations, the system pre-stages limit entry ladders into mapped structural zones ahead of the move, aggressively cancelling resting exposure the instant real-time evidence invalidates the initial premise.
+
+Harmonized Philosophy: While the standalone prototype treated prediction as a non-goal, Phase 2 fundamentally merges prediction and execution: the engine auto-trades by betting directly on AlphaPulse's multi-horizon machine learning forecasts and edge-orchestration decisions. When the AlphaPulse ensemble (Chronos-Bolt TSFM, Transformer-Hybrid, Momentum-LSTM, and Alpha-Residual) projects directional trajectory and passes confidence gates (Needle 3 quorum >= 0.70), the proactive engine translates those projections into staged campaign ladders.
+
+Plugin Boundary Mandate: The execution engine is isolated inside the proactive_trader dynamic feature module. Core AlphaPulse screens (Decision Header, Diagnostics, Forecasts, and Ledgers) remain pristine and unmodified. The auto-trading engine surfaces exclusively through dedicated bottom tabs (Screener, Dashboard, Telemetry, Guardrails, Replay, Audit).
+
+• Markets Move to Efficient Pain: Price routinely visits trapped stop pools and over-leveraged liquidity before confirming macro trend continuation. Pre-staging at structural edges captures superior entries before the public chases.
+• Lighter Size with Ruthless Invalidation: Because proactive entries precede classic confirmation, initial order sizing is light, and cancellation predicates are immediate and non-negotiable.
+• Disciplined Inaction: The engine's primary edge is knowing when to stay flat. If AlphaPulse outputs NEUTRAL due to model disagreement, low confidence, or strategy board conflicts, all automated staging is strictly suppressed.
+
+2. ZERO-CLOUD MOBILE ARCHITECTURE & HARDWARE GUARDRAILS
+All execution, L2 order book processing, feature engineering, and cancellation loops execute locally on the client's physical Android device. Zero user data, credentials, or telemetry route through intermediary cloud servers.
+
+• Pre-Flight Hardware Diagnostics: Before arming the staging engine, the app executes silent pre-flight checks: (a) Ping latency to Binance Public API (< 250ms required), (b) Available device RAM (> 1.2GB free to parse raw L2 delta snapshots), and (c) Device thermal and battery state.
+• Throttling Intercept: If the Android OS reports PowerManager.isPowerSaveMode() or thermal status THERMAL_STATUS_SEVERE, the app suppresses all active order staging and alerts the operator that cancellation loops cannot be guaranteed at low latency.
+
+3. API KEY SECURITY, TRADE SESSIONS & ORPHANED ORDERS
+To eliminate persistent credential exposure, Phase 2 enforces a strict foreground session execution lifecycle:
+
+• RAM-Only Isolation: The user manually inputs Binance Futures API key and secret. Credentials are encrypted in memory via the Android Keystore Trusted Execution Environment (TEE) and are never written to disk, SQLite, or SharedPreferences.
+• Foreground Session Boundary: Order management and cancellation loops operate exclusively while the application remains the active foreground task.
+• Orphaned Order OS Intercept: Because Android suspends background processes, minimizing the app or locking the screen would render resting limit orders unmanaged. If the user attempts to swipe the app away while orders are resting, the system raises an immediate full-screen modal alert:
+  "WARNING: Minimizing AlphaPulse will immediately disconnect your execution session and terminate the cancellation engine. Your resting limit orders on Binance will NOT be managed. Acknowledge manual exchange responsibility to proceed."
+• Suspension Memory Wipe: Upon explicit user acknowledgment to suspend, the engine instantly wipes all active API keys, session tokens, and resting order references from volatile memory.
+
+
+================================================================================
+PART II: DATA ARCHITECTURE & SCREENING HARMONIZATION
+================================================================================
+
+4. MANDATORY DATA SOURCING & FEEDS
+The engine ingests normalized multi-timeframe market feeds. To guarantee execution integrity, both spot and perpetual futures feeds must be actively verified:
+
+| Input Feed           | Granularity              | Source                | Priority   | Operational Role in Engine                                                                           |
+|----------------------|--------------------------|-----------------------|------------|------------------------------------------------------------------------------------------------------|
+| Candles (Klines)     | 1m, 5m, 15m, 1h, 4h, 1d  | Binance Futures API   | Mandatory  | Level clustering, ATR calculation, regime classification, and acceptance/rejection detection.       |
+| Order Book (L2)      | Top-20 Bids / Asks       | Binance Futures API   | Mandatory  | Live liquidity queues, book imbalance, spread expansion, and passive entry queue position.          |
+| Trades Stream        | Tick / Aggregated        | Binance Futures API   | Mandatory  | Taker buy/sell volume, aggressive flow pressure, and micro-absorption quality.                       |
+| Funding & OI         | Snapshots (1-5s)         | CoinGlass / Binance   | Mandatory  | Quantifies crowding elasticity, short/long squeeze risk, and positioning health.                     |
+| Basis & Liquidations | Per-minute bursts        | Binance / CoinGlass   | Mandatory  | Spot vs perp premium tracking and liquidation flush detection.                                       |
+
+5. DATA THROTTLING & STALE DATA EXPIRATION
+To prevent battery depletion and CPU overheating during extended market monitoring, the engine implements tiered data consumption:
+
+• Heavy Context Data (HTF): Macro 4h and 1d historical candles and structural levels are cached locally in Room SQLite. The engine checks timestamps on launch; if cached context is < 4 hours old, fresh downloads are skipped.
+• Dormant Polling Mode: While the trader browses the screener or telemetry screens without active campaigns, lightweight REST polling occurs on a 15-30s interval.
+• Active Delta Streaming: The instant a campaign transitions to STAGED or ACTIVE, the engine opens dedicated OkHttp WebSockets streaming real-time trades and L2 deltas for the active symbol. Sockets close immediately when the campaign terminates or cancels.
+
+6. UNIVERSE DISCOVERY & ALPHAPULSE GATING HARMONIZATION
+The standalone specification outlined a detached mid-cap screener. Phase 2 unifies this by directly coupling with AlphaPulse's native Institutional Quality Filters and Screened Universe:
+
+• Institutional Gating Filter: A coin is strictly rejected from automated campaign generation unless it passes all active AlphaPulse quality checks:
+  (1) 24h Volume >= $5M (typical mid-cap range $5M - $750M)
+  (2) Taker Buy Ratio > 50% (or < 50% for short regimes)
+  (3) Volume > Open Interest (1.33x flow confluence)
+  (4) Range Displacement >= 40%
+• Microstructure Context Integration: AlphaPulse's L2 Book Imbalance, Volume Profile Point of Control (POC), and Markov Regime (e.g., State 1: Momentum Burst) are fed directly into the path modeling and ladder spacing algorithms.
+
+
+================================================================================
+PART III: MARKET ANALYSIS & MODELING
+================================================================================
+
+7. CORE OBJECTS & TIMEFRAME RESPONSIBILITIES
+The data model processes market structure across three distinct operational layers:
+
+| Object Name     | Domain Responsibilities            | Primary Data Fields                                                   |
+|-----------------|-----------------------------------|-----------------------------------------------------------------------|
+| MarketProfile   | Multi-timeframe structural state  | asset_id, regime, atr_5m, trend_score, damage_score, crowding_score   |
+| LevelMap        | Support/Resistance inventory      | level_id, zone_type (Support/Supply/Reclaim), price_low, price_high, freshness_score |
+| PathModel       | Liquidity magnet route ranking    | candidate_path, pain_score, efficiency_score, cleanliness_score, probability |
+| Campaign        | Executable proactive hypothesis   | campaign_id, family, entry_ladder [], hard_stop, targets [], invalidation_score |
+| EvidenceFrame   | Real-time evidence telemetry      | oi_delta_1h, funding_rate, taker_imbalance, basis_spread, acceptance_flag |
+| RiskEnvelope    | Account risk boundary bounds      | account_equity, max_symbol_risk_pct, daily_loss_realized, active_concurrency |
+
+Timeframe Hierarchy:
+• Higher Timeframe (HTF: 4h, 1d): Governs macro regime, structural damage, and major supply/demand zones.
+• Medium Timeframe (MTF: 15m, 1h): Identifies decision bands, VWAP deviations, and reclaim zones.
+• Lower Timeframe (LTF: 1m, 5m): Handles ladder execution, absorption quality, and cancellation triggers.
+
+8. LEVEL DETECTION & PATH MODELING
+Levels are identified mathematically without manual operator plotting:
+• Reaction Zone Clustering: Swing highs and lows are identified over adaptive lookbacks (20 to 100 bars) and clustered into price bands rather than arbitrary ticks. Zone width is computed as:
+    Zone Width = max(MinTickSpan, ATR_5m * 0.25)
+• Volume Profile & Wick Extremes: High Volume Nodes (HVN) from AlphaPulse's Volume Profile POC and sharp wick rejections are marked as primary reaction zones.
+• Freshness Decay: Each level maintains a freshness score decayed by the number of subsequent touches and elapsed time. Levels touched > 3 times without rejection are marked exhausted.
+• Path Ranking (Pain Path): The engine projects the most efficient, painful trajectory to liquidity:
+    Pain Score = 0.40 * Crowding + 0.35 * StopPoolDensity + 0.25 * TrappedPositioning
+
+9. REGIME CLASSIFICATION & MULTI-HORIZON BIAS
+Every asset is classified into one of four mutually exclusive structural regimes:
+• Bullish Continuation: Higher-high/higher-low structure intact; pullbacks absorbed above MTF VWAP; upside paths favored.
+• Bearish Continuation: Lower-high/lower-low structure; rallies rejected at broken shelves; downside paths favored.
+• Transition: Market stretched following a violent liquidation cascade or failed impulse; both long and short tactical plays are viable but size is discounted.
+• Balance: Price oscillating within a defined range or value area; edge mean-reversion favored; breakout campaigns disabled.
+
+10. COIN-SPECIFIC CALIBRATION PARAMETERS
+Assets exhibit distinct volatility and liquidity profiles. The engine calibrates execution parameters per coin:
+• Impulse & Wick Asymmetry: Measures ratio of upward vs downward velocity and probe-rejection frequency.
+• Crowding Elasticity: Measures sensitivity of price to extreme funding rates (e.g., negative funding on SOL triggers aggressive short-squeezes faster than on large caps).
+• Execution Slippage Profile: Dynamic spread buffer added to stop orders based on rolling 1-hour realized slippage.
+
+11. GENERIC FORMULAS & SCORING IMPLEMENTATIONS
+The mathematical models powering the background Kotlin execution loop:
+
+| Target Metric         | Mathematical Formula                                                       | Operational Range       |
+|-----------------------|----------------------------------------------------------------------------|-------------------------|
+| Zone Center & Bounds  | Center = (Zone_High + Zone_Low) / 2                                        | Dynamic tick price      |
+|                       | Width = max(MinSpan, ATR_5m * 0.25)                                        |                         |
+| Distance to Level     | Distance = |Price_Last - Center| / ATR_5m                                  | Normalized in ATR units |
+| Campaign Priority     | Priority = Path_Prob * Cleanliness * Level_Conf * AlphaPulse_Score         | Scale: 0 to 150 points  |
+| Invalidation Score    | Score = Sum(Weight_i * EvidenceSignal_i)                                   | Scale: 0 to 100 points  |
+
+
+================================================================================
+PART IV: CAMPAIGN LIBRARY & ASYMMETRIC STAGING
+================================================================================
+
+12. COMPLETE CAMPAIGN TAXONOMY & MIRROR RULES
+The execution library consists of six symmetrical campaign templates divided into three functional pairs:
+• Structural Rotation Pair (Support Long & Resistance Short): Staged at outer boundaries expecting mean reversion back to pivot or balance midpoint unless accepted through.
+• Structural Reclaim Pair (Reclaim Long & Reclaim Fade Short): Staged around recently broken levels to capture failed breakdowns (springs) or weak retests of damaged structure.
+• Continuation Pair (Breakout Long & Breakdown Short): Staged with stop-market/stop-limit triggers to capture high-velocity expansion once a boundary is permanently lost.
+
+13. THE SIX CORE CAMPAIGN TEMPLATES
+
+| Template                      | Entry Staging Location                                             | Hard Invalidation Trigger                                                | Primary Take-Profit Ladder                                              |
+|-------------------------------|-------------------------------------------------------------------|--------------------------------------------------------------------------|-------------------------------------------------------------------------|
+| 1. Proactive Support Long     | Resting bid ladder across HTF support shelf and LTF pivot overlap. | 1m close accepted below shelf edge; or red candles with rising OI.       | TP1: Pivot mid; TP2: Opposite balance edge; TP3: HTF Supply.            |
+| 2. Proactive Resistance Short | Resting offer ladder at lower edge, midpoint, and overshoot of supply zone. | Acceptance above upper resistance edge; persistent taker buying.         | TP1: Local VWAP; TP2: Support shelf; TP3: Liquidity pool below.         |
+| 3. Proactive Reclaim Long     | Staged bids just below and directly on the reclaimed structural threshold. | Failure to hold above reclaim level; level flipping back to resistance.   | TP1: Intraday high; TP2: Major overhead supply; TP3: Runner.            |
+| 4. Proactive Reclaim Fade Short| Staged offers across damaged HTF level during weak relief rallies.| Price accepts and builds volume above broken level with positive OI.    | TP1: Relief low; TP2: Range low; TP3: Structural breakdown extension.   |
+| 5. Proactive Breakout Long    | Stop-limit entries above resistance threshold plus shallow retest bids. | Immediate false-break wick; price drops back inside range on high volume.| TP1: Squeeze extension band; TP2: HTF liquidity pool.                   |
+| 6. Proactive Breakdown Short   | Stop-market entries below support floor plus retest offers at broken shelf. | Swift bounce reclaiming broken support; aggressive absorption by buyers. | TP1: Downside liquidity pocket; TP2: Major macro demand floor.          |
+
+14. TACTICAL VERSUS STRATEGIC BIAS SEPARATION
+To prevent cognitive errors when higher-timeframe trends conflict with short-term opportunities, the engine maintains two independent bias states:
+• Tactical Bias (5m, 15m, 1h): Governed by short-term AlphaPulse target forecasts, near-price L2 order book imbalance, and 15m candle closes. Dictates immediate ladder placement and fast scalp targets.
+• Strategic Bias (4h, 1d): Governed by macro regime classification, major supply/demand zones, and multi-day funding extremes. Dictates max notional limits and persistence windows.
+• Split Management: When tactical bias is Bullish but strategic bias is Bearish, the engine stages a fast-monetizing Support Long with tighter invalidation while reserving larger capital for a staged Resistance Short overhead.
+
+15. ASYMMETRIC BIAS SCORE MODEL
+Directional asymmetry is computed on a scale from -100 (Maximum Bearish Asymmetry) to +100 (Maximum Bullish Asymmetry), driven by AlphaPulse's ML ensemble outputs:
+
+| Score Band    | Structural Interpretation       | Automated Execution Policy                                                                                                   |
+|---------------|---------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| +60 to +100   | Strong Bullish Asymmetry        | Promote Long campaigns to Primary (60% risk budget); Shorts restricted to Defensive hedges only (10% max risk); relax Long cancellation sensitivity by 10%. |
+| +20 to +59    | Moderate Bullish Asymmetry      | Both sides permitted; allocate 65% of available symbol risk to Long boards, 35% to Short boards; standard cancellation sensitivity. |
+| -19 to +19    | Balanced / Neutral Regime       | Symmetric execution; Support Long and Resistance Short staged at outer range boundaries with equal 50/50 sizing and elevated cancel sensitivity. |
+| -20 to -59    | Moderate Bearish Asymmetry      | Both sides permitted; allocate 65% of available symbol risk to Short boards, 35% to Long boards.                             |
+| -60 to -100   | Strong Bearish Asymmetry        | Promote Short campaigns to Primary (60% risk budget); Longs restricted to Defensive hedges only; relax Short cancellation sensitivity by 10%. |
+
+16. PROACTIVE ASYMMETRIC BOARD TEMPLATES
+Templates dynamically assign board roles based on the active bias score:
+• Template A (Bull-Dominant): Primary boards = Support Long, Reclaim Long. Bids staged tightly near current price; larger runner allocations preserved on fills.
+• Template B (Bear-Dominant): Primary boards = Resistance Short, Breakdown Short. Offers staged aggressively close to market price; quick invalidation on upside wicks.
+• Template C (Tactical Bull / Strategic Bear): Primary tactical = Support Long (tight TP at VWAP); Primary strategic = Resistance Short (pre-staged in HTF supply).
+• Template D (Tactical Bear / Strategic Bull): Primary tactical = Resistance Short (tight scalp); Primary strategic = Support Long (staged at major demand floor).
+
+17. BOARD ALLOCATION & CAPITAL ROUTING POLICY
+
+| Board Role | Operational Purpose                                           | Symbol Risk Budget | Cancellation Sensitivity                   |
+|------------|---------------------------------------------------------------|--------------------|--------------------------------------------|
+| Primary    | Core expression of dominant AlphaPulse ML bias                | 40% to 60%         | Low (allows normal micro-wicks)            |
+| Secondary  | Alternative structural path or high-conviction retest         | 20% to 35%         | Moderate                                   |
+| Defensive  | Counter-trend mean reversion at structural exhaustion         | 5% to 20%          | High (cancels on first adverse tick)       |
+| Disabled   | Campaigns contradicting regime rules                          | 0% (No staging)    | Immediate suppression                      |
+
+
+================================================================================
+PART V: EXECUTION, SIZING & CONFLICT RESOLUTION
+================================================================================
+
+18. CAMPAIGN GENERATION ALGORITHM
+1. Fetch Snapshot: Ingest current candle arrays, L2 book imbalance, and AlphaPulse Trade Decision.
+2. Screening Gate: Verify asset passes Institutional Quality Filters ($5M+ Vol, Vol > OI, Taker Buy > 50%). If failed, abort.
+3. Compute Levels & Paths: Generate LevelMap; score candidate routes via Pain Score and Path Probability.
+4. Select Boards: Assign 1 Primary and up to 2 Secondary campaign families based on active Asymmetric Bias.
+5. Construct Order Plan: Calculate slice prices, quantities, stop price, and target ladders.
+6. Risk Check: Ensure combined symbol risk does not breach account risk envelope.
+7. Stage Orders: Route passive limit orders to Binance Futures API; arm WebSocket monitoring loop.
+
+19. CAMPAIGN STATE MACHINE
+Campaigns transition through an explicit, auditable finite state machine (FSM):
+
+| State             | State Meaning                                       | Valid Transition Triggers                                                                    |
+|-------------------|-----------------------------------------------------|----------------------------------------------------------------------------------------------|
+| PLANNED           | Hypothesis computed; orders not yet placed.         | Pre-flight checks pass -> STAGED. Risk breach -> SUPPRESSED.                                 |
+| STAGED            | Limit orders resting on exchange book.              | First slice fills -> PARTIALLY_FILLED. Invalidation >= 45 -> CANCELLED.                       |
+| PARTIALLY_FILLED  | 1 or more slices filled; ladder partially active.   | All slices fill -> ACTIVE. Soft invalidation -> REDUCED. Hard stop -> COMPLETED.             |
+| ACTIVE            | Position fully established; exit management live.   | TP1 reached -> REDUCED. Hard Invalidation >= 70 -> CANCELLED (Flattened).                    |
+| REDUCED           | Partial profit monetized or de-risked.              | Final TP hit -> COMPLETED. Trailing stop hit -> COMPLETED.                                   |
+| CANCELLED         | Orders revoked before or during execution.          | Terminal state. Cooldown timer activated.                                                    |
+| COMPLETED         | Campaign successfully closed with net PnL.          | Terminal state. Logs committed to Room SQLite audit ledger.                                  |
+| SUPPRESSED        | Intentional lockout due to risk or guardrails.      | Safety kill-switch or spread blowout reset -> PLANNED.                                       |
+
+20. POSITION SIZING & EXPOSURE MODEL
+Risk containment is enforced mathematically across all campaigns:
+• Account Risk Per Campaign: Standard allocation is 0.25% to 0.75% of total account equity, scaled dynamically by ATR volatility bucket.
+• First Slice Sizing: Initial entry slice represents 20% to 35% of total campaign size; subsequent slices scale up deeper into structural support.
+• Symbol Concurrency Cap: Maximum of 2 concurrent active campaigns per asset, with only 1 primary directional campaign consuming meaningful margin.
+• Daily Loss Circuit Breaker: If realized daily losses exceed 1.5R to 2.0R, the engine suspends all automated staging until the next daily session UTC rollover.
+
+21. ENTRY LADDER CONSTRUCTION & SPACING MATH
+Entry orders are never concentrated at a single price print; they are distributed across structural zones:
+• Slice Count: 3 to 4 limit slices for passive support/resistance campaigns; 2 stop-limit slices for momentum breakout campaigns.
+• Ladder Spacing: Slices are distributed exponentially or equally across the zone width (Width = 0.25 * ATR_5m), placing larger notional closer to the far structural boundary to maximize risk/reward.
+• Notional Fill Cap: Cumulative notional across all slices is hard-capped before placement to prevent overfill during sudden liquidity vacuums.
+
+22. PROACTIVE ORDER ARCHITECTURE
+A campaign board is never considered active unless all four structural components are simultaneously staged:
+(1) Entry Ladder
+(2) Structural Hard Stop
+(3) Take-Profit Ladder
+(4) Machine-readable Invalidation Predicates
+
+23. CONFLICT RESOLUTION & NET EXPOSURE
+• Single-Owner Rule: Only one directional campaign family may own the exact same price zone at full size.
+• Opposing Coexistence: If a tactical Long and strategic Short coexist on the same ticker, the engine verifies that the net stop-out loss of both positions simultaneously failing does not exceed the symbol risk envelope.
+
+24. MANUAL OPERATOR OVERRIDES & GUARDRAIL ALERTS
+The operator retains absolute supervisory control. An operator can adjust ladder prices, cancel individual slices, or override sizes directly from the mobile UI. If a manual parameter violates structural safety (e.g., moving a stop outside the invalidation zone), the UI does not block the user but renders a persistent high-contrast amber warning documenting the exact calculated variance.
+
+
+================================================================================
+PART VI: MONITORING & INVALIDATION (EXIT)
+================================================================================
+
+25. HIGH-FREQUENCY MONITORING LOOP & CADENCE
+The monitoring loop runs continuously across four synchronized time cadences:
+
+| Cadence Interval        | Monitored Metrics                                                     | Triggered Engine Action                                            |
+|-------------------------|-----------------------------------------------------------------------|--------------------------------------------------------------------|
+| Per Tick / Delta        | Top-of-book spread, bid/ask queue depth, fill notifications.          | Partial fill reconciliation; spread blowout safety triggers.       |
+| Every 1 to 5 Seconds    | Open Interest delta, basis spread, funding rate, liquidation bursts.  | Recomputes real-time Invalidation Score (0-100).                   |
+| Closed 1m Candle        | Micro-absorption, wick rejection quality, 1m close vs zone bounds.    | Evaluates Acceptance Invalidation; triggers order cancellations.   |
+| Closed 5m/15m Candle    | Structural zone integrity, ATR refresh, AlphaPulse forecast update.   | Board promotion, secondary campaign suppression, or cooldown.      |
+
+26. PROACTIVE BOARD MONITORING LOGIC
+Unlike reactive systems that wait for a price stop, the monitoring engine continually asks: "Does this staged board still deserve to live?"
+• Board Degradation: If open interest spikes against the position while price stagnates, evidence degradation triggers proactive cancellation before fills occur.
+• Board Promotion: If an initial primary path stalls but a secondary path gains volume confirmation, the secondary board is promoted to primary with increased size allocation.
+
+27. INVALIDATION & CANCELLATION ENGINE
+The cancellation engine is the primary risk shield of the proactive architecture:
+
+| Evidence Family              | Invalidation Trigger Condition                                        | Automatic Action Taken                                      |
+|------------------------------|-----------------------------------------------------------------------|-------------------------------------------------------------|
+| Structure Failure            | 1m candle closes beyond the far boundary of support shelf or supply. | Cancel remaining unfilled limits; flatten active position.  |
+| Positioning Contradiction    | Price declines while Open Interest rises aggressively (shorts pile).  | Escalate Invalidation Score (+35 pts); tighten stop.        |
+| Flow Absorption Failure      | Zero aggressive taker buy response upon price touching entry shelf.   | Cancel passive resting bids; quarantine symbol for 15m.     |
+| Liquidity Disorder           | Bid/ask spread widens beyond 0.12% or exchange API latency > 500ms.   | Instantly suppress all new order staging; set watch-only.   |
+
+Scoring Thresholds: Invalidation scores range from 0 to 100.
+• At Score >= 45 (Soft Invalidation): All unfilled resting limit orders are cancelled, and open exposure is reduced by 50%.
+• At Score >= 70 (Hard Invalidation): The campaign is completely flattened at market price, and an automated 30-minute re-entry lockout cooldown is enforced.
+
+28. SIDE-AGNOSTIC INVALIDATION MODEL
+Invalidation logic applies identical rigorous semantics across both long and short campaigns:
+(1) Acceptance (price building value past zone edge)
+(2) Rejection Failure (lack of counter-impulse)
+(3) Trap Failure (reclaim instantly reverses)
+(4) Flow Contradiction (OI and taker volume disconfirming thesis)
+(5) Time Stagnation (price remaining dead inside zone beyond time budget)
+
+29. CAPITAL ROUTING RULES FOR LIVE BOARDS
+Margin is reserved by board role prior to execution. If overall crypto market correlation exceeds 0.85 (e.g., Bitcoin violent flash dump), defensive and secondary campaigns are automatically cancelled first, concentrating remaining liquidity exclusively on the highest-ranking primary campaign.
+
+
+================================================================================
+PART VII: MOBILE ENGINEERING & OPERATIONS
+================================================================================
+
+30. ANDROID ENGINEERING ARCHITECTURE & ROOM SCHEMAS
+The system is organized into modular decoupled layers inside the proactive_trader dynamic feature module:
+• Market Data Adapter: Normalizes Binance futures WebSocket events and REST candle histories into unified event streams.
+• Feature & Structure Engine: Calculates ATR, book imbalance, level clustering, and decay states in memory.
+• Campaign & Execution Engine: Manages the FSM lifecycle, places signed orders via Binance REST API, and reconciles fills.
+• Risk Engine: Enforces daily loss stops, max concurrent exposure limits, and kill-switch lockdowns.
+
+31. EVENT-DRIVEN ARCHITECTURE & AUTOMATION LOOP PSEUDOCODE
+```kotlin
+// Automated Foreground Execution Loop (Kotlin Coroutines)
+fun startProactiveExecutionLoop(asset: String) = viewModelScope.launch(Dispatchers.Default) {
+    marketData.streamActiveDeltas(asset).collect { delta ->
+        val snapshot = marketData.getNormalizedSnapshot(asset)
+        val profile = featureEngine.computeProfile(snapshot)
+        val levels = structureEngine.updateLevelMap(profile)
+        
+        // Harmonized: Ingest AlphaPulse ML Forecast & Decision
+        val alphaDecision = alphaPulseContract.getLatestDecision(asset)
+        if (alphaDecision.state == DecisionState.NEUTRAL) {
+            executionEngine.suppressStaging(asset, reason = "AlphaPulse Neutral Quorum")
+            return@collect
+        }
+        
+        val paths = pathEngine.rankPainPaths(profile, levels, alphaDecision)
+        val campaigns = campaignEngine.planCampaigns(profile, levels, paths, alphaDecision)
+        val vettedCampaigns = riskEngine.filterAndResize(campaigns, accountEnvelope)
+        executionEngine.reconcileAndStage(vettedCampaigns)
+        
+        // Continuous Real-Time Invalidation Check
+        val evidence = featureEngine.buildEvidenceFrame(snapshot, levels)
+        val invScore = invalidationEngine.calculateScore(evidence, activeCampaign)
+        
+        if (invScore >= 70) {
+            executionEngine.flattenCampaign(activeCampaign, reason = "Hard Invalidation Breach")
+            riskEngine.activateCooldown(asset, durationMinutes = 30)
+        } else if (invScore >= 45) {
+            executionEngine.cancelUnfilledSlices(activeCampaign, reason = "Soft Invalidation Warning")
+        }
+        
+        telemetry.publish(asset, profile, activeCampaign, invScore)
+    }
+}
+```
+
+32. UNIFIED MOBILE OPERATOR DASHBOARD (DEDICATED TABS)
+When the dynamic feature module is entitled, the application reveals six dedicated bottom navigation tabs:
+• Screener: Displays screened mid-caps passing Institutional Quality Filters with live Pain Scores.
+• Dashboard: Displays the Interactive Level Map, active entry ladders, real-time Invalidation Score gauge (0-100), and Primary campaign card.
+• Telemetry: Real-time L2 order book imbalance, 1h OI delta, funding rate changes, basis spreads, and live taker buy/sell ratios.
+• Guardrails: Current worst-case stop-out risk (R-units), daily realized PnL, margin utilization, and latency monitor.
+• Replay: Historical backtest replay engine allowing offline verification of entry ladders and cancellation triggers.
+• Audit: Timestamped Room SQLite ledger logging every limit placement, slice fill, cancellation reason code, and manual override.
+
+33. OPERATIONAL GUARDRAILS & SAFETY CIRCUIT BREAKERS
+
+| Safety Guardrail        | Breach Detection Condition                              | Autonomous Protective Action                                      |
+|-------------------------|---------------------------------------------------------|-------------------------------------------------------------------|
+| Feed Staleness          | No WebSocket tick received for > 5 seconds.             | Cancel resting limit orders; set engine to SUPPRESSED.            |
+| Spread Blowout          | Top bid/ask spread exceeds 0.12%.                       | Disable passive limit staging; wait for book stabilization.       |
+| Exchange Latency Spike  | Binance REST round-trip ping > 500ms.                   | Pause new campaign staging; alert operator with audio beep.       |
+| Daily Loss Limit        | Realized intraday loss hits 2.0R ($200 on $10k equity). | Hard kill-switch. Lock staging until 00:00 UTC rollover.          |
+| Position Desync         | Exchange reported position differs from local FSM state.| Immediate market flatten on desynced asset; quarantine symbol.    |
+
+34. PRODUCTION CONFIGURATION CHECKLIST
+Default parameters embedded in the production configuration asset:
+• min_quote_volume_24h: $5,000,000 USD
+• max_spread_pct: 0.10%
+• atr_zone_multiplier: 0.25
+• level_touch_decay_rate: 0.20 per touch
+• soft_invalidation_threshold: 45 pts
+• hard_invalidation_threshold: 70 pts
+• account_risk_per_campaign: 0.50%
+• max_daily_loss_r: 2.0R
+• reentry_cooldown_duration: 30 minutes
+• ws_ping_timeout: 5000 ms
+
+35. ENGINEERING BUILD & IMPLEMENTATION CHECKLIST
+1. Implement :core_contract interfaces shared between base app and dynamic module.
+2. Configure Gradle dynamic delivery block for :proactive_trader.
+3. Build Binance Futures REST & WebSocket client with automatic exponential backoff.
+4. Implement Level Detection and reaction clustering algorithms in pure Kotlin.
+5. Implement Campaign FSM with atomic SQLite state transitions in Room.
+6. Implement Invalidation Engine with side-agnostic scoring signals.
+7. Implement 6 dedicated UI screens (Jetpack Compose / Navigation Component).
+8. Implement Simulated Billing and Dynamic Split-Install test providers for local testing.
+9. Execute historical replay test harness across 6 months of tick data.
+10. Conduct live paper trading verification against active Binance feeds.
+
+
+================================================================================
+PART VIII: PRODUCTION DEPLOYMENT & VALIDATION
+================================================================================
+
+36. USER-SELECTABLE PRODUCTION EXECUTION MODES
+The plugin provides four operational modes accessible via the top-bar dropdown:
+• 1. Shadow Mode: Generates campaign plans, evaluates invalidation logic, and logs actions to the audit ledger without placing orders. Ideal for signal verification.
+• 2. Paper Mode: Simulates order execution, queue position, slippage, and fills locally against live Binance WebSocket feeds with simulated paper balances.
+• 3. Capped Live Mode: Places real orders on Binance Futures, strictly capped at minimum exchange notional ($5-$10 per trade) for real-world API validation.
+• 4. Scaled Live Mode: Unlocks full configured position sizing and multi-campaign exposure according to the account risk envelope.
+
+37. SIMULATION, REPLAY & FAILURE MODES
+Prior to enabling live modes, the engine must be validated across critical failure modes:
+• False Asymmetry: Stale funding data causing the engine to overweight long campaigns into trapped positioning. Remediated by requiring live timestamp verification on all external feeds.
+• Regime Lag: Market transitions from Balance to Bearish Breakdown while a Support Long remains staged. Remediated by immediate acceptance invalidation on 1m candle closes below support.
+• Rearm Churn: Staging and cancelling repeatedly around noisy levels. Remediated by enforcing mandatory 30-minute cooldown periods following any invalidation exit.
+
+38. PRE-LAUNCH ACCEPTANCE CRITERIA & FINAL SUMMARY
+Mandatory Production Gate: Before Scaled Live Mode is unlocked for a user:
+(1) System must complete 100 consecutive paper trades with zero unhandled exceptions.
+(2) Cancellation latency must benchmark under 180ms on local Wi-Fi / LTE.
+(3) Foreground session intercept must successfully warn and clean RAM on 100% of tested app-minimize events.
+(4) The base AlphaPulse forecasting views must demonstrate zero visual or performance degradation.
+
+
+================================================================================
+APPENDICES
+================================================================================
+
+APPENDIX A: DEFAULT FIELD LIST FOR A CAMPAIGN OBJECT
+
+| Field Name          | Data Type           | Engineering Specification & Constraints                          |
+|---------------------|---------------------|------------------------------------------------------------------|
+| campaign_id         | String (UUID)       | Globally unique, immutable identifier generated at planning.     |
+| asset_symbol        | String              | Canonical ticker symbol (e.g., "SOLUSDT").                       |
+| family              | Enum                | One of SUPPORT_LONG, RESISTANCE_SHORT, RECLAIM_LONG, etc.        |
+| created_timestamp   | Long (UTC ms)       | Precise millisecond epoch timestamp when hypothesis was created. |
+| entry_ladder        | List<OrderSlice>    | Array of slices, each containing price, qty, order_type, status. |
+| hard_stop_price     | Double              | Disaster stop price resting directly on exchange servers.        |
+| targets             | List<TargetSlice>   | Take-profit prices, quantities, and trailing activation thresholds. |
+| size_budget_usd     | Double              | Maximum total notional allocated from symbol risk envelope.      |
+| invalidation_score  | Int (0-100)         | Dynamic real-time score computed by the monitoring loop.         |
+| status              | Enum                | PLANNED, STAGED, PARTIALLY_FILLED, ACTIVE, REDUCED, CANCELLED, COMPLETED. |
+
+APPENDIX B: ANDROID NATIVE TECHNOLOGY STACK (OFFLINE-NATIVE)
+The entire Phase 2 execution architecture is built natively for Android, adhering to the Zero-Cloud offline execution mandate:
+
+• Core Language & Asynchronous Runtime: Kotlin 2.0+ with Kotlin Coroutines for non-blocking background orchestration, and Kotlin Flow & StateFlow for reactive event streams.
+• Local AI & Feature Acceleration: TensorFlow Lite (TFLite) utilizing the Android Neural Networks API (NNAPI) Delegate or GPU delegate to execute level pathing and evidence scoring directly on the mobile hardware NPU.
+• Local Persistence & Audit Storage: Room Persistence Library (SQLite abstraction) managing relational storage for historical market profiles, cached HTF support/resistance levels, and the immutable order audit trail.
+• Security & Key Isolation: Android Keystore System utilizing Hardware-backed Keystore / StrongBox Keymaster to isolate transient Binance API keys within the device's Trusted Execution Environment (TEE).
+• Network & WebSocket Layer: OkHttp 4.12+ with custom connection-pooling, proactive ping-pong heartbeats, and zero-allocation JSON streaming parsers.
+• User Interface: Jetpack Compose providing reactive, dark-mode-optimized UI rendering across the six dedicated auto-trader tabs.
