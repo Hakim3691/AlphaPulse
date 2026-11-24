@@ -13,6 +13,8 @@ import com.aistudio.alphapulse.data.model.AuditLogEntry
 import com.aistudio.alphapulse.data.model.ExecutionMode
 import com.aistudio.alphapulse.domain.campaign.EvidenceLayer
 import com.aistudio.alphapulse.domain.campaign.LayeredEvidenceGate
+import com.aistudio.alphapulse.domain.campaign.ThresholdConfig
+import com.aistudio.alphapulse.domain.campaign.ThresholdField
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -154,6 +156,73 @@ class ProactiveTabsBddSpec {
             compose.onAllNodesWithText("no graded strategy calls", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
         )
+    }
+
+    @Test
+    fun `given configured thresholds when Guardrails renders then each layer prints the limit the gate is applying`() {
+        // C-60: the tab must show the configured values, not a hardcoded 85%, and the
+        // effective line this coin is judged by.
+        render(
+            state = MainUiState(
+                layeredEvidence = LayeredEvidenceGate.assess(
+                    price = listOf(LayeredEvidenceGate.price("15m", settled = 20, hits = 17))
+                ),
+                thresholds = ThresholdConfig(
+                    floorPct = 92.0,
+                    minSettledFast = 25,
+                    minSettledSlow = 7,
+                    minSettledStrategy = 30
+                )
+            ),
+            workspace = workspace.copy(activeTab = ProactiveMsTab.GUARDRAILS)
+        )
+
+        compose.onNodeWithTag(ProactiveWorkspaceTags.THRESHOLDS).assertExists()
+        EvidenceLayer.entries.forEach { layer ->
+            compose.onNodeWithTag(ProactiveWorkspaceTags.thresholdLayer(layer.name)).assertExists()
+        }
+        compose.onAllNodesWithText("92.0% · 25 fast / 7 slow", substring = true)
+            .assertCountEquals(2) // PRICE and PATTERN share the tiered sample floors
+        compose.onAllNodesWithText("92.0% · 30 graded", substring = true).assertCountEquals(1)
+        assertTrue(
+            "The inspected coin's own rate must be printed against the configured floor",
+            compose.onAllNodesWithText("15m 85.0% of 20 settled", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        )
+        assertTrue(
+            "The shipped reset target must be visible",
+            compose.onAllNodesWithText("RESET TO 85.0% / 20", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        )
+    }
+
+    @Test
+    fun `given a refused threshold change when Guardrails renders then the reason is shown and the steppers still reach the service`() {
+        var resetPressed = false
+        val steps = mutableListOf<Pair<ThresholdField, Int>>()
+        render(
+            state = MainUiState(
+                thresholdRejection = "PRICE_UNPROVEN_BUT_UNBLOCKING(min settled 0)"
+            ),
+            workspace = workspace.copy(activeTab = ProactiveMsTab.GUARDRAILS),
+            actions = ProactiveWorkspaceActions(
+                onSelectTab = {},
+                onAdjustThreshold = { field, delta -> steps += field to delta },
+                onResetThresholds = { resetPressed = true }
+            )
+        )
+
+        compose.onNodeWithTag(ProactiveWorkspaceTags.THRESHOLDS_REJECTION).assertExists()
+        compose.onAllNodesWithText("PRICE_UNPROVEN_BUT_UNBLOCKING", substring = true)
+            .assertCountEquals(1)
+
+        compose.onNodeWithTag(
+            ProactiveWorkspaceTags.thresholdStep(ThresholdField.SLOW_SAMPLES, -1)
+        ).performClick()
+        compose.onNodeWithTag(ProactiveWorkspaceTags.THRESHOLDS_RESET).performClick()
+
+        assertEquals(listOf(ThresholdField.SLOW_SAMPLES to -1), steps)
+        assertTrue("The reset affordance must reach the service", resetPressed)
     }
 
     @Test

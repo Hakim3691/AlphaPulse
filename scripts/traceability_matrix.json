@@ -4,14 +4,14 @@
     "requirement": "Product Vision",
     "status": "Done",
     "implementation": "`MainActivity.kt`, `README.md`",
-    "tests": "\u2014 (documentation)"
+    "tests": "— (documentation)"
   },
   {
     "section": 2,
     "requirement": "Core Design Principle",
     "status": "Done",
     "implementation": "`domain/data/ExchangeDataProvider.kt`, `data/network/*Provider.kt`",
-    "tests": "`domain/\u2026` contract tests"
+    "tests": "`domain/…` contract tests"
   },
   {
     "section": 3,
@@ -39,7 +39,7 @@
     "requirement": "Real-Time Market Data Engine",
     "status": "Done",
     "implementation": "`data/network/BinanceWebSocketManager.kt`",
-    "tests": "`data/\u2026` websocket tests"
+    "tests": "`data/…` websocket tests"
   },
   {
     "section": 7,
@@ -120,7 +120,7 @@
   },
   {
     "section": 18,
-    "requirement": "Probabilistic Forecasting (P10\u2013P90)",
+    "requirement": "Probabilistic Forecasting (P10–P90)",
     "status": "Done",
     "implementation": "`domain/ml/TsfmPrediction.kt`, `domain/ml/KronosProvider.kt`",
     "tests": "`domain/ml/TsfmProviderTest.kt`"
@@ -143,7 +143,7 @@
     "section": 21,
     "requirement": "Prediction Audit Ledger",
     "status": "Done",
-    "implementation": "`ui/components/PredictionLedgerSection.kt`, `data/db/Daos.kt`, `data/db/Entities.kt` (`DecisionRecordEntity`: one routed verdict per evaluated snapshot \u2014 state, calibrated confidence, answering router, reference horizon and the router's own reason \u2014 pruned to the newest 10,000 per symbol), `data/repository/DecisionAuditJoin.kt` (attributes each prediction row to the verdict recorded in its cycle, in CSV, JSON and the line-per-record export), `ui/components/DecisionHistorySection.kt` (the newest verdicts for the selected asset, read from the same table the export joins on)",
+    "implementation": "`ui/components/PredictionLedgerSection.kt`, `data/db/Daos.kt`, `data/db/Entities.kt` (`DecisionRecordEntity`: one routed verdict per evaluated snapshot — state, calibrated confidence, answering router, reference horizon and the router's own reason — pruned to the newest 10,000 per symbol), `data/repository/DecisionAuditJoin.kt` (attributes each prediction row to the verdict recorded in its cycle, in CSV, JSON and the line-per-record export), `ui/components/DecisionHistorySection.kt` (the newest verdicts for the selected asset, read from the same table the export joins on)",
     "tests": "`data/db/DecisionRecordDaoBddSpec.kt`, `data/repository/DecisionAuditJoinBddSpec.kt`, `ui/components/DecisionHistorySectionBddSpec.kt`, `domain/presentation/VerdictInForceBddSpec.kt`, `data/repository/AssetEvaluationDecisionRecordBddSpec.kt` (drives `executeAssetEvaluation` itself over in-memory Room with exchange fixtures: one row per cycle, the UI's history Flow emitting it unaided, no cross-symbol leakage, append-not-replace; and for the checkpoint-backed producer, a scripted engine's route and calibrated score are persisted as `NEEDLE3` with that score, reach the history Flow unchanged, and two symbols under mixed provenance keep their own source)"
   },
   {
@@ -151,7 +151,7 @@
     "requirement": "Per-Horizon Readiness",
     "status": "Done",
     "implementation": "`data/repository/AlphaPulseRepository.kt`, `ui/viewmodel/AlphaPulseViewModel.kt`",
-    "tests": "`ui/\u2026` readiness tests"
+    "tests": "`ui/…` readiness tests"
   },
   {
     "section": 23,
@@ -256,13 +256,13 @@
     "requirement": "Room Database",
     "status": "Done",
     "implementation": "`data/db/AppDatabase.kt` (versioned migrations 3->4, 4->5, 5->6, 6->7), `data/db/Entities.kt`, `data/db/Daos.kt`",
-    "tests": "`data/db/\u2026` DAO tests, `data/db/EnsembleWeightsMigrationBddSpec.kt` (opens a real version-5 file with the production 5->6 migration: table created with the mapped columns and primary key, seeded rows survive, weights round-trip across a reopen), `androidTest/UserJourneyBddTest.kt`"
+    "tests": "`data/db/…` DAO tests, `data/db/EnsembleWeightsMigrationBddSpec.kt` (opens a real version-5 file with the production 5->6 migration: table created with the mapped columns and primary key, seeded rows survive, weights round-trip across a reopen), `androidTest/UserJourneyBddTest.kt`"
   },
   {
     "section": 38,
     "requirement": "Export System (CSV)",
     "status": "Done",
-    "implementation": "`data/repository/AlphaPulseRepository.kt` (`exportAuditLedgerCsv`, `generate4TabUniverseCsv`; the prediction exports carry four decision columns \u2014 state, confidence (`UNSCORED` when uncalibrated), answering router and reason), `data/repository/DecisionAuditJoin.kt`",
+    "implementation": "`data/repository/AlphaPulseRepository.kt` (`exportAuditLedgerCsv`, `generate4TabUniverseCsv`; the prediction exports carry four decision columns — state, confidence (`UNSCORED` when uncalibrated), answering router and reason), `data/repository/DecisionAuditJoin.kt`",
     "tests": "`data/repository/DecisionAuditJoinBddSpec.kt`"
   },
   {
@@ -284,7 +284,7 @@
     "requirement": "Institutional Explanation Panel",
     "status": "Done",
     "implementation": "`ui/components/AccordionsSection.kt`, `domain/quant/QuantNarrativeAgent.kt`",
-    "tests": "`domain/\u2026` narrative tests"
+    "tests": "`domain/…` narrative tests"
   },
   {
     "section": 42,
@@ -375,28 +375,28 @@
     "requirement": "Session Recovery",
     "status": "Done",
     "implementation": "`data/model/ModelManager.kt`, `data/db/Entities.kt` (`SessionEntity`)",
-    "tests": "`model/\u2026` session tests"
+    "tests": "`model/…` session tests"
   },
   {
     "section": 55,
     "requirement": "Model Versioning",
     "status": "Done",
     "implementation": "`data/model/VersionInfo.kt`, `data/db/Entities.kt` (`versionTag`)",
-    "tests": "`data/model/\u2026` tests"
+    "tests": "`data/model/…` tests"
   },
   {
     "section": 56,
     "requirement": "Observability",
     "status": "Done",
     "implementation": "`ui/components/ObservabilityDashboard.kt`",
-    "tests": "`ui/\u2026` observability tests"
+    "tests": "`ui/…` observability tests"
   },
   {
     "section": 57,
     "requirement": "Notifications",
     "status": "Done",
     "implementation": "`service/AlphaPulseService.kt`",
-    "tests": "`model/\u2026` service tests"
+    "tests": "`model/…` service tests"
   },
   {
     "section": 58,
@@ -424,7 +424,7 @@
     "requirement": "Recommended Final Architecture",
     "status": "Done",
     "implementation": "Read this specification end to end; the architecture above is the deliverable.",
-    "tests": "\u2014 (specification)"
+    "tests": "— (specification)"
   },
   {
     "section": 62,
@@ -442,10 +442,10 @@
   },
   {
     "section": 64,
-    "requirement": "Appendix A \u2014 Model Catalogue",
+    "requirement": "Appendix A — Model Catalogue",
     "status": "Done",
-    "implementation": "`domain/ml/\u2026` ONNX providers, `domain/narrative/EdgeSlmNarrativeLayer.kt`, `data/model/ModelArtifactSource.kt`",
-    "tests": "`domain/ml/\u2026` provider tests, `VendoredEngineArtifactBddSpec.kt`"
+    "implementation": "`domain/ml/…` ONNX providers, `domain/narrative/EdgeSlmNarrativeLayer.kt`, `data/model/ModelArtifactSource.kt`",
+    "tests": "`domain/ml/…` provider tests, `VendoredEngineArtifactBddSpec.kt`"
   },
   {
     "section": 65,
@@ -463,10 +463,10 @@
   },
   {
     "section": 67,
-    "requirement": "Readiness Gate (>90% Cone Hit Rate)",
+    "requirement": "Readiness Gate at the configured cone hit-rate floor (85.0% as shipped, inclusive)",
     "status": "Done",
-    "implementation": "`domain/campaign/CampaignReadinessGate.kt` (per-horizon settled cone hit rate >= 85% inclusive, the C-57/C-58 floor; 5/5 LTF+MTF+HTF + 2/2 dock)",
-    "tests": "`domain/campaign/CampaignReadinessGateBddSpec.kt`"
+    "implementation": "`domain/campaign/CampaignReadinessGate.kt` (per-horizon settled cone hit rate at the configured floor, inclusive; 5/5 LTF+MTF+HTF + 2/2 dock), `domain/campaign/ThresholdConfig.kt` (`ThresholdConfig` + the live `Thresholds` holder read by `SignalEvidence`, `LayeredEvidenceGate` and this gate, floor clamped to 50-95%), `data/local/ThresholdStore.kt` (persisted, validated on load), `data/repository/ThresholdConfigService.kt` (each accepted change becomes a `CONFIG_UPDATE` decision row), `domain/campaign/ThresholdPresentation.kt` + `ui/ProactiveWorkspace.kt` (`EVIDENCE THRESHOLDS` card: per-layer floor, sample floors and the inspected coin's effective rates)",
+    "tests": "`domain/campaign/CampaignReadinessGateBddSpec.kt`, `domain/campaign/ThresholdConfigBddSpec.kt` (at-floor passes, below-floor refuses naming the configured value, out-of-range and zero-sample rejections, reset to exactly 85.0/20, one install moves every consumer), `domain/campaign/ThresholdPresentationBddSpec.kt`, `data/repository/ThresholdConfigServiceBddSpec.kt`, `data/local/ThresholdStoreBddSpec.kt`, `ui/ProactiveTabsBddSpec.kt`"
   },
   {
     "section": 68,

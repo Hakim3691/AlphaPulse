@@ -10,6 +10,9 @@ package com.aistudio.alphapulse.domain.campaign
  * cone was excellent but whose pattern classifier had never settled could still arm a
  * board, and a coin whose price cone was poor could hide behind a lucky strategy sample.
  *
+ * The floor each layer must reach is one configured value (C-60), 85.0% as shipped, read
+ * live through [Thresholds] so this file no longer keeps its own copy of it.
+ *
  * ProactiveMS now layers its evidence, because its three inputs arrive at different
  * speeds and mean different things:
  *
@@ -54,22 +57,18 @@ data class LayerEvidence(
     /** Hits as a percentage of settled rows; 0.0 when nothing settled. */
     val hitRatePct: Double get() = if (settled > 0) hits * 100.0 / settled else 0.0
 
-    /** Enough sample and enough correct calls; the same integer boundary as C-57. */
+    /** Enough sample and enough correct calls; the same boundary as C-57/C-60. */
     val qualified: Boolean
-        get() = settled >= minSettled &&
-            hits >= 0 &&
-            hits <= settled &&
-            hits * 100 >= SignalEvidence.MIN_HIT_RATE_PCT.toInt() * settled
+        get() = settled >= minSettled && Thresholds.current().isFloorReached(settled, hits)
 
     /** The one-line account printed on the board, e.g. `1h 50.0% of 2 settled`. */
     fun describe(): String {
         val rate = Math.round(hitRatePct * 10.0) / 10.0
+        val floor = Thresholds.current().describeFloor()
         return when (layer) {
             EvidenceLayer.STRATEGY ->
-                "strategy $rate% of $settled graded (needs " +
-                    "${SignalEvidence.MIN_HIT_RATE_PCT}% of $minSettled)"
-            else -> "$scope $rate% of $settled settled (needs " +
-                "${SignalEvidence.MIN_HIT_RATE_PCT}% of $minSettled)"
+                "strategy $rate% of $settled graded (needs $floor of $minSettled)"
+            else -> "$scope $rate% of $settled settled (needs $floor of $minSettled)"
         }
     }
 }
@@ -160,8 +159,8 @@ object LayeredEvidenceGate {
     fun strategy(symbol: String, settled: Int, hits: Int): LayerEvidence =
         record(EvidenceLayer.STRATEGY, symbol, settled, hits, STRATEGY_MIN_GRADED)
 
-    /** The confirmed sample floor for the pooled strategy layer. */
-    const val STRATEGY_MIN_GRADED = 20
+    /** The configured sample floor for the pooled strategy layer (C-60). */
+    val STRATEGY_MIN_GRADED: Int get() = Thresholds.current().minSettledStrategy
 
     /**
      * The verdict. Price is required for staging; pattern and strategy only ever add.

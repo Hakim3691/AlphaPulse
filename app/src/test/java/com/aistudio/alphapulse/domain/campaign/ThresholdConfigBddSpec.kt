@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * C-59 — one configured floor, read by every consumer that used to carry its own copy.
+ * C-60 — one configured floor, read by every consumer that used to carry its own copy.
  *
  * The 85% floor and the sample floors were constants in `SignalEvidence`, re-read by
  * `LayeredEvidence` and defaulted by `CampaignReadinessGate`. Three copies of one number
@@ -16,7 +16,7 @@ import org.junit.Test
  * none of them drifted. These scenarios pin the single source: install a configuration once
  * and every consumer's verdict moves with it, without a second hardcoded copy anywhere.
  *
- * Spec Ref: Phase 2 C-57/C-58/C-59, §22, §67
+ * Spec Ref: Phase 2 C-57/C-58/C-60, §22, §67
  */
 class ThresholdConfigBddSpec {
 

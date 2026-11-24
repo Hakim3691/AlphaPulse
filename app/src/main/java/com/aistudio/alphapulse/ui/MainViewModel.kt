@@ -50,6 +50,9 @@ import com.aistudio.alphapulse.engine.OrderBookSnapshot
 import com.aistudio.alphapulse.domain.campaign.LayerEvidence
 import com.aistudio.alphapulse.domain.campaign.LayeredEvidenceGate
 import com.aistudio.alphapulse.domain.campaign.LayeredEvidenceVerdict
+import com.aistudio.alphapulse.domain.campaign.ThresholdConfig
+import com.aistudio.alphapulse.domain.campaign.ThresholdField
+import com.aistudio.alphapulse.domain.campaign.Thresholds
 import com.aistudio.alphapulse.domain.strategy.StrategyOutcome
 import com.aistudio.alphapulse.domain.campaign.StagingObservations
 import com.aistudio.alphapulse.domain.campaign.StagingPrecondition
@@ -64,6 +67,8 @@ import com.aistudio.alphapulse.engine.proactive.ProactiveEvidenceRuntime
 import com.aistudio.alphapulse.engine.proactive.ProactiveLoopFrame
 import com.aistudio.alphapulse.engine.proactive.ProactiveLoopResult
 import com.aistudio.alphapulse.data.local.SharedPreferencesPaperTrialEvidenceStore
+import com.aistudio.alphapulse.data.local.SharedPreferencesThresholdStore
+import com.aistudio.alphapulse.data.repository.ThresholdConfigService
 import com.aistudio.alphapulse.engine.ReplayEngine
 import com.aistudio.alphapulse.engine.ReplayEngine.ReplayResult
 import com.aistudio.alphapulse.engine.RiskEngine
@@ -104,6 +109,10 @@ data class MainUiState(
     val liveEvidence: EvidenceFrame? = null,
     /** C-58: the layered PRICE/PATTERN/STRATEGY verdict for the inspected coin. */
     val layeredEvidence: LayeredEvidenceVerdict? = null,
+    /** C-60: the configured floor and sample floors every gate reads. */
+    val thresholds: ThresholdConfig = ThresholdConfig.DEFAULT,
+    /** C-60: why the last attempted threshold change was refused, when it was. */
+    val thresholdRejection: String? = null,
     val orderBook: OrderBookSnapshot? = null,
     val takerTrades: List<TakerTrade> = emptyList(),
     val riskEnvelope: RiskEnvelope = RiskEnvelope(),
@@ -142,6 +151,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
     private val repository = DatabaseRepository(db)
+
+    /**
+     * C-60: the one persisted threshold configuration. Every gate reads it through
+     * [Thresholds], and every change goes through [thresholdService], which validates,
+     * persists, installs and records it in the trade-decisions ledger.
+     */
+    private val thresholdStore = SharedPreferencesThresholdStore(application)
+    private val thresholdService = ThresholdConfigService(
+        store = thresholdStore,
+        writeLedger = { record ->
+            AlphaDatabase.getDatabase(application).decisionRecordDao().insert(record)
+        }
+    )
 
     /** Paper-wallet config persistence (non-sensitive numbers only; Spec §5). */
     private val paperPrefs = application.getSharedPreferences("paper_wallet_prefs", Context.MODE_PRIVATE)
@@ -263,6 +285,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         runCatching {
             CoinGlassClient.apiKey = BuildConfig.COINGLASS_API_KEY
         }
+        // C-60: the configured floor is live before the first evaluation, so no gate ever
+        // runs on a default the operator has already changed in a previous session.
+        Thresholds.install(thresholdStore.load())
+        _uiState.value = _uiState.value.copy(thresholds = Thresholds.current())
         applyStoredPaperWallet()
         loadInitialData()
         observeAuditLogs()
@@ -1421,6 +1447,85 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * C-60: steps one configured threshold through the one audited path.
+     *
+     * The candidate is clamped by the stepper (floor to 50–95%) and then validated: a
+     * candidate that would leave PRICE unproven but unblocking is refused, its reason is
+     * published, and the live configuration is left exactly as it was.
+     */
+    fun adjustThresholds(field: ThresholdField, delta: Int) {
+        viewModelScope.launch { applyThresholdChange(field, delta) }
+    }
+
+    /** C-60: back to exactly 85.0% floor and 20 settled samples. */
+    fun resetThresholds() {
+        viewModelScope.launch { applyThresholdChange(ThresholdField.RESET, 0) }
+    }
+
+    private suspend fun applyThresholdChange(field: ThresholdField, delta: Int) {
+        val current = Thresholds.current()
+        val candidate = when (field) {
+            ThresholdField.FLOOR ->
+                current.copy(floorPct = ThresholdConfig.clampFloor(current.floorPct + delta))
+            ThresholdField.FAST_SAMPLES -> current.copy(
+                minSettledFast = (current.minSettledFast + delta).coerceIn(0, MAX_SAMPLE_FLOOR)
+            )
+            ThresholdField.SLOW_SAMPLES -> current.copy(
+                minSettledSlow = (current.minSettledSlow + delta).coerceIn(0, MAX_SAMPLE_FLOOR)
+            )
+            ThresholdField.STRATEGY_SAMPLES -> current.copy(
+                minSettledStrategy = (current.minSettledStrategy + delta)
+                    .coerceIn(0, MAX_SAMPLE_FLOOR)
+            )
+            ThresholdField.RESET -> ThresholdConfig.DEFAULT
+        }
+        val symbol = _uiState.value.selectedAsset?.symbol ?: THRESHOLDS_SCOPE
+        val outcome = thresholdService.apply(
+            candidate = candidate,
+            field = field,
+            scope = THRESHOLDS_SCOPE,
+            symbol = symbol
+        )
+        _uiState.value = _uiState.value.copy(
+            thresholds = outcome.config,
+            thresholdRejection = outcome.rejection
+        )
+        if (outcome.accepted) rebuildEvidenceForThresholds()
+    }
+
+    /**
+     * C-60: the cached `LayerEvidence` rows carry the sample floor they were built with, so
+     * a configuration change rebuilds them from the same persisted ledgers — no gate ever
+     * reads a limit that is no longer configured.
+     */
+    private suspend fun rebuildEvidenceForThresholds() {
+        val alphaDb = AlphaDatabase.getDatabase(getApplication())
+        val screened = runCatching { alphaDb.screenedCoinDao().getAllScreenedCoins() }
+            .getOrDefault(emptyList())
+        if (screened.isNotEmpty()) {
+            val forecasts = runCatching {
+                screened.associate { row ->
+                    row.symbol to alphaDb.predictionDao().getPredictionsBySymbol(row.symbol)
+                }
+            }.getOrDefault(emptyMap())
+            forecastsBySymbol = forecasts.mapValues { (_, rows) ->
+                universeBridge.forecastTargetsFor(rows)
+            }
+            priceEvidenceBySymbol = forecasts.mapValues { (_, rows) ->
+                universeBridge.evidenceFor(rows).map {
+                    LayeredEvidenceGate.price(it.horizonId, it.settled, it.hits)
+                }
+            }
+        }
+        val symbol = _uiState.value.selectedAsset?.symbol
+        if (symbol != null) refreshAdditiveEvidence(symbol)
+        _uiState.value = _uiState.value.copy(
+            thresholds = Thresholds.current(),
+            layeredEvidence = symbol?.let { layeredEvidenceFor(it) }
+        )
+    }
+
+    /**
      * Recomputes the two additive layers for the inspected coin from the ledgers that
      * already hold their outcomes. Called from the evaluation cycle, never from a
      * render, so a screen recomposition never touches Room.
@@ -1909,6 +2014,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         const val KEY_PAPER_DAILY_LOSS_R = "paper_daily_loss_r"
         /** Minimum persisted 1h candles a scenario replay needs to count as history-driven. */
         const val MIN_SCENARIO_CANDLES = 30
+        /** C-60: the scope every threshold change is recorded under; one global config. */
+        const val THRESHOLDS_SCOPE = "GLOBAL"
+        /** C-60: an upper bound on a stepper, so a held button cannot walk off the table. */
+        const val MAX_SAMPLE_FLOOR = 999
         /** §2/§33 diagnostics cadence: re-sample hardware + feed latency every minute. */
         const val DIAGNOSTICS_RE_SAMPLE_MS = 60_000L
 

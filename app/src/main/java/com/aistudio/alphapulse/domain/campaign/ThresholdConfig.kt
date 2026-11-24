@@ -3,12 +3,31 @@ package com.aistudio.alphapulse.domain.campaign
 import java.util.Locale
 
 /**
- * C-59 — the hit-rate thresholds, configured once and read live by every gate.
+ * C-60 — the hit-rate thresholds, configured once and read live by every gate.
  *
- * Stub phase: the shape exists so the scenarios compile; the behaviour is filled in
- * after the specs have been seen to fail.
+ * Why this exists
+ * ---------------
+ * The 85% floor was a constant in [SignalEvidence], re-read by [LayeredEvidence] and
+ * defaulted again by [CampaignReadinessGate], and the sample floors were constants beside
+ * it. Three copies of one number cannot be tuned: raising the bar for a quiet market meant
+ * editing all three and hoping none drifted. The floor is now one persisted value, and every
+ * consumer reads it through [Thresholds] at evaluation time, so a single change moves every
+ * verdict that depends on it.
  *
- * Spec Ref: Phase 2 C-57/C-58/C-59, §22, §67, §73, §74
+ * The range is bounded on purpose. Below 50% a "proven" cone is a coin flip with a nicer
+ * label; above 95% no horizon can prove itself and the desk is simply locked. The sample
+ * floors are bounded too: a floor of zero would let PRICE — the layer that withholds
+ * boards — qualify on no evidence at all, which is the one configuration this gate must
+ * refuse rather than accept quietly.
+ *
+ * Spec Ref: Phase 2 C-57/C-58/C-60, §22, §67, §73, §74
+ */
+
+/**
+ * @param floorPct the hit rate a layer must reach, in percent
+ * @param minSettledFast settled rows required for the 1m/5m tier
+ * @param minSettledSlow settled rows required for the 15m/30m/1h tier
+ * @param minSettledStrategy graded strategy calls required for the pooled strategy layer
  */
 data class ThresholdConfig(
     val floorPct: Double = DEFAULT_FLOOR_PCT,
@@ -16,16 +35,78 @@ data class ThresholdConfig(
     val minSettledSlow: Int = DEFAULT_SLOW_SAMPLES,
     val minSettledStrategy: Int = DEFAULT_STRATEGY_SAMPLES
 ) {
-    /** This config's minimum settled rows for [horizonId]. */
-    fun minSettledFor(horizonId: String): Int = DEFAULT_SLOW_SAMPLES
+
+    /** This config's minimum settled rows for [horizonId]; unknown horizons get the slow tier. */
+    fun minSettledFor(horizonId: String): Int = when (horizonId.trim().lowercase()) {
+        "1m", "5m" -> minSettledFast
+        "15m", "30m", "1h" -> minSettledSlow
+        else -> minSettledSlow
+    }
 
     /** The floor as the operator reads it, e.g. `85.0%`. */
     fun describeFloor(): String = String.format(Locale.US, "%.1f%%", floorPct)
 
-    /** The minimum settled samples, as the tab prints them for [layer]. */
-    fun describeSamplesFor(layer: EvidenceLayer): String = DEFAULT_STRATEGY_SAMPLES.toString()
+    /** The configured sample floor(s) for [layer], as the Thresholds tab prints them. */
+    fun describeSamplesFor(layer: EvidenceLayer): String = when (layer) {
+        EvidenceLayer.PRICE, EvidenceLayer.PATTERN -> "$minSettledFast fast / $minSettledSlow slow"
+        EvidenceLayer.STRATEGY -> "$minSettledStrategy graded"
+    }
 
-    fun validate(): ThresholdVerdict = ThresholdVerdict(accepted = true)
+    /** The configured value a [field] change moves, as recorded in the audit reason. */
+    fun describeField(field: ThresholdField): String = when (field) {
+        ThresholdField.FLOOR -> describeFloor()
+        ThresholdField.FAST_SAMPLES -> minSettledFast.toString()
+        ThresholdField.SLOW_SAMPLES -> minSettledSlow.toString()
+        ThresholdField.STRATEGY_SAMPLES -> minSettledStrategy.toString()
+        ThresholdField.RESET ->
+            "${describeFloor()} · $minSettledFast fast · $minSettledSlow slow · " +
+                "$minSettledStrategy graded"
+    }
+
+    /**
+     * The inclusive floor comparison, at basis-point precision: 17 of 20 settled is exactly
+     * 85.0% and qualifies, 84.99% does not, and a fractional configured floor is honoured
+     * rather than truncated.
+     */
+    fun isFloorReached(settled: Int, hits: Int): Boolean {
+        if (settled <= 0 || hits < 0 || hits > settled) return false
+        return hits.toLong() * 10_000L >= floorBasisPoints.toLong() * settled.toLong()
+    }
+
+    /** [floorPct] in basis points, so the comparison is integer and exact. */
+    val floorBasisPoints: Int get() = Math.round(floorPct * 100.0).toInt()
+
+    /**
+     * May this configuration become the live gate?
+     *
+     * Refusals name what is wrong rather than clamping silently, because the operator is
+     * entitled to know that the number they entered was not the number in force.
+     */
+    fun validate(): ThresholdVerdict {
+        if (!floorPct.isFinite() || floorPct < MIN_FLOOR_PCT || floorPct > MAX_FLOOR_PCT) {
+            return ThresholdVerdict(
+                accepted = false,
+                rejection = "FLOOR_OUT_OF_RANGE_50_TO_95_PCT(got ${describeFloor()})"
+            )
+        }
+        if (minSettledFast < 1 || minSettledSlow < 1) {
+            // PRICE is the only blocking layer, so a zero sample floor there would let an
+            // unproven price horizon read as proven and unblock staging.
+            return ThresholdVerdict(
+                accepted = false,
+                rejection = "PRICE_UNPROVEN_BUT_UNBLOCKING(min settled " +
+                    "${minOf(minSettledFast, minSettledSlow)}: a price horizon would " +
+                    "qualify with no evidence)"
+            )
+        }
+        if (minSettledStrategy < 1) {
+            return ThresholdVerdict(
+                accepted = false,
+                rejection = "STRATEGY_SAMPLE_FLOOR_BELOW_1(got $minSettledStrategy)"
+            )
+        }
+        return ThresholdVerdict(accepted = true)
+    }
 
     companion object {
         const val MIN_FLOOR_PCT = 50.0
@@ -35,9 +116,12 @@ data class ThresholdConfig(
         const val DEFAULT_SLOW_SAMPLES = 4
         const val DEFAULT_STRATEGY_SAMPLES = 20
 
+        /** The shipped configuration: exactly 85.0% and the documented sample floors. */
         val DEFAULT = ThresholdConfig()
 
-        fun clampFloor(pct: Double): Double = pct
+        /** Keeps an operator's step inside the range; a non-finite input falls back. */
+        fun clampFloor(pct: Double): Double =
+            if (!pct.isFinite()) DEFAULT_FLOOR_PCT else pct.coerceIn(MIN_FLOOR_PCT, MAX_FLOOR_PCT)
     }
 }
 
@@ -48,21 +132,25 @@ data class ThresholdVerdict(val accepted: Boolean, val rejection: String? = null
 enum class ThresholdField { FLOOR, FAST_SAMPLES, SLOW_SAMPLES, STRATEGY_SAMPLES, RESET }
 
 /**
- * The one live configuration. Gates read it on every evaluation; the store installs it at
- * launch and after every accepted change.
+ * The one live configuration.
+ *
+ * Gates read it on every evaluation, and it is installed by the store at launch and by
+ * [com.aistudio.alphapulse.data.repository.ThresholdConfigService] after every accepted
+ * change — nowhere else. Holding it here rather than threading it through every call site
+ * keeps the three consumers from growing optional copies again.
  */
 object Thresholds {
 
     @Volatile
     private var current: ThresholdConfig = ThresholdConfig.DEFAULT
 
-    fun current(): ThresholdConfig = ThresholdConfig.DEFAULT
+    fun current(): ThresholdConfig = current
 
     fun install(config: ThresholdConfig) {
-        // Stub.
+        current = config
     }
 
     fun reset() {
-        // Stub.
+        current = ThresholdConfig.DEFAULT
     }
 }

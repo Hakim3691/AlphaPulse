@@ -7,6 +7,38 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.7] — 2026-11-24
+
+The 85% floor is a setting now, not a constant — and the tab that moves it records every change.
+
+### Added
+
+- **Guardrails → `EVIDENCE THRESHOLDS` (C-60).** The Gate tab now states the limits the gate is
+  applying: per layer, the configured floor and sample floor (20 settled for the 1m/5m tier, 4 for
+  15m/30m/1h, 20 graded calls for STRATEGY) and, beneath each, the inspected coin's own rates
+  against them. The floor steps in a range clamped to 50–95% inclusive, the sample floors step
+  individually, and `RESET TO 85.0% / 20` restores exactly the shipped values.
+- **One persisted configuration.** `ThresholdConfig` is stored through
+  `SharedPreferencesThresholdStore` (validated on load, so a corrupt or out-of-range payload falls
+  back to the shipped defaults), installed into `Thresholds` at launch and after every accepted
+  change. `SignalEvidence.MIN_HIT_RATE_PCT`, `LayeredEvidenceGate`'s price/pattern/strategy record
+  and `CampaignReadinessGate`'s default floor now all read it at evaluation time, so one change
+  moves every gate and no consumer keeps a live hardcoded copy.
+- **Every accepted change is a ledger decision.** `ThresholdConfigService` persists, installs and
+  writes one `CONFIG_UPDATE` row to `decision_records` — the inspected coin, scope `GLOBAL`, the
+  field, the old value, the new value and the timestamp — so the trade-decisions ledger explains
+  why a gate moved. A refused candidate writes nothing at all.
+
+### Changed
+
+- **Refusals name the reason.** A candidate outside 50–95%, or with a zero sample floor, is
+  rejected rather than silently clamped: a zero PRICE floor would leave PRICE unproven but
+  unblocking, so the card prints `PRICE_UNPROVEN_BUT_UNBLOCKING(…)` and keeps the live
+  configuration exactly as it was.
+- **The Gate card's header prints the configured floor**, not a literal `85%`, and the evidence
+  rows are rebuilt from the persisted ledgers after an accepted change so no cached layer keeps
+  judging a coin by the previous sample floor.
+
 ## [19.6] — 2026-11-24
 
 One verdict per row now says so: the trade-decisions ledger marks the call that is still in force.

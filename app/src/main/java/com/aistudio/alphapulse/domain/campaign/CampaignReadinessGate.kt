@@ -17,11 +17,12 @@ package com.aistudio.alphapulse.domain.campaign
  * database and no network, so the dashboard can evaluate it on every tick and the
  * BDD scenarios can pin every boundary without a fixture.
  *
- * The hit-rate floor is the confirmed 85% of [SignalEvidence], compared inclusively: a
- * horizon whose cone hit rate is exactly 85.0% is ready and 84.99% is not. The helper used
- * to carry its own strict `> 90%` default, which meant the same coin could be judged ready
- * by one gate and unready by the other; it now reads the floor from the one constant the
- * layered gate uses (C-57/C-58), so the two can never disagree.
+ * The hit-rate floor is the configured floor of [SignalEvidence] (85.0% as shipped, C-60),
+ * compared inclusively: a horizon whose cone hit rate is exactly the floor is ready and one
+ * basis point below it is not. The helper used to carry its own strict `> 90%` default,
+ * which meant the same coin could be judged ready by one gate and unready by the other; it
+ * now reads the one configuration the layered gate reads (C-57/C-58/C-60), so the two can
+ * never disagree, and the refusal names whichever floor is actually in force.
  *
  * The helper stays a pure pre-check: production staging runs through
  * `ExecutionEngine.gateStaging` with the layered verdict, which holds a board whose PRICE
@@ -107,7 +108,7 @@ data class GateEvaluationResult(
  * Decides whether a planned campaign may be staged.
  *
  * @param minConeHitRateInclusivePct the floor a governing horizon must reach; defaults to
- *   the same 85% the layered gate proves a price horizon against
+ *   the configured floor the layered gate proves a price horizon against
  */
 class CampaignReadinessGate(
     val minConeHitRateInclusivePct: Double = SignalEvidence.MIN_HIT_RATE_PCT

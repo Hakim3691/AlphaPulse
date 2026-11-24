@@ -5,6 +5,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,8 @@ import com.aistudio.alphapulse.data.model.Campaign
 import com.aistudio.alphapulse.data.model.ExecutionMode
 import com.aistudio.alphapulse.engine.SimulationScenario
 import com.aistudio.alphapulse.domain.campaign.LayeredEvidencePresentation
+import com.aistudio.alphapulse.domain.campaign.ThresholdField
+import com.aistudio.alphapulse.domain.campaign.ThresholdPresentation
 import com.aistudio.alphapulse.engine.proactive.ProductionExecutionConfig
 import com.aistudio.alphapulse.ui.components.AlphaPulseHeader
 import com.aistudio.alphapulse.ui.components.ManualOverrideDialog
@@ -91,7 +94,11 @@ data class ProactiveWorkspaceActions(
         { _, _, _, _ -> },
     val onRunDiagnostics: () -> Unit = {},
     val onRunScenario: (SimulationScenario) -> Unit = {},
-    val onRunReplay: (baseline: Boolean) -> Unit = {}
+    val onRunReplay: (baseline: Boolean) -> Unit = {},
+    /** C-60: step one configured threshold by [delta] (ignored for a reset). */
+    val onAdjustThreshold: (ThresholdField, Int) -> Unit = { _, _ -> },
+    /** C-60: return the configuration to exactly 85.0% / 20 settled samples. */
+    val onResetThresholds: () -> Unit = {}
 )
 
 /**
@@ -118,10 +125,22 @@ object ProactiveWorkspaceTags {
     /** C-58: which of PRICE / PATTERN / STRATEGY are live for the inspected coin. */
     const val LAYERED_EVIDENCE = "guardrails_layered_evidence"
 
+    /** C-60: the configured floor and sample floors the gate is applying. */
+    const val THRESHOLDS = "guardrails_thresholds"
+    const val THRESHOLDS_RESET = "guardrails_thresholds_reset"
+    const val THRESHOLDS_REJECTION = "guardrails_thresholds_rejection"
+
     fun tab(tab: ProactiveMsTab): String = "proactive_tab_${tab.name.lowercase()}"
 
     /** One layer's row inside [LAYERED_EVIDENCE]. */
     fun layer(name: String): String = "guardrails_layer_${name.lowercase()}"
+
+    /** One layer's row inside [THRESHOLDS]. */
+    fun thresholdLayer(name: String): String = "guardrails_threshold_${name.lowercase()}"
+
+    /** One configured limit's stepper, addressed by field and direction. */
+    fun thresholdStep(field: ThresholdField, delta: Int): String =
+        "guardrails_threshold_step_${field.name.lowercase()}_${if (delta < 0) "down" else "up"}"
 }
 
 /** The stateless workspace: one tab body, one shared symbol, one bottom bar. */
@@ -309,7 +328,9 @@ fun ProactiveWorkspaceScreen(
             },
             onRunDiagnostics = viewModel::runPreFlightDiagnostics,
             onRunScenario = viewModel::runSimulationScenario,
-            onRunReplay = { baseline -> viewModel.runReplay(baseline) }
+            onRunReplay = { baseline -> viewModel.runReplay(baseline) },
+            onAdjustThreshold = viewModel::adjustThresholds,
+            onResetThresholds = viewModel::resetThresholds
         ),
         alphaPulseTab = { AlphaPulseScreenContent(viewModel = alphaPulseViewModel) }
     )
@@ -356,6 +377,8 @@ private fun ProactiveGuardrailsTab(
         // C-58: the gate's own state, before the limits it acts on: the operator needs to
         // know whether PATTERN and STRATEGY are inputs yet, not only that risk is capped.
         LayeredEvidenceCard(state)
+        // C-60: the limits themselves, configured once and read by every gate.
+        ThresholdsCard(state = state, actions = actions)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -457,7 +480,8 @@ private fun LayeredEvidenceCard(state: MainUiState) {
             )
             Text(
                 text = state.selectedAsset?.let { asset ->
-                    "${asset.symbol.replace("USDT", "")} · 85% floor"
+                    "${asset.symbol.replace("USDT", "")} · " +
+                        "${state.thresholds.describeFloor()} floor"
                 } ?: "no coin selected",
                 color = CyanAccent,
                 fontSize = 9.sp,
@@ -517,6 +541,193 @@ private fun LayeredEvidenceCard(state: MainUiState) {
             fontSize = 8.sp,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.padding(top = 8.dp)
+        )
+    }
+}
+
+/**
+ * C-60: the thresholds the gate is applying, and the values this coin is judged by.
+ *
+ * The card is the only place these numbers can be changed, and every change goes through
+ * `ThresholdConfigService`: persisted, installed for every gate at once, and recorded as a
+ * `CONFIG_UPDATE` row in the trade-decisions ledger. A refused candidate leaves the live
+ * configuration untouched and prints its reason here rather than silently clamping.
+ */
+@Composable
+private fun ThresholdsCard(state: MainUiState, actions: ProactiveWorkspaceActions) {
+    val config = state.thresholds
+    val rows = ThresholdPresentation.rows(config, state.layeredEvidence)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, top = 12.dp)
+            .background(CardBackground, RoundedCornerShape(10.dp))
+            .border(1.dp, CardBorder, RoundedCornerShape(10.dp))
+            .padding(12.dp)
+            .testTag(ProactiveWorkspaceTags.THRESHOLDS)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "EVIDENCE THRESHOLDS",
+                color = SlateTextSecondary,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "${config.describeFloor()} · GLOBAL",
+                color = CyanAccent,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
+        rows.forEach { row ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .testTag(ProactiveWorkspaceTags.thresholdLayer(row.layer.name)),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = row.layer.name,
+                    color = SlateTextPrimary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = "${row.floorLabel} · ${row.samplesLabel}",
+                    color = SlateTextSecondary,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            Text(
+                text = row.effective,
+                color = SlateTextMuted,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+
+        ThresholdStepper("FLOOR", config.describeFloor(), ThresholdField.FLOOR, actions)
+        ThresholdStepper("FAST MIN", config.minSettledFast.toString(), ThresholdField.FAST_SAMPLES, actions)
+        ThresholdStepper("SLOW MIN", config.minSettledSlow.toString(), ThresholdField.SLOW_SAMPLES, actions)
+        ThresholdStepper(
+            "STRATEGY MIN",
+            config.minSettledStrategy.toString(),
+            ThresholdField.STRATEGY_SAMPLES,
+            actions
+        )
+
+        Box(
+            modifier = Modifier
+                .padding(top = 10.dp)
+                .background(BrandDark, RoundedCornerShape(4.dp))
+                .border(1.dp, CardBorder, RoundedCornerShape(4.dp))
+                .clickable { actions.onResetThresholds() }
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .testTag(ProactiveWorkspaceTags.THRESHOLDS_RESET)
+        ) {
+            Text(
+                text = "RESET TO 85.0% / 20",
+                color = SlateTextSecondary,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+
+        if (state.thresholdRejection != null) {
+            Text(
+                text = "Refused: ${state.thresholdRejection}",
+                color = AmberWarning,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(top = 6.dp)
+                    .testTag(ProactiveWorkspaceTags.THRESHOLDS_REJECTION)
+            )
+        }
+
+        Text(
+            text = "Floor is clamped to 50–95%. A zero sample floor would leave PRICE " +
+                "unproven but unblocking, so it is refused, and every accepted change is " +
+                "recorded in the trade-decisions ledger.",
+            color = SlateTextMuted,
+            fontSize = 8.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+    }
+}
+
+/** One configured limit, with its own − and + step. */
+@Composable
+private fun ThresholdStepper(
+    label: String,
+    value: String,
+    field: ThresholdField,
+    actions: ProactiveWorkspaceActions
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            color = SlateTextPrimary,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ThresholdStepButton("−", ProactiveWorkspaceTags.thresholdStep(field, -1)) {
+                actions.onAdjustThreshold(field, -1)
+            }
+            Text(
+                text = value,
+                color = CyanAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+            ThresholdStepButton("+", ProactiveWorkspaceTags.thresholdStep(field, 1)) {
+                actions.onAdjustThreshold(field, 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThresholdStepButton(label: String, tag: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .background(BrandDark, RoundedCornerShape(4.dp))
+            .border(1.dp, CardBorder, RoundedCornerShape(4.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .testTag(tag)
+    ) {
+        Text(
+            text = label,
+            color = SlateTextSecondary,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace
         )
     }
 }

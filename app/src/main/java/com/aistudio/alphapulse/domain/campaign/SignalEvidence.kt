@@ -15,8 +15,9 @@ package com.aistudio.alphapulse.domain.campaign
  * issued and graded in: a coin's 5m cone can be excellent while its 1h cone is worse
  * than a coin flip, and a single blended rate hides exactly that difference.
  *
- * The confirmed threshold is 85%, and the sample floor scales with how often the
- * horizon actually settles:
+ * The threshold is one configured value (C-60): 85.0% as shipped, read live from
+ * [Thresholds] so the Guardrails Thresholds tab moves every consumer at once. The sample
+ * floor is configured too, and scales with how often the horizon actually settles:
  *
  * | horizon | minimum settled predictions |
  * | :------ | :-------------------------- |
@@ -42,23 +43,25 @@ package com.aistudio.alphapulse.domain.campaign
  */
 object SignalEvidence {
 
-    /** A horizon must call its cone at least this often, as a percentage. */
-    const val MIN_HIT_RATE_PCT = 85.0
+    /**
+     * A horizon must call its cone at least this often, as a percentage.
+     *
+     * Read from the one installed configuration on every access (C-60): this used to be a
+     * constant that [com.aistudio.alphapulse.domain.campaign.LayeredEvidence] and
+     * [CampaignReadinessGate] each re-read, so tuning the bar meant editing three files.
+     */
+    val MIN_HIT_RATE_PCT: Double get() = Thresholds.current().floorPct
 
-    /** The fast-tier floor, kept as the documented default for the 1m/5m horizons. */
-    const val MIN_SETTLED = 20
+    /** The shipped fast-tier floor, for documentation only; the live value is configured. */
+    val MIN_SETTLED: Int get() = Thresholds.current().minSettledFast
 
     /**
-     * The smallest sample that counts as evidence for [horizonId].
+     * The smallest sample that counts as evidence for [horizonId], as configured.
      *
      * Unknown horizon ids get the conservative short-horizon floor: an unregistered
      * horizon is not granted a smaller sample merely because nobody classified it.
      */
-    fun minSettledFor(horizonId: String): Int = when (horizonId.trim().lowercase()) {
-        "1m", "5m" -> 20
-        "15m", "30m", "1h" -> 4
-        else -> 4
-    }
+    fun minSettledFor(horizonId: String): Int = Thresholds.current().minSettledFor(horizonId)
 
     /**
      * One horizon's settlement record for one coin.
@@ -87,7 +90,7 @@ object SignalEvidence {
         fun describe(): String {
             val rate = Math.round(hitRatePct * 10.0) / 10.0
             return "$horizonId $rate% of $settled settled " +
-                "(needs $MIN_HIT_RATE_PCT% of $minSettled)"
+                "(needs ${Thresholds.current().describeFloor()} of $minSettled)"
         }
     }
 
@@ -99,9 +102,9 @@ object SignalEvidence {
      * are judged against their own floors rather than one shared sample size.
      */
     fun isQualified(horizonId: String, settled: Int, hits: Int): Boolean {
-        if (settled < minSettledFor(horizonId)) return false
-        if (hits < 0 || hits > settled) return false
-        return hits * 100 >= (MIN_HIT_RATE_PCT.toInt() * settled)
+        val config = Thresholds.current()
+        if (settled < config.minSettledFor(horizonId)) return false
+        return config.isFloorReached(settled, hits)
     }
 
     /** Evidence for one horizon, clamped to a coherent record. */

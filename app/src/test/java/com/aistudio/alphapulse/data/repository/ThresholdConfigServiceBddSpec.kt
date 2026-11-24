@@ -13,13 +13,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * C-59 — a threshold change is one auditable decision, and a refused change is none.
+ * C-60 — a threshold change is one auditable decision, and a refused change is none.
  *
  * The tab could otherwise persist quietly and leave the ledger unable to explain why a
  * coin's gate moved. Every accepted change writes exactly one decision row with its scope,
  * field and both values; a rejected candidate writes nothing and changes nothing.
  *
- * Spec Ref: Phase 2 C-59, C-29, §21
+ * Spec Ref: Phase 2 C-60, C-29, §21
  */
 class ThresholdConfigServiceBddSpec {
 
@@ -113,7 +113,7 @@ class ThresholdConfigServiceBddSpec {
             assertEquals(4, Thresholds.current().minSettledSlow)
             assertEquals(20, Thresholds.current().minSettledStrategy)
             assertEquals(ThresholdConfig.DEFAULT, store.config)
-            assertEquals("RESET", ledger.single().state.let { ThresholdAudit.STATE })
+            assertEquals(ThresholdAudit.STATE, ledger.single().state)
             assertTrue(ledger.single().reason.contains("RESET"))
         }
 
