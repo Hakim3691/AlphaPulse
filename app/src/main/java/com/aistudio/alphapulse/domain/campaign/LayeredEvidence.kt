@@ -52,24 +52,45 @@ data class LayerEvidence(
     val scope: String,
     val settled: Int,
     val hits: Int,
-    val minSettled: Int
+    val minSettled: Int,
+    val measuredAt: Long = 0L,
+    val evaluatedAt: Long = 0L,
+    val windowMinutes: Int = 0
 ) {
     /** Hits as a percentage of settled rows; 0.0 when nothing settled. */
     val hitRatePct: Double get() = if (settled > 0) hits * 100.0 / settled else 0.0
 
-    /** Enough sample and enough correct calls; the same boundary as C-57/C-60. */
-    val qualified: Boolean
-        get() = settled >= minSettled && Thresholds.current().isFloorReached(settled, hits)
+    /** Whether this measurement is still evidence (C-61). */
+    val inForce: InForceStatus
+        get() = EvidenceInForce.status(layer.name, measuredAt, evaluatedAt, windowMinutes)
 
-    /** The one-line account printed on the board, e.g. `1h 50.0% of 2 settled`. */
+    /** Whole minutes since this layer was measured, as the readout prints them. */
+    val ageMinutes: Long get() = inForce.ageMinutes
+
+    /** Why this evidence is stale, or null while it is in force. */
+    val staleReason: String? get() = inForce.reason
+
+    /** Enough sample, enough correct calls, and measured inside its in-force window. */
+    val qualified: Boolean
+        get() = staleReason == null &&
+            settled >= minSettled &&
+            Thresholds.current().isFloorReached(settled, hits)
+
+    /**
+     * The one-line account printed on the board, e.g. `1h 50.0% of 2 settled`.
+     *
+     * Stale evidence keeps its numbers but says why it no longer counts, so a rate is never
+     * printed as if it were in force when the gate has stopped reading it (C-61).
+     */
     fun describe(): String {
         val rate = Math.round(hitRatePct * 10.0) / 10.0
         val floor = Thresholds.current().describeFloor()
-        return when (layer) {
+        val base = when (layer) {
             EvidenceLayer.STRATEGY ->
                 "strategy $rate% of $settled graded (needs $floor of $minSettled)"
             else -> "$scope $rate% of $settled settled (needs $floor of $minSettled)"
         }
+        return if (staleReason == null) base else "$base · $staleReason"
     }
 }
 
@@ -142,12 +163,18 @@ data class LayeredEvidenceVerdict(
 object LayeredEvidenceGate {
 
     /** The PRICE layer for one horizon, at that horizon's own floor. */
-    fun price(horizonId: String, settled: Int, hits: Int): LayerEvidence =
-        record(EvidenceLayer.PRICE, horizonId, settled, hits, SignalEvidence.minSettledFor(horizonId))
+    fun price(horizonId: String, settled: Int, hits: Int, measuredAt: Long = 0L): LayerEvidence =
+        record(
+            EvidenceLayer.PRICE, horizonId, settled, hits,
+            SignalEvidence.minSettledFor(horizonId), measuredAt
+        )
 
     /** The PATTERN layer for one horizon; it uses the same tiered floors as price. */
-    fun pattern(horizonId: String, settled: Int, hits: Int): LayerEvidence =
-        record(EvidenceLayer.PATTERN, horizonId, settled, hits, SignalEvidence.minSettledFor(horizonId))
+    fun pattern(horizonId: String, settled: Int, hits: Int, measuredAt: Long = 0L): LayerEvidence =
+        record(
+            EvidenceLayer.PATTERN, horizonId, settled, hits,
+            SignalEvidence.minSettledFor(horizonId), measuredAt
+        )
 
     /**
      * The STRATEGY layer, pooled across strategies for one coin.
@@ -156,8 +183,8 @@ object LayeredEvidenceGate {
      * sample accumulates quickly, and a coin is not credited for a strategy sample that
      * cannot yet distinguish 85% from a coin flip.
      */
-    fun strategy(symbol: String, settled: Int, hits: Int): LayerEvidence =
-        record(EvidenceLayer.STRATEGY, symbol, settled, hits, STRATEGY_MIN_GRADED)
+    fun strategy(symbol: String, settled: Int, hits: Int, measuredAt: Long = 0L): LayerEvidence =
+        record(EvidenceLayer.STRATEGY, symbol, settled, hits, STRATEGY_MIN_GRADED, measuredAt)
 
     /** The configured sample floor for the pooled strategy layer (C-60). */
     val STRATEGY_MIN_GRADED: Int get() = Thresholds.current().minSettledStrategy
@@ -168,11 +195,24 @@ object LayeredEvidenceGate {
     fun assess(
         price: List<LayerEvidence>,
         pattern: List<LayerEvidence> = emptyList(),
-        strategy: LayerEvidence? = null
+        strategy: LayerEvidence? = null,
+        nowMs: Long = 0L
     ): LayeredEvidenceVerdict = LayeredEvidenceVerdict(
-        price = price.sortedBy { it.scope },
-        pattern = pattern.sortedBy { it.scope },
-        strategy = strategy
+        price = price.map { it.stampedAt(nowMs) }.sortedBy { it.scope },
+        pattern = pattern.map { it.stampedAt(nowMs) }.sortedBy { it.scope },
+        strategy = strategy?.stampedAt(nowMs)
+    )
+
+    /**
+     * Applies the evaluation instant and the live window to a record.
+     *
+     * The window is taken from the configuration installed at assessment time, not from
+     * whatever it was when the row was built, so a configured change moves every verdict
+     * without rebuilding the persisted ledgers.
+     */
+    private fun LayerEvidence.stampedAt(nowMs: Long): LayerEvidence = copy(
+        evaluatedAt = nowMs,
+        windowMinutes = Thresholds.current().inForceWindowMinutes(scope)
     )
 
     private fun record(
@@ -180,7 +220,8 @@ object LayeredEvidenceGate {
         scope: String,
         settled: Int,
         hits: Int,
-        minSettled: Int
+        minSettled: Int,
+        measuredAt: Long
     ): LayerEvidence {
         val safeSettled = settled.coerceAtLeast(0)
         return LayerEvidence(
@@ -188,7 +229,9 @@ object LayeredEvidenceGate {
             scope = scope,
             settled = safeSettled,
             hits = hits.coerceIn(0, safeSettled),
-            minSettled = minSettled
+            minSettled = minSettled,
+            measuredAt = measuredAt,
+            windowMinutes = Thresholds.current().inForceWindowMinutes(scope)
         )
     }
 }

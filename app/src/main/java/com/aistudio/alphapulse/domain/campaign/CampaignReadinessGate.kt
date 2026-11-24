@@ -70,7 +70,9 @@ data class AlphaPulseReadinessTelemetry(
     val readyTsfmDockModels: Int,
     val requiredTsfmDockModels: Int = 2,
     val horizonConeHitRatePct: Map<String, Double>,
-    val componentAvailability: Map<StagingComponent, ComponentAvailability> = emptyMap()
+    val componentAvailability: Map<StagingComponent, ComponentAvailability> = emptyMap(),
+    /** When each governing horizon's cone rate was measured, epoch millis (C-61). */
+    val horizonConeMeasuredAt: Map<String, Long> = emptyMap()
 ) {
     /** The fast structure needs two 1m closes and one 5m close before it is stable. */
     val isLtfReady: Boolean
@@ -139,7 +141,8 @@ class CampaignReadinessGate(
      */
     fun evaluate(
         telemetry: AlphaPulseReadinessTelemetry,
-        governingHorizons: List<String>
+        governingHorizons: List<String>,
+        nowMs: Long = 0L
     ): GateEvaluationResult {
         val reasons = mutableListOf<String>()
         if (!telemetry.isLtfReady) reasons.add("LTF_NOT_READY")
@@ -153,6 +156,19 @@ class CampaignReadinessGate(
         reasons.addAll(telemetry.stagingPrecondition.reasons)
 
         governingHorizons.forEach { horizon ->
+            // C-61: the rate is only evidence while it is inside its in-force window. A
+            // stale measurement is refused by name rather than compared, so a number that
+            // has not been refreshed cannot pass by looking good.
+            val inForce = EvidenceInForce.status(
+                label = "HORIZON_${horizon}_CONE",
+                measuredAt = telemetry.horizonConeMeasuredAt[horizon] ?: 0L,
+                nowMs = nowMs,
+                windowMinutes = Thresholds.current().inForceWindowMinutes(horizon)
+            )
+            if (!inForce.inForce) {
+                reasons.add(inForce.reason!!)
+                return@forEach
+            }
             // A governing horizon with no measurement is not ready: silence from the
             // cone tracker must never be read as a passing hit rate.
             val hitRate = telemetry.horizonConeHitRatePct[horizon] ?: 0.0

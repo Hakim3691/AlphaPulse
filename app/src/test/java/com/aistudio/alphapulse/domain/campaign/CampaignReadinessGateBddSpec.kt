@@ -19,6 +19,9 @@ import org.junit.Test
  */
 class CampaignReadinessGateBddSpec {
 
+    /** Pinned clock: these scenarios measure their evidence now (C-61). */
+    private val NOW = 1_800_000_000_000L
+
     private fun fullyReadyTelemetry(
         hitRates: Map<String, Double>,
         settled1hCount: Int = 2,
@@ -34,6 +37,7 @@ class CampaignReadinessGateBddSpec {
         readyTsfmDockModels = readyTsfmDockModels,
         requiredTsfmDockModels = 2,
         horizonConeHitRatePct = hitRates,
+        horizonConeMeasuredAt = hitRates.keys.associateWith { NOW },
         componentAvailability = mapOf(
             StagingComponent.TSFM to ComponentAvailability.READY,
             StagingComponent.NEURAL_LOB to ComponentAvailability.READY,
@@ -49,7 +53,7 @@ class CampaignReadinessGateBddSpec {
             mapOf("1m" to 94.0, "5m" to 92.5, "15m" to 88.0, "30m" to 85.5, "1h" to 90.4)
         )
 
-        val verdict = gate.evaluate(telemetry, governingHorizons = listOf("15m", "30m", "1h"))
+        val verdict = gate.evaluate(telemetry, governingHorizons = listOf("15m", "30m", "1h"), nowMs = NOW)
 
         assertTrue(verdict.rejectionReasons.toString(), verdict.canArmOrders)
         assertEquals(CampaignLifecycleState.STAGED, verdict.nextState)
@@ -63,7 +67,7 @@ class CampaignReadinessGateBddSpec {
             mapOf("15m" to 85.0, "30m" to 85.0, "1h" to 85.0)
         )
 
-        val verdict = gate.evaluate(telemetry, governingHorizons = listOf("15m", "30m", "1h"))
+        val verdict = gate.evaluate(telemetry, governingHorizons = listOf("15m", "30m", "1h"), nowMs = NOW)
 
         assertTrue(verdict.rejectionReasons.toString(), verdict.canArmOrders)
         assertEquals(CampaignLifecycleState.STAGED, verdict.nextState)
@@ -76,7 +80,7 @@ class CampaignReadinessGateBddSpec {
             mapOf("15m" to 84.99, "30m" to 92.0, "1h" to 91.5)
         )
 
-        val verdict = gate.evaluate(telemetry, governingHorizons = listOf("15m", "30m", "1h"))
+        val verdict = gate.evaluate(telemetry, governingHorizons = listOf("15m", "30m", "1h"), nowMs = NOW)
 
         assertFalse(verdict.canArmOrders)
         assertEquals(CampaignLifecycleState.PLANNED, verdict.nextState)
@@ -93,7 +97,7 @@ class CampaignReadinessGateBddSpec {
         val gate = CampaignReadinessGate()
         val telemetry = fullyReadyTelemetry(mapOf("30m" to 95.0, "1h" to 95.0))
 
-        val verdict = gate.evaluate(telemetry, governingHorizons = listOf("15m"))
+        val verdict = gate.evaluate(telemetry, governingHorizons = listOf("15m"), nowMs = NOW)
 
         assertFalse(verdict.canArmOrders)
         assertTrue(verdict.rejectionReasons.any { it.contains("HORIZON_15m") })
@@ -108,7 +112,7 @@ class CampaignReadinessGateBddSpec {
             readyTsfmDockModels = 1
         )
 
-        val verdict = gate.evaluate(unreadyTelemetry, governingHorizons = listOf("15m", "30m", "1h"))
+        val verdict = gate.evaluate(unreadyTelemetry, governingHorizons = listOf("15m", "30m", "1h"), nowMs = NOW)
 
         assertFalse(verdict.canArmOrders)
         assertTrue(verdict.rejectionReasons.contains("HTF_NOT_READY"))

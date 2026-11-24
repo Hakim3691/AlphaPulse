@@ -33,7 +33,8 @@ data class ThresholdConfig(
     val floorPct: Double = DEFAULT_FLOOR_PCT,
     val minSettledFast: Int = DEFAULT_FAST_SAMPLES,
     val minSettledSlow: Int = DEFAULT_SLOW_SAMPLES,
-    val minSettledStrategy: Int = DEFAULT_STRATEGY_SAMPLES
+    val minSettledStrategy: Int = DEFAULT_STRATEGY_SAMPLES,
+    val evidenceTtlMinutes: Int = DEFAULT_EVIDENCE_TTL_MINUTES
 ) {
 
     /** This config's minimum settled rows for [horizonId]; unknown horizons get the slow tier. */
@@ -42,6 +43,34 @@ data class ThresholdConfig(
         "15m", "30m", "1h" -> minSettledSlow
         else -> minSettledSlow
     }
+
+    /**
+     * How many minutes a horizon id spans; a scope that is not a horizon (a coin symbol,
+     * which is how the pooled STRATEGY layer is scoped) has no horizon length.
+     */
+    fun horizonMinutes(scope: String): Int = when (scope.trim().lowercase()) {
+        "1m" -> 1
+        "5m" -> 5
+        "15m" -> 15
+        "30m" -> 30
+        "1h" -> 60
+        else -> 0
+    }
+
+    /**
+     * How long evidence measured at [scope] stays in force, in minutes.
+     *
+     * A long horizon settles slowly by design: a 1h cone's newest settlement is up to an
+     * hour old the moment it lands, so holding it to the pooled window alone would declare
+     * a perfectly current hourly read stale. Each horizon therefore gets the longer of the
+     * configured window and twice its own span; scopes that are not horizons (the pooled
+     * STRATEGY layer, scoped by coin) get the configured window unchanged.
+     */
+    fun inForceWindowMinutes(scope: String): Int =
+        maxOf(evidenceTtlMinutes, horizonMinutes(scope) * 2)
+
+    /** The in-force window as the operator reads it, e.g. `60 min`. */
+    fun describeInForce(): String = "$evidenceTtlMinutes min"
 
     /** The floor as the operator reads it, e.g. `85.0%`. */
     fun describeFloor(): String = String.format(Locale.US, "%.1f%%", floorPct)
@@ -58,9 +87,10 @@ data class ThresholdConfig(
         ThresholdField.FAST_SAMPLES -> minSettledFast.toString()
         ThresholdField.SLOW_SAMPLES -> minSettledSlow.toString()
         ThresholdField.STRATEGY_SAMPLES -> minSettledStrategy.toString()
+        ThresholdField.IN_FORCE_MINUTES -> describeInForce()
         ThresholdField.RESET ->
             "${describeFloor()} · $minSettledFast fast · $minSettledSlow slow · " +
-                "$minSettledStrategy graded"
+                "$minSettledStrategy graded · ${describeInForce()} in force"
     }
 
     /**
@@ -105,6 +135,16 @@ data class ThresholdConfig(
                 rejection = "STRATEGY_SAMPLE_FLOOR_BELOW_1(got $minSettledStrategy)"
             )
         }
+        if (evidenceTtlMinutes < MIN_EVIDENCE_TTL_MINUTES ||
+            evidenceTtlMinutes > MAX_EVIDENCE_TTL_MINUTES
+        ) {
+            // A window under five minutes would expire 1m evidence before it could be read,
+            // and one over a day is indistinguishable from trusting it forever.
+            return ThresholdVerdict(
+                accepted = false,
+                rejection = "IN_FORCE_WINDOW_OUT_OF_RANGE_5_TO_1440_MIN(got ${evidenceTtlMinutes}min)"
+            )
+        }
         return ThresholdVerdict(accepted = true)
     }
 
@@ -115,6 +155,9 @@ data class ThresholdConfig(
         const val DEFAULT_FAST_SAMPLES = 20
         const val DEFAULT_SLOW_SAMPLES = 4
         const val DEFAULT_STRATEGY_SAMPLES = 20
+        const val MIN_EVIDENCE_TTL_MINUTES = 5
+        const val MAX_EVIDENCE_TTL_MINUTES = 1440
+        const val DEFAULT_EVIDENCE_TTL_MINUTES = 60
 
         /** The shipped configuration: exactly 85.0% and the documented sample floors. */
         val DEFAULT = ThresholdConfig()
@@ -122,6 +165,10 @@ data class ThresholdConfig(
         /** Keeps an operator's step inside the range; a non-finite input falls back. */
         fun clampFloor(pct: Double): Double =
             if (!pct.isFinite()) DEFAULT_FLOOR_PCT else pct.coerceIn(MIN_FLOOR_PCT, MAX_FLOOR_PCT)
+
+        /** Keeps an in-force step inside the 5–1440 minute range. */
+        fun clampInForceMinutes(minutes: Int): Int =
+            minutes.coerceIn(MIN_EVIDENCE_TTL_MINUTES, MAX_EVIDENCE_TTL_MINUTES)
     }
 }
 
@@ -129,7 +176,14 @@ data class ThresholdConfig(
 data class ThresholdVerdict(val accepted: Boolean, val rejection: String? = null)
 
 /** Which threshold a change touches; a reset touches all of them. */
-enum class ThresholdField { FLOOR, FAST_SAMPLES, SLOW_SAMPLES, STRATEGY_SAMPLES, RESET }
+enum class ThresholdField {
+    FLOOR,
+    FAST_SAMPLES,
+    SLOW_SAMPLES,
+    STRATEGY_SAMPLES,
+    IN_FORCE_MINUTES,
+    RESET
+}
 
 /**
  * The one live configuration.

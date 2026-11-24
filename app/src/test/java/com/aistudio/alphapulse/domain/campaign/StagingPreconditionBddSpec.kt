@@ -36,6 +36,9 @@ import org.junit.Test
  */
 class StagingPreconditionBddSpec {
 
+    /** Pinned clock: these scenarios measure their evidence now (C-61). */
+    private val NOW = 1_800_000_000_000L
+
     @Test
     fun `given all four components observed ready when evaluated then staging is permitted and nothing is named`() {
         val verdict = StagingPrecondition.evaluate(
@@ -126,7 +129,7 @@ class StagingPreconditionBddSpec {
             components = allReady()
         )
 
-        val result = gate.evaluate(telemetry, governingHorizons = listOf("5m"))
+        val result = gate.evaluate(telemetry, governingHorizons = listOf("5m"), nowMs = NOW)
 
         assertFalse(result.canArmOrders)
         assertTrue(result.rejectionReasons.contains("LTF_NOT_READY"))
@@ -137,7 +140,7 @@ class StagingPreconditionBddSpec {
         val gate = CampaignReadinessGate()
         val telemetry = telemetry(components = emptyMap())
 
-        val result = gate.evaluate(telemetry, governingHorizons = listOf("5m"))
+        val result = gate.evaluate(telemetry, governingHorizons = listOf("5m"), nowMs = NOW)
 
         assertFalse(result.canArmOrders)
         assertTrue(result.rejectionReasons.contains("TSFM_UNOBSERVED"))
@@ -151,7 +154,7 @@ class StagingPreconditionBddSpec {
         val gate = CampaignReadinessGate()
         val telemetry = telemetry(components = allReady())
 
-        val result = gate.evaluate(telemetry, governingHorizons = listOf("5m"))
+        val result = gate.evaluate(telemetry, governingHorizons = listOf("5m"), nowMs = NOW)
 
         assertTrue(result.rejectionReasons.toString(), result.canArmOrders)
         assertEquals(CampaignLifecycleState.STAGED, result.nextState)
@@ -293,6 +296,7 @@ class StagingPreconditionBddSpec {
         readyTsfmDockModels = 2,
         requiredTsfmDockModels = 2,
         horizonConeHitRatePct = mapOf("5m" to 92.0),
+        horizonConeMeasuredAt = mapOf("5m" to NOW),
         componentAvailability = components
     )
 

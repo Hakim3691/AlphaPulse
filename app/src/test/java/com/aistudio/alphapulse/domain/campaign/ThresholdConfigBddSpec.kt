@@ -20,6 +20,9 @@ import org.junit.Test
  */
 class ThresholdConfigBddSpec {
 
+    /** Pinned clock: these scenarios measure their evidence now (C-61). */
+    private val NOW = 1_800_000_000_000L
+
     @After
     fun restoreShippedDefaults() {
         Thresholds.install(ThresholdConfig.DEFAULT)
@@ -35,7 +38,8 @@ class ThresholdConfigBddSpec {
         totalEnsembleModels = 5,
         readyTsfmDockModels = 2,
         requiredTsfmDockModels = 2,
-        horizonConeHitRatePct = mapOf("15m" to hitRate)
+        horizonConeHitRatePct = mapOf("15m" to hitRate),
+        horizonConeMeasuredAt = mapOf("15m" to NOW)
     )
 
     @Test
@@ -54,8 +58,15 @@ class ThresholdConfigBddSpec {
         Thresholds.install(ThresholdConfig(floorPct = 85.0))
 
         // 17 of 20 settled is exactly 85.0%.
-        assertTrue(SignalEvidence.isQualified("15m", settled = 20, hits = 17))
-        assertTrue(LayeredEvidenceGate.price("15m", settled = 20, hits = 17).qualified)
+        assertTrue(SignalEvidence.isQualified("15m", settled = 20, hits = 17, measuredAt = NOW, nowMs = NOW))
+        assertTrue(
+            LayeredEvidenceGate.assess(
+                price = listOf(
+                    LayeredEvidenceGate.price("15m", settled = 20, hits = 17, measuredAt = NOW)
+                ),
+                nowMs = NOW
+            ).price.single().qualified
+        )
         val gate = CampaignReadinessGate()
         assertEquals(
             "Every consumer must read the installed floor",
@@ -70,10 +81,17 @@ class ThresholdConfigBddSpec {
         Thresholds.install(ThresholdConfig(floorPct = 85.0))
 
         // 16 of 20 is 80.0%.
-        assertFalse(SignalEvidence.isQualified("15m", settled = 20, hits = 16))
-        assertFalse(LayeredEvidenceGate.price("15m", settled = 20, hits = 16).qualified)
+        assertFalse(SignalEvidence.isQualified("15m", settled = 20, hits = 16, measuredAt = NOW, nowMs = NOW))
+        assertFalse(
+            LayeredEvidenceGate.assess(
+                price = listOf(
+                    LayeredEvidenceGate.price("15m", settled = 20, hits = 16, measuredAt = NOW)
+                ),
+                nowMs = NOW
+            ).price.single().qualified
+        )
         assertTrue(
-            CampaignReadinessGate().evaluate(telemetry(80.0), listOf("15m"))
+            CampaignReadinessGate().evaluate(telemetry(80.0), listOf("15m"), nowMs = NOW)
                 .rejectionReasons.any { it.contains("HORIZON_15m") }
         )
     }
@@ -82,15 +100,20 @@ class ThresholdConfigBddSpec {
     fun `given the floor is raised once when the same sample is re-read then every consumer refuses it without a second edit`() {
         val settled = 20
         val hits = 17 // 85.0%: proven at the shipped floor...
-        assertTrue(SignalEvidence.isQualified("15m", settled, hits))
+        assertTrue(SignalEvidence.isQualified("15m", settled, hits, measuredAt = NOW, nowMs = NOW))
 
         Thresholds.install(ThresholdConfig(floorPct = 90.0))
 
         // ...and the same rows are no longer evidence anywhere.
-        assertFalse(SignalEvidence.isQualified("15m", settled, hits))
-        assertFalse(LayeredEvidenceGate.price("15m", settled, hits).qualified)
-        assertFalse(LayeredEvidenceGate.pattern("15m", settled, hits).qualified)
-        val reasons = CampaignReadinessGate().evaluate(telemetry(85.0), listOf("15m")).rejectionReasons
+        assertFalse(SignalEvidence.isQualified("15m", settled, hits, measuredAt = NOW, nowMs = NOW))
+        val restamped = LayeredEvidenceGate.assess(
+            price = listOf(LayeredEvidenceGate.price("15m", settled, hits, measuredAt = NOW)),
+            pattern = listOf(LayeredEvidenceGate.pattern("15m", settled, hits, measuredAt = NOW)),
+            nowMs = NOW
+        )
+        assertFalse(restamped.price.single().qualified)
+        assertFalse(restamped.pattern.single().qualified)
+        val reasons = CampaignReadinessGate().evaluate(telemetry(85.0), listOf("15m"), nowMs = NOW).rejectionReasons
         assertTrue(
             "The refusal must name the configured floor, not a hardcoded 85: $reasons",
             reasons.any { it.contains("BELOW_90_PCT") }
@@ -103,20 +126,33 @@ class ThresholdConfigBddSpec {
 
         assertEquals(30, SignalEvidence.minSettledFor("5m"))
         assertEquals(6, SignalEvidence.minSettledFor("15m"))
-        assertFalse("29 settled is short of the configured 30", SignalEvidence.isQualified("5m", 29, 29))
-        assertTrue(SignalEvidence.isQualified("5m", 30, 30))
+        assertFalse(
+            "29 settled is short of the configured 30",
+            SignalEvidence.isQualified("5m", 29, 29, measuredAt = NOW, nowMs = NOW)
+        )
+        assertTrue(SignalEvidence.isQualified("5m", 30, 30, measuredAt = NOW, nowMs = NOW))
     }
 
     @Test
     fun `given a configured strategy sample floor when the strategy layer is built then it uses that count`() {
         Thresholds.install(ThresholdConfig(minSettledStrategy = 30))
 
-        val strategy = LayeredEvidenceGate.strategy("BTCUSDT", settled = 25, hits = 25)
+        val strategy = LayeredEvidenceGate.assess(
+            price = emptyList(),
+            strategy = LayeredEvidenceGate.strategy("BTCUSDT", settled = 25, hits = 25, measuredAt = NOW),
+            nowMs = NOW
+        ).strategy!!
         assertEquals(30, strategy.minSettled)
         assertFalse("25 graded calls is short of the configured 30", strategy.qualified)
 
         Thresholds.install(ThresholdConfig(minSettledStrategy = 20))
-        assertTrue(LayeredEvidenceGate.strategy("BTCUSDT", 25, 25).qualified)
+        assertTrue(
+            LayeredEvidenceGate.assess(
+                price = emptyList(),
+                strategy = LayeredEvidenceGate.strategy("BTCUSDT", 25, 25, measuredAt = NOW),
+                nowMs = NOW
+            ).strategy!!.qualified
+        )
     }
 
     @Test

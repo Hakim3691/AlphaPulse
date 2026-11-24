@@ -7,6 +7,37 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.8] — 2026-11-24
+
+Evidence expires now: a rate from outside its in-force window is refused everywhere, and the window is a setting.
+
+### Added
+
+- **In-force expiry (C-61).** Every qualification decision now compares how long ago a layer was measured
+  against one configured window. `ThresholdConfig.evidenceTtlMinutes` (60 as shipped, valid 5–1440) defines it,
+  and `inForceWindowMinutes(scope)` gives a horizon the longer of that window and twice its own span, so a 1h
+  cone is not declared stale the moment its newest settlement lands. The rule is one pure helper,
+  `EvidenceInForce.status`: inclusive at the boundary, and a record with no measurement timestamp **fails
+  closed** instead of being trusted forever.
+- **`IN-FORCE MIN` in Guardrails → `EVIDENCE THRESHOLDS`.** The window steps in 5–1440 minutes beside the floor
+  and sample floors, every readout prints why a rate is stale
+  (`PRICE_EVIDENCE_STALE(age 61min, in-force window 60min)`), and an out-of-range candidate is refused by name.
+- **An executing spec for the whole threshold path.** `ThresholdChangePathBddSpec` constructs the shipped
+  `MainViewModel`, drives `adjustThresholds`/`resetThresholds`, and reads back the store, the `decision_records`
+  row and the rebuilt evidence's in-force window — closing the gap the previous feature left at the view-model seam.
+
+### Changed
+
+- **Stale evidence is stale everywhere.** `SignalEvidence` horizons, `LayeredEvidence`'s PRICE/PATTERN/STRATEGY
+  rows and `CampaignReadinessGate`'s governing cones all read the same helper: a stale price horizon can no longer
+  stage a board, a stale additive layer is named stale and stays inactive, and a stale cone refuses arming with
+  `HORIZON_15m_CONE_EVIDENCE_STALE(age 61min, in-force window 60min)`.
+- **Evidence carries when it was measured.** `ScreenedUniverseBridge` stamps each horizon from its newest settled
+  prediction, and the view model restamps the rebuilt evidence with the live window after an accepted change, so no
+  cached layer keeps judging a coin by a limit that is no longer in force.
+- **A stored window survives the restart**, and a payload written before the setting existed keeps the operator's
+  configured floor at the shipped window rather than being discarded.
+
 ## [19.7] — 2026-11-24
 
 The 85% floor is a setting now, not a constant — and the tab that moves it records every change.

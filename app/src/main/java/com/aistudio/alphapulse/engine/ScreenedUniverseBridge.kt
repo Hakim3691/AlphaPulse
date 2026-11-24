@@ -48,7 +48,7 @@ import kotlin.math.sqrt
  * with no proven horizon is not part of the campaign universe at all: it is removed from
  * the bridged list rather than carried as a neutral asset that can only disappoint.
  */
-class ScreenedUniverseBridge {
+class ScreenedUniverseBridge(private val now: () -> Long = System::currentTimeMillis) {
 
     /**
      * Converts one screen + forecast snapshot into the campaign engine's universe.
@@ -138,7 +138,9 @@ class ScreenedUniverseBridge {
                 SignalEvidence.assess(
                     horizonId = horizonId,
                     settled = settled.size,
-                    hits = settled.count { it.inCone == true }
+                    hits = settled.count { it.inCone == true },
+                    measuredAt = settled.maxOfOrNull { it.issuedTimestamp } ?: 0L,
+                    nowMs = now()
                 )
             }
             .sortedBy { it.horizonId }

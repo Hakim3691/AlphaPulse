@@ -33,7 +33,7 @@ import org.junit.Test
  */
 class ScreenedUniverseBridgeBddSpec {
 
-    private val bridge = ScreenedUniverseBridge()
+    private val bridge = ScreenedUniverseBridge(now = { 60_000L })
 
     @Test
     fun `given screened rows ranked by alpha pulse, when bridged, then upstream rank decides order`() {
@@ -204,7 +204,7 @@ class ScreenedUniverseBridgeBddSpec {
         base = base,
         predicted = base
         // Older than the fresh row the scenario issues, so "newest wins" still picks it.
-    ).copy(settled = true, inCone = inCone, issuedTimestamp = 0L)
+    ).copy(settled = true, inCone = inCone, issuedTimestamp = 900L)
 
     private fun screened(
         symbol: String,

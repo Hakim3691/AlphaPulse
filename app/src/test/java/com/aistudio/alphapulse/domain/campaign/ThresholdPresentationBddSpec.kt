@@ -16,13 +16,16 @@ import org.junit.Test
  */
 class ThresholdPresentationBddSpec {
 
+    /** Pinned clock: these scenarios measure their evidence now (C-61). */
+    private val NOW = 1_800_000_000_000L
+
     @Test
     fun `given shipped defaults and an inspected coin when the rows are built then each layer prints its configured limits`() {
         val rows = ThresholdPresentation.rows(
             config = ThresholdConfig.DEFAULT,
-            verdict = LayeredEvidenceGate.assess(
-                price = listOf(LayeredEvidenceGate.price("15m", settled = 20, hits = 17)),
-                strategy = LayeredEvidenceGate.strategy("BTCUSDT", settled = 5, hits = 5)
+            verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+                price = listOf(LayeredEvidenceGate.price("15m", settled = 20, hits = 17, measuredAt = NOW)),
+                strategy = LayeredEvidenceGate.strategy("BTCUSDT", settled = 5, hits = 5, measuredAt = NOW)
             )
         )
 
@@ -39,9 +42,9 @@ class ThresholdPresentationBddSpec {
     fun `given an inspected coin with measured evidence when the rows are built then they state the effective values`() {
         val rows = ThresholdPresentation.rows(
             config = ThresholdConfig.DEFAULT,
-            verdict = LayeredEvidenceGate.assess(
-                price = listOf(LayeredEvidenceGate.price("15m", settled = 20, hits = 17)),
-                strategy = LayeredEvidenceGate.strategy("BTCUSDT", settled = 5, hits = 5)
+            verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+                price = listOf(LayeredEvidenceGate.price("15m", settled = 20, hits = 17, measuredAt = NOW)),
+                strategy = LayeredEvidenceGate.strategy("BTCUSDT", settled = 5, hits = 5, measuredAt = NOW)
             )
         )
 

@@ -317,12 +317,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }.getOrDefault(emptyMap())
         forecastsBySymbol = forecasts.mapValues { (_, rows) -> universeBridge.forecastTargetsFor(rows) }
-        priceEvidenceBySymbol = forecasts.mapValues { (_, rows) ->
-            universeBridge.evidenceFor(rows).map {
-                LayeredEvidenceGate.price(it.horizonId, it.settled, it.hits)
+                    priceEvidenceBySymbol = forecasts.mapValues { (_, rows) ->
+                universeBridge.evidenceFor(rows).map {
+                    LayeredEvidenceGate.price(
+                        it.horizonId, it.settled, it.hits, measuredAt = it.measuredAt
+                    )
+                }
             }
-        }
-        _uiState.value.selectedAsset?.symbol?.let { refreshAdditiveEvidence(it) }
+            _uiState.value.selectedAsset?.symbol?.let { refreshAdditiveEvidence(it) }
         return liveProvider.universeFrom(screened, forecasts)
     }
 
@@ -1443,7 +1445,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val price = priceEvidenceBySymbol[symbol].orEmpty()
         val (pattern, strategy) = additiveEvidenceBySymbol[symbol]
             ?: (emptyList<LayerEvidence>() to null)
-        return LayeredEvidenceGate.assess(price, pattern, strategy)
+        return LayeredEvidenceGate.assess(
+            price, pattern, strategy,
+            nowMs = System.currentTimeMillis()
+        )
     }
 
     /**
@@ -1476,6 +1481,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             ThresholdField.STRATEGY_SAMPLES -> current.copy(
                 minSettledStrategy = (current.minSettledStrategy + delta)
                     .coerceIn(0, MAX_SAMPLE_FLOOR)
+            )
+            ThresholdField.IN_FORCE_MINUTES -> current.copy(
+                evidenceTtlMinutes = ThresholdConfig.clampInForceMinutes(
+                    current.evidenceTtlMinutes + delta
+                )
             )
             ThresholdField.RESET -> ThresholdConfig.DEFAULT
         }
@@ -1513,7 +1523,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             priceEvidenceBySymbol = forecasts.mapValues { (_, rows) ->
                 universeBridge.evidenceFor(rows).map {
-                    LayeredEvidenceGate.price(it.horizonId, it.settled, it.hits)
+                    LayeredEvidenceGate.price(
+                        it.horizonId, it.settled, it.hits, measuredAt = it.measuredAt
+                    )
                 }
             }
         }
@@ -1541,7 +1553,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 LayeredEvidenceGate.pattern(
                     horizonId = horizon,
                     settled = rows.size,
-                    hits = rows.count { it.realizedPattern == it.predictedPatternName }
+                    hits = rows.count { it.realizedPattern == it.predictedPatternName },
+                    measuredAt = rows.maxOf { it.issuedTimestamp }
                 )
             }
             .sortedBy { it.scope }
@@ -1557,7 +1570,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             LayeredEvidenceGate.strategy(
                 symbol = symbol,
                 settled = strategyRows.size,
-                hits = strategyRows.count { it.outcome == StrategyOutcome.HIT.name }
+                hits = strategyRows.count { it.outcome == StrategyOutcome.HIT.name },
+                measuredAt = strategyRows.maxOf { it.issuedTimestamp }
             )
         } else {
             null

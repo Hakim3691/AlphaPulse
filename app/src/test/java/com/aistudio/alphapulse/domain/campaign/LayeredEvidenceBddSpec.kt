@@ -22,10 +22,13 @@ import org.junit.Test
  */
 class LayeredEvidenceBddSpec {
 
+    /** Pinned clock: these scenarios measure their evidence now (C-61). */
+    private val NOW = 1_800_000_000_000L
+
     @Test
     fun `given no proven price horizon when assessed then the board is withheld and the reason names the horizon`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("1h", settled = 2, hits = 1))
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("1h", settled = 2, hits = 1, measuredAt = NOW))
         )
 
         assertFalse(verdict.canStage)
@@ -39,8 +42,8 @@ class LayeredEvidenceBddSpec {
 
     @Test
     fun `given a proven price horizon when assessed then the board may stage even with no pattern or strategy evidence`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("5m", settled = 20, hits = 17))
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("5m", settled = 20, hits = 17, measuredAt = NOW))
         )
 
         assertTrue(verdict.canStage)
@@ -51,10 +54,10 @@ class LayeredEvidenceBddSpec {
 
     @Test
     fun `given proven pattern and strategy evidence when assessed then both are active inputs on top of price`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("1m", settled = 20, hits = 17)),
-            pattern = listOf(LayeredEvidenceGate.pattern("15m", settled = 4, hits = 4)),
-            strategy = LayeredEvidenceGate.strategy("BTCUSDT", settled = 20, hits = 18)
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("1m", settled = 20, hits = 17, measuredAt = NOW)),
+            pattern = listOf(LayeredEvidenceGate.pattern("15m", settled = 4, hits = 4, measuredAt = NOW)),
+            strategy = LayeredEvidenceGate.strategy("BTCUSDT", settled = 20, hits = 18, measuredAt = NOW)
         )
 
         assertTrue(verdict.canStage)
@@ -67,9 +70,9 @@ class LayeredEvidenceBddSpec {
 
     @Test
     fun `given an unproven pattern horizon when assessed then it is simply inactive rather than blocking`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("1m", settled = 20, hits = 17)),
-            pattern = listOf(LayeredEvidenceGate.pattern("1h", settled = 4, hits = 3))
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("1m", settled = 20, hits = 17, measuredAt = NOW)),
+            pattern = listOf(LayeredEvidenceGate.pattern("1h", settled = 4, hits = 3, measuredAt = NOW))
         )
 
         assertTrue("Pattern never blocks a proven price layer", verdict.canStage)
@@ -79,9 +82,9 @@ class LayeredEvidenceBddSpec {
 
     @Test
     fun `given nineteen perfect strategy grades when assessed then the pool is too small to activate`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("1m", settled = 20, hits = 17)),
-            strategy = LayeredEvidenceGate.strategy("ETHUSDT", settled = 19, hits = 19)
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("1m", settled = 20, hits = 17, measuredAt = NOW)),
+            strategy = LayeredEvidenceGate.strategy("ETHUSDT", settled = 19, hits = 19, measuredAt = NOW)
         )
 
         assertFalse("Twenty graded calls is the confirmed strategy floor", EvidenceLayer.STRATEGY in verdict.activeLayers)
@@ -90,7 +93,7 @@ class LayeredEvidenceBddSpec {
 
     @Test
     fun `given a proven price horizon beside no price record at all when assessed then silence fails closed`() {
-        val verdict = LayeredEvidenceGate.assess(price = emptyList())
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, price = emptyList())
 
         assertFalse(verdict.canStage)
         assertEquals(
@@ -101,9 +104,9 @@ class LayeredEvidenceBddSpec {
 
     @Test
     fun `given an active verdict when summarised then the board's note names the layers and proves the price`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("15m", settled = 4, hits = 4)),
-            pattern = listOf(LayeredEvidenceGate.pattern("15m", settled = 4, hits = 4))
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("15m", settled = 4, hits = 4, measuredAt = NOW)),
+            pattern = listOf(LayeredEvidenceGate.pattern("15m", settled = 4, hits = 4, measuredAt = NOW))
         )
 
         assertEquals(

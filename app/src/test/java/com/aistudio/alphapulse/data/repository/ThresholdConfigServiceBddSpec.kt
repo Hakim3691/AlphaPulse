@@ -127,4 +127,46 @@ class ThresholdConfigServiceBddSpec {
         assertEquals(2, ledger.size)
         assertTrue(ledger[1].reason.contains("91.0"))
     }
+
+    @Test
+    fun `given the in-force window is widened when applied then exactly one row records the old and new window`() =
+        runBlocking {
+            val store = FakeStore()
+            val outcome = service(store).apply(
+                candidate = ThresholdConfig(evidenceTtlMinutes = 120),
+                field = ThresholdField.IN_FORCE_MINUTES,
+                scope = "GLOBAL",
+                symbol = "BTCUSDT"
+            )
+
+            assertTrue(outcome.accepted)
+            assertEquals(120, Thresholds.current().evidenceTtlMinutes)
+            assertEquals(120, store.config.evidenceTtlMinutes)
+            assertEquals(1, store.saves)
+
+            val row = ledger.single()
+            assertEquals(ThresholdAudit.STATE, row.state)
+            assertEquals("BTCUSDT", row.symbol)
+            assertTrue("the field must be recorded: ${row.reason}", row.reason.contains("IN_FORCE_MINUTES"))
+            assertTrue("the old window must be recorded: ${row.reason}", row.reason.contains("60 min"))
+            assertTrue("the new window must be recorded: ${row.reason}", row.reason.contains("120 min"))
+        }
+
+    @Test
+    fun `given an out-of-range in-force window when applied then it is refused and nothing is written`() =
+        runBlocking {
+            val store = FakeStore()
+            val outcome = service(store).apply(
+                candidate = ThresholdConfig(evidenceTtlMinutes = 2),
+                field = ThresholdField.IN_FORCE_MINUTES,
+                scope = "GLOBAL",
+                symbol = "ETHUSDT"
+            )
+
+            assertFalse(outcome.accepted)
+            assertTrue(outcome.rejection!!.contains("IN_FORCE_WINDOW_OUT_OF_RANGE_5_TO_1440_MIN"))
+            assertEquals(ThresholdConfig.DEFAULT, Thresholds.current())
+            assertEquals(0, store.saves)
+            assertTrue("a refused window is not a decision", ledger.isEmpty())
+        }
 }

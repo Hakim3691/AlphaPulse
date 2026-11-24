@@ -34,7 +34,14 @@ class SharedPreferencesThresholdStore(context: Context) : ThresholdStore {
             floorPct = prefs.getFloat(KEY_FLOOR_PCT, Float.NaN).toDouble(),
             minSettledFast = prefs.getInt(KEY_MIN_SETTLED_FAST, -1),
             minSettledSlow = prefs.getInt(KEY_MIN_SETTLED_SLOW, -1),
-            minSettledStrategy = prefs.getInt(KEY_MIN_SETTLED_STRATEGY, -1)
+            minSettledStrategy = prefs.getInt(KEY_MIN_SETTLED_STRATEGY, -1),
+            // A payload written before the in-force window existed keeps every value it
+            // does carry and gets the shipped window; only an out-of-range window is
+            // treated as corruption.
+            evidenceTtlMinutes = prefs.getInt(
+                KEY_EVIDENCE_TTL_MINUTES,
+                ThresholdConfig.DEFAULT_EVIDENCE_TTL_MINUTES
+            )
         )
         return if (candidate.validate().accepted) candidate else ThresholdConfig.DEFAULT
     }
@@ -45,6 +52,7 @@ class SharedPreferencesThresholdStore(context: Context) : ThresholdStore {
             .putInt(KEY_MIN_SETTLED_FAST, config.minSettledFast)
             .putInt(KEY_MIN_SETTLED_SLOW, config.minSettledSlow)
             .putInt(KEY_MIN_SETTLED_STRATEGY, config.minSettledStrategy)
+            .putInt(KEY_EVIDENCE_TTL_MINUTES, config.evidenceTtlMinutes)
             .apply()
     }
 
@@ -54,5 +62,6 @@ class SharedPreferencesThresholdStore(context: Context) : ThresholdStore {
         const val KEY_MIN_SETTLED_FAST = "min_settled_fast"
         const val KEY_MIN_SETTLED_SLOW = "min_settled_slow"
         const val KEY_MIN_SETTLED_STRATEGY = "min_settled_strategy"
+        const val KEY_EVIDENCE_TTL_MINUTES = "evidence_ttl_minutes"
     }
 }

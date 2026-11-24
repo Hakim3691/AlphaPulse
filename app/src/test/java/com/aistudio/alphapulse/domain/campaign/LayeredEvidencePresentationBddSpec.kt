@@ -20,6 +20,9 @@ import org.junit.Test
  */
 class LayeredEvidencePresentationBddSpec {
 
+    /** Pinned clock: these scenarios measure their evidence now (C-61). */
+    private val NOW = 1_800_000_000_000L
+
     @Test
     fun `given no verdict when the readout is built then every layer is inactive and price is blocking`() {
         val rows = LayeredEvidencePresentation.rows(null)
@@ -35,8 +38,8 @@ class LayeredEvidencePresentationBddSpec {
 
     @Test
     fun `given only a proven price horizon when the readout is built then price is active and the additive layers are not`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("1h", settled = 8, hits = 7))
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("1h", settled = 8, hits = 7, measuredAt = NOW))
         )
 
         val rows = LayeredEvidencePresentation.rows(verdict)
@@ -50,9 +53,9 @@ class LayeredEvidencePresentationBddSpec {
 
     @Test
     fun `given an unproven price layer and a proven pattern horizon when the readout is built then only pattern is active`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("1h", settled = 8, hits = 4)),
-            pattern = listOf(LayeredEvidenceGate.pattern("15m", settled = 8, hits = 7))
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("1h", settled = 8, hits = 4, measuredAt = NOW)),
+            pattern = listOf(LayeredEvidenceGate.pattern("15m", settled = 8, hits = 7, measuredAt = NOW))
         )
 
         val rows = LayeredEvidencePresentation.rows(verdict)
@@ -66,10 +69,10 @@ class LayeredEvidencePresentationBddSpec {
 
     @Test
     fun `given all three layers proven when the readout is built then every layer is active`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("1h", settled = 8, hits = 8)),
-            pattern = listOf(LayeredEvidenceGate.pattern("15m", settled = 8, hits = 8)),
-            strategy = LayeredEvidenceGate.strategy("SOLUSDT", settled = 40, hits = 36)
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("1h", settled = 8, hits = 8, measuredAt = NOW)),
+            pattern = listOf(LayeredEvidenceGate.pattern("15m", settled = 8, hits = 8, measuredAt = NOW)),
+            strategy = LayeredEvidenceGate.strategy("SOLUSDT", settled = 40, hits = 36, measuredAt = NOW)
         )
 
         val rows = LayeredEvidencePresentation.rows(verdict)
@@ -81,9 +84,9 @@ class LayeredEvidencePresentationBddSpec {
 
     @Test
     fun `given a strategy layer under its sample floor when the readout is built then it states the sample it still needs`() {
-        val verdict = LayeredEvidenceGate.assess(
-            price = listOf(LayeredEvidenceGate.price("5m", settled = 24, hits = 22)),
-            strategy = LayeredEvidenceGate.strategy("SOLUSDT", settled = 12, hits = 11)
+        val verdict = LayeredEvidenceGate.assess(nowMs = NOW, 
+            price = listOf(LayeredEvidenceGate.price("5m", settled = 24, hits = 22, measuredAt = NOW)),
+            strategy = LayeredEvidenceGate.strategy("SOLUSDT", settled = 12, hits = 11, measuredAt = NOW)
         )
 
         val rows = LayeredEvidencePresentation.rows(verdict)

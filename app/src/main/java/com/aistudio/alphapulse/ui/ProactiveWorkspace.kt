@@ -629,6 +629,12 @@ private fun ThresholdsCard(state: MainUiState, actions: ProactiveWorkspaceAction
             ThresholdField.STRATEGY_SAMPLES,
             actions
         )
+        ThresholdStepper(
+            "IN-FORCE MIN",
+            config.describeInForce(),
+            ThresholdField.IN_FORCE_MINUTES,
+            actions
+        )
 
         Box(
             modifier = Modifier
@@ -640,7 +646,7 @@ private fun ThresholdsCard(state: MainUiState, actions: ProactiveWorkspaceAction
                 .testTag(ProactiveWorkspaceTags.THRESHOLDS_RESET)
         ) {
             Text(
-                text = "RESET TO 85.0% / 20",
+                text = "RESET TO 85.0% / 20 / 60 MIN",
                 color = SlateTextSecondary,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
@@ -662,7 +668,9 @@ private fun ThresholdsCard(state: MainUiState, actions: ProactiveWorkspaceAction
         Text(
             text = "Floor is clamped to 50–95%. A zero sample floor would leave PRICE " +
                 "unproven but unblocking, so it is refused, and every accepted change is " +
-                "recorded in the trade-decisions ledger.",
+                "recorded in the trade-decisions ledger. Evidence stays in force for the " +
+                "configured window (5–1440 min), longer for long horizons; stale evidence " +
+                "is refused by every gate.",
             color = SlateTextMuted,
             fontSize = 8.sp,
             fontFamily = FontFamily.Monospace,

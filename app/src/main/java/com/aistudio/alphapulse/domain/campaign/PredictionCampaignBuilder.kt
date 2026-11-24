@@ -109,7 +109,10 @@ data class PlannedCampaign(
  *
  * @param gate the §68 gate; the builder never decides armability itself
  */
-class PredictionCampaignBuilder(private val gate: CampaignReadinessGate = CampaignReadinessGate()) {
+class PredictionCampaignBuilder(
+    private val gate: CampaignReadinessGate = CampaignReadinessGate(),
+    private val now: () -> Long = System::currentTimeMillis
+) {
 
     /** §15.2: the template the tactical/strategic split selects. */
     fun templateFor(tacticalBias: Int, strategicBias: Int): BoardTemplate {
@@ -140,7 +143,9 @@ class PredictionCampaignBuilder(private val gate: CampaignReadinessGate = Campai
         require(input.lastPrice > 0.0) { "${input.symbol}: a campaign needs a live price" }
         require(input.forecasts.isNotEmpty()) { "${input.symbol}: a campaign needs a forecast" }
 
-        val verdict = gate.evaluate(telemetry, governingHorizons)
+        // C-61: the gate needs the evaluation instant to decide whether the cone readings
+        // it is handed are still in force; the builder owns the clock so the gate stays pure.
+        val verdict = gate.evaluate(telemetry, governingHorizons, nowMs = now())
         val template = templateFor(input.tacticalBias, input.strategicBias)
 
         val bullish = bullishForecasts(input.forecasts)

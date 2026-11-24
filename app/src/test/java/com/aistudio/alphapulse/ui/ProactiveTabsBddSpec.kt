@@ -46,6 +46,9 @@ import org.robolectric.annotation.Config
 @Config(sdk = [33], qualifiers = "w411dp-h891dp-xhdpi")
 class ProactiveTabsBddSpec {
 
+    /** Pinned clock: these scenarios measure their evidence now (C-61). */
+    private val NOW = 1_800_000_000_000L
+
     @get:Rule
     val compose = createComposeRule()
 
@@ -135,8 +138,8 @@ class ProactiveTabsBddSpec {
     fun `given a proven price layer when Guardrails renders then it names which layers are active for the inspected coin`() {
         render(
             state = MainUiState(
-                layeredEvidence = LayeredEvidenceGate.assess(
-                    price = listOf(LayeredEvidenceGate.price("1h", settled = 8, hits = 8))
+                layeredEvidence = LayeredEvidenceGate.assess(nowMs = NOW, 
+                    price = listOf(LayeredEvidenceGate.price("1h", settled = 8, hits = 8, measuredAt = NOW))
                 )
             ),
             workspace = workspace.copy(activeTab = ProactiveMsTab.GUARDRAILS)
@@ -164,8 +167,8 @@ class ProactiveTabsBddSpec {
         // effective line this coin is judged by.
         render(
             state = MainUiState(
-                layeredEvidence = LayeredEvidenceGate.assess(
-                    price = listOf(LayeredEvidenceGate.price("15m", settled = 20, hits = 17))
+                layeredEvidence = LayeredEvidenceGate.assess(nowMs = NOW, 
+                    price = listOf(LayeredEvidenceGate.price("15m", settled = 20, hits = 17, measuredAt = NOW))
                 ),
                 thresholds = ThresholdConfig(
                     floorPct = 92.0,
@@ -223,6 +226,36 @@ class ProactiveTabsBddSpec {
 
         assertEquals(listOf(ThresholdField.SLOW_SAMPLES to -1), steps)
         assertTrue("The reset affordance must reach the service", resetPressed)
+    }
+
+    @Test
+    fun `given a configured in-force window when Guardrails renders then the expiry setting is visible and steppable`() {
+        val steps = mutableListOf<Pair<ThresholdField, Int>>()
+        render(
+            state = MainUiState(thresholds = ThresholdConfig(evidenceTtlMinutes = 120)),
+            workspace = workspace.copy(activeTab = ProactiveMsTab.GUARDRAILS),
+            actions = ProactiveWorkspaceActions(
+                onSelectTab = {},
+                onAdjustThreshold = { field, delta -> steps += field to delta }
+            )
+        )
+
+        assertTrue(
+            "The operator must be able to read and change the in-force window",
+            compose.onAllNodesWithText("IN-FORCE MIN", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        )
+        assertTrue(
+            "The configured window must be printed, not the default",
+            compose.onAllNodesWithText("120 min", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        )
+
+        compose.onNodeWithTag(
+            ProactiveWorkspaceTags.thresholdStep(ThresholdField.IN_FORCE_MINUTES, 1)
+        ).performClick()
+
+        assertEquals(listOf(ThresholdField.IN_FORCE_MINUTES to 1), steps)
     }
 
     @Test

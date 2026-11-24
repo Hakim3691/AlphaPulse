@@ -72,16 +72,31 @@ object SignalEvidence {
     data class HorizonEvidence(
         val horizonId: String,
         val settled: Int,
-        val hits: Int
+        val hits: Int,
+        val measuredAt: Long = 0L,
+        val evaluatedAt: Long = 0L
     ) {
         /** This horizon's own sample floor. */
         val minSettled: Int get() = minSettledFor(horizonId)
 
+        /** How long this horizon's evidence stays in force (C-61). */
+        val windowMinutes: Int get() = Thresholds.current().inForceWindowMinutes(horizonId)
+
+        /** Whether this measurement is still evidence (C-61). */
+        val inForce: InForceStatus
+            get() = EvidenceInForce.status("PRICE", measuredAt, evaluatedAt, windowMinutes)
+
+        /** Whole minutes since this horizon was measured. */
+        val ageMinutes: Long get() = inForce.ageMinutes
+
+        /** Why this evidence is stale, or null while it is in force. */
+        val staleReason: String? get() = inForce.reason
+
         /** Hits as a percentage of settled predictions; 0.0 when nothing settled. */
         val hitRatePct: Double get() = if (settled > 0) hits * 100.0 / settled else 0.0
 
-        /** True when the sample is large enough and the rate clears the threshold. */
-        val qualified: Boolean get() = isQualified(horizonId, settled, hits)
+        /** True when the sample is large enough, the rate clears the floor and the reading is fresh. */
+        val qualified: Boolean get() = isQualified(horizonId, settled, hits, measuredAt, evaluatedAt)
 
         /**
          * The one-line account of why a horizon is (or is not) feeding campaigns, e.g.
@@ -89,8 +104,9 @@ object SignalEvidence {
          */
         fun describe(): String {
             val rate = Math.round(hitRatePct * 10.0) / 10.0
-            return "$horizonId $rate% of $settled settled " +
+            val base = "$horizonId $rate% of $settled settled " +
                 "(needs ${Thresholds.current().describeFloor()} of $minSettled)"
+            return if (staleReason == null) base else "$base · $staleReason"
         }
     }
 
@@ -101,17 +117,41 @@ object SignalEvidence {
      * Both halves are required, so nineteen perfect 1m calls and four mediocre 1h calls
      * are judged against their own floors rather than one shared sample size.
      */
-    fun isQualified(horizonId: String, settled: Int, hits: Int): Boolean {
+    fun isQualified(
+        horizonId: String,
+        settled: Int,
+        hits: Int,
+        measuredAt: Long = 0L,
+        nowMs: Long = 0L
+    ): Boolean {
         val config = Thresholds.current()
+        // C-61: a rate from outside its in-force window is not evidence, however good it
+        // looks. Checked before the sample and the floor so a stale horizon is refused for
+        // the reason that actually applies to it.
+        val inForce = EvidenceInForce.status(
+            label = "PRICE",
+            measuredAt = measuredAt,
+            nowMs = nowMs,
+            windowMinutes = config.inForceWindowMinutes(horizonId)
+        )
+        if (!inForce.inForce) return false
         if (settled < config.minSettledFor(horizonId)) return false
         return config.isFloorReached(settled, hits)
     }
 
     /** Evidence for one horizon, clamped to a coherent record. */
-    fun assess(horizonId: String, settled: Int, hits: Int): HorizonEvidence =
+    fun assess(
+        horizonId: String,
+        settled: Int,
+        hits: Int,
+        measuredAt: Long = 0L,
+        nowMs: Long = 0L
+    ): HorizonEvidence =
         HorizonEvidence(
             horizonId = horizonId,
             settled = settled.coerceAtLeast(0),
-            hits = hits.coerceIn(0, settled.coerceAtLeast(0))
+            hits = hits.coerceIn(0, settled.coerceAtLeast(0)),
+            measuredAt = measuredAt,
+            evaluatedAt = nowMs
         )
 }

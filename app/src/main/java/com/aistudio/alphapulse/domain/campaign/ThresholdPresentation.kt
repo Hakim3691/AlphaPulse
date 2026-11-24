@@ -62,11 +62,14 @@ object ThresholdPresentation {
     private fun describe(evidence: LayerEvidence, config: ThresholdConfig): String {
         val rate = String.format(Locale.US, "%.1f%%", evidence.hitRatePct)
         val needs = "${config.describeFloor()} of ${config.minSettledFor(evidence.scope)}"
-        return when (evidence.layer) {
+        val base = when (evidence.layer) {
             EvidenceLayer.STRATEGY ->
                 "strategy $rate of ${evidence.settled} graded (needs $needs)"
             else -> "${evidence.scope} $rate of ${evidence.settled} settled (needs $needs)"
         }
+        // C-61: the tab states which rate is no longer in force, so a stale layer is never
+        // read as a live input.
+        return if (evidence.staleReason == null) base else "$base · ${evidence.staleReason}"
     }
 
     const val NO_PRICE = "no price horizon has settled"

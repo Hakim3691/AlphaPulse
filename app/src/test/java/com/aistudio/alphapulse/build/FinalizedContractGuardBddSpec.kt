@@ -46,9 +46,9 @@ class FinalizedContractGuardBddSpec {
     @Test
     fun `given the finalized contracts doc when read then every contract is present and names a guard scenario`() {
         // C-57 (one header and one navigation bar), C-58 (the layered gate), C-59
-        // (strategy grading) and C-60 (the configured hit-rate thresholds) extend the
-        // registry; no earlier row may disappear.
-        val expected = (1..60).map { "C-%02d".format(it) }.toSet()
+        // (strategy grading), C-60 (the configured hit-rate thresholds) and C-61 (the
+        // configured in-force expiry) extend the registry; no earlier row may disappear.
+        val expected = (1..61).map { "C-%02d".format(it) }.toSet()
         assertEquals(
             "A contract row was deleted or renumbered. Removing a finalized decision is a " +
                 "deliberate commit that updates its guard scenario and this registry, never " +
