@@ -74,7 +74,7 @@ class ExecutionEngine(private val riskEngine: RiskEngine) {
         val campaign = board.copy(gateNote = null)
         // §22 step 7: stage only after all preconditions and account constraints pass.
         val (allowed, reason) = riskEngine.validateCampaignStaging(
-            campaign, existing, envelope, venueHealth
+            campaign, existing, envelope, venueHealth, mode
         )
         if (!allowed) {
             return GatedCampaign(campaign.copy(status = CampaignState.SUPPRESSED), reason)

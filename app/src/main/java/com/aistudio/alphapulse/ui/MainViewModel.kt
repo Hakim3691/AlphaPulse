@@ -10,6 +10,7 @@ import com.aistudio.alphapulse.data.local.AssetEntity
 import com.aistudio.alphapulse.data.local.CampaignEntity
 import com.aistudio.alphapulse.data.db.AppDatabase as AlphaDatabase
 import com.aistudio.alphapulse.data.local.DatabaseRepository
+import com.aistudio.alphapulse.data.local.ExecutionModeStore
 import com.aistudio.alphapulse.data.model.AuditLogAction
 import com.aistudio.alphapulse.data.model.AuditLogEntry
 import com.aistudio.alphapulse.data.model.BacktestMetrics
@@ -137,6 +138,12 @@ data class MainUiState(
     val isLiveUniverse: Boolean = false,
     /** §36: user tapped a live mode while no API session is unlocked — show the gate dialog. */
     val isLiveModeBlocked: Boolean = false,
+    /**
+     * C-63: why the last mode switch was refused, or null when it was accepted. This is
+     * the sentence the workspace dialog renders — the refusal used to be recorded and
+     * never shown, which made every mode but Paper look dead.
+     */
+    val modeRefusal: String? = null,
     /** Real Binance futures wallet (USDT) once a live session is unlocked; null in paper. */
     val liveWalletUsd: Double? = null,
     /** Per-client-order display records reported by the live coordinator. */
@@ -167,6 +174,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Paper-wallet config persistence (non-sensitive numbers only; Spec §5). */
     private val paperPrefs = application.getSharedPreferences("paper_wallet_prefs", Context.MODE_PRIVATE)
+
+    /** C-63: the one persisted execution mode; a restart restores what was chosen. */
+    private val executionModeStore = ExecutionModeStore.from(application)
+
+    /** C-62: AlphaPulse's selection, shared with this engine instead of re-chosen here. */
+    private val selectionStore = WorkspaceSelectionStore.shared
 
     private val marketDataRepo = MarketDataRepository()
     private val universeScreener = UniverseScreener(db.candleDao())
@@ -288,13 +301,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // C-60: the configured floor is live before the first evaluation, so no gate ever
         // runs on a default the operator has already changed in a previous session.
         Thresholds.install(thresholdStore.load())
-        _uiState.value = _uiState.value.copy(thresholds = Thresholds.current())
+        // C-63: restore the persisted mode, but never restore a live mode whose
+        // prerequisites no longer hold — that is a silent refusal the operator cannot see.
+        val restoredMode = executionModeStore.load()
+        val restoredDecision = ExecutionModeGate.evaluate(
+            restoredMode,
+            hasActiveSession = sessionManager.hasValidActiveSession(),
+            preLaunchUnlocked = proactiveCycle.preLaunchVerdict().unlocked
+        )
+        _uiState.value = _uiState.value.copy(
+            thresholds = Thresholds.current(),
+            executionMode = if (restoredDecision.allowed) restoredMode else ExecutionMode.PAPER
+        )
         applyStoredPaperWallet()
         loadInitialData()
         observeAuditLogs()
+        observeWorkspaceSelection()
         runPreFlightDiagnostics()
         startDormantUniversePolling()
         startDiagnosticsPolling()
+    }
+
+    /**
+     * C-62: follow AlphaPulse's one selection.
+     *
+     * The workspace no longer mirrors two competing sources: AlphaPulse publishes the
+     * coin its institutional screen selected and this engine adopts exactly that coin.
+     */
+    private fun observeWorkspaceSelection() {
+        viewModelScope.launch {
+            selectionStore.selectedSymbol.collect { symbol ->
+                if (symbol.isNullOrBlank()) return@collect
+                if (_uiState.value.selectedAsset?.symbol == symbol) return@collect
+                adoptScreenedUniverse(symbol)
+            }
+        }
     }
 
     /**
@@ -332,12 +373,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // §5 Heavy Data: pull the real (or cached) universe in the background, but paint
         // the UI immediately from the offline seed so first frame is never blank.
         val initialAssets = marketDataRepo.getInitialUniverse()
-        val defaultAsset = initialAssets.first()
+        // C-62: paint and settle on the operator's coin, not on the seed's first row.
+        val selectedNow = selectionStore.selectedSymbol.value
+        val defaultAsset = WorkspaceSelection.resolveSymbol(selectedNow, initialAssets.map { it.symbol })
+            ?.let { symbol -> initialAssets.first { it.symbol == symbol } }
+            ?: initialAssets.first()
 
         viewModelScope.launch {
             val snapshot = runCatching { liveProvider.loadUniverseOnce { alphaPulseUniverseSnapshot() } }
                 .getOrDefault(UniverseSnapshot(initialAssets, isLive = false))
-            val chosen = snapshot.assets.firstOrNull() ?: defaultAsset
+            val wanted = selectionStore.selectedSymbol.value
+            val chosen = if (wanted == null) {
+                snapshot.assets.firstOrNull() ?: defaultAsset
+            } else {
+                snapshot.assets.firstOrNull { it.symbol == wanted }
+            }
+            // The selected coin is not in this universe yet (it is screened but has not
+            // been admitted, or the universe has not loaded). Reload it rather than
+            // repointing the desk at another coin.
+            if (chosen == null) {
+                adoptScreenedUniverse(wanted ?: return@launch)
+                return@launch
+            }
             applyUniverseAndRecompute(snapshot.assets, chosen, snapshot.isLive)
         }
 
@@ -436,13 +493,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Phase 4: preserve reconciled fills, then run the staging gate (§22 step 7, §36).
         val merged = mergeFillState(planned, _uiState.value.campaigns)
         val gatedCampaigns = gateAndLog(merged)
+        // C-62: a refresh may re-plan the book; it must not close the board the operator
+        // was inspecting. The selection is kept by id, falling back to the leading board
+        // only when that board no longer exists.
+        val inspectedBoardId = WorkspaceSelection.keepCampaign(
+            _uiState.value.selectedCampaign?.id,
+            gatedCampaigns.map { it.id }
+        )
         _uiState.value = _uiState.value.copy(
             assets = universe,
             selectedAsset = chosen,
             levelMap = map,
             paths = candidatePaths,
             campaigns = gatedCampaigns,
-            selectedCampaign = gatedCampaigns.firstOrNull(),
+            selectedCampaign = gatedCampaigns.firstOrNull { it.id == inspectedBoardId },
             liveEvidence = evidence,
             calibration = calibration,
             isLiveUniverse = isLive,
@@ -530,6 +594,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val evidence = liveProvider.buildEvidenceFrame(asset)
         val gatedPlanned = gateAndLog(mergeFillState(planned, _uiState.value.campaigns))
 
+        // C-62: the engine's own selection is a selection too, recorded in the one store.
+        selectionStore.select(asset.symbol)
+
         _uiState.value = _uiState.value.copy(
             selectedAsset = asset,
             levelMap = map,
@@ -571,6 +638,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun adoptScreenedUniverse(symbol: String) {
         if (symbol.isBlank()) return
+        selectionStore.select(symbol)
         if (_uiState.value.assets.any { it.symbol == symbol }) {
             selectAsset(symbol)
             return
@@ -631,7 +699,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissLiveModeGate() {
-        _uiState.value = _uiState.value.copy(isLiveModeBlocked = false)
+        _uiState.value = _uiState.value.copy(isLiveModeBlocked = false, modeRefusal = null)
     }
 
     /**
@@ -652,22 +720,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setExecutionMode(mode: ExecutionMode) {
         val isLiveMode = mode == ExecutionMode.CAPPED_LIVE || mode == ExecutionMode.SCALED_LIVE
-        // §36: live modes require an unlocked in-memory API session. Gate with a
-        // dialog instead of switching silently into a mode that cannot route orders.
-        if (isLiveMode && !sessionManager.hasValidActiveSession()) {
-            _uiState.value = _uiState.value.copy(isLiveModeBlocked = true)
+        // §36/§38: one gate decides and one sentence explains. The refusal used to be
+        // stored in `isLiveModeBlocked` and never rendered, so every mode but Paper
+        // looked like it did nothing.
+        val decision = ExecutionModeGate.evaluate(
+            mode = mode,
+            hasActiveSession = sessionManager.hasValidActiveSession(),
+            preLaunchUnlocked = preLaunchVerdict().unlocked
+        )
+        if (!decision.allowed) {
+            _uiState.value = _uiState.value.copy(
+                isLiveModeBlocked = true,
+                modeRefusal = decision.refusal
+            )
             viewModelScope.launch {
                 repository.logAction(
                     asset = _uiState.value.selectedAsset?.symbol ?: "ALL",
                     campaignId = "MODE_SWITCH",
                     action = AuditLogAction.CAMPAIGN_STAGED,
                     reasonCode = "LIVE_MODE_GATE",
-                    message = "${mode.displayName} requires an active API session. Open Guardrails to enter your key."
+                    message = decision.refusal ?: "${mode.displayName} is not available"
                 )
             }
             return
         }
-        _uiState.value = _uiState.value.copy(executionMode = mode)
+        // C-63: a mode that was accepted is a setting, not a process variable.
+        executionModeStore.save(mode)
+        _uiState.value = _uiState.value.copy(
+            executionMode = mode,
+            isLiveModeBlocked = false,
+            modeRefusal = null
+        )
         if (isLiveMode) startLiveWalletPolling()
         viewModelScope.launch {
             repository.logAction(

@@ -7,6 +7,47 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.9] — 2026-11-25
+
+One workspace, one coin, every mode reachable, and the Audit tab reads like a ledger.
+
+### Fixed
+
+- **The Dashboard now inspects the coin AlphaPulse selected (C-62).** The two screens had two
+  selections: AlphaPulse booted from the cache's first row while the campaign engine chose the
+  first row of its own universe, and a tab tap launched a second activity with a second pair of
+  view models, re-running the screening boot under the operator. The selection is now one
+  process-wide `WorkspaceSelectionStore`: AlphaPulse publishes it, the engine adopts it, a
+  universe refresh keeps it (the first-row fallbacks are gone), and `WorkspaceSelection.resolveSymbol`
+  makes "the selected coin, never a substitute" a single tested rule.
+- **Switching tabs no longer interrupts the desk (C-62).** `MainActivity` mounts the workspace in
+  the same composition as the analysis screen once the module is installed, so a tab switch is
+  local state instead of `FLAG_ACTIVITY_NEW_TASK`. The tab and coin are saveable across rotation,
+  each tab body is retained through `rememberSaveableStateHolder`, and a refresh keeps the
+  inspected board by id instead of resetting to the book's first board.
+- **Every execution mode switches, or says why it cannot (C-63).** Shadow and Paper previously
+  changed the pill and nothing else, and the live-mode refusal was recorded but never rendered.
+  `ExecutionModeGate` now decides, the workspace shows the refusal in a dialog, a mode banner
+  states what the active mode does, and the accepted mode is persisted across launches.
+- **Paper mode is no longer suppressed by venue latency (C-63).** `VenueHealth.isHealthy` folded a
+  stale feed, a Binance latency spike, an unreachable optional CoinGlass feed and device power
+  state into one refusal, so every Paper board was logged as `STAGING_GATE_PAPER / Venue or
+  hardware health guardrail tripped`. `VenueHealthVerdict` keeps a stale feed hard for every mode,
+  keeps latency/power/thermal/memory hard for the live modes, and reports them as advisories in
+  Shadow and Paper — which route nothing.
+- **The Audit tab is a pinned ledger, not 200 cards (C-64).** One header with `shown/total` counts,
+  one filter row (`ALL` / `ORDERS` / `RISK` / `OPERATOR` / `SYSTEM`) with per-scope counts, and one
+  `LazyColumn` table whose `TIME`/`ACTION` columns stay pinned while `SYMBOL`/`REASON`/`MESSAGE`
+  share a scroll. Tapping a row opens its full message.
+
+### Added
+
+- `ui/WorkspaceSelection.kt`, `ui/ExecutionModeGate.kt`, `data/local/ExecutionModeStore.kt`,
+  `engine/VenueHealthVerdict.kt`, `ui/AuditLedgerPresentation.kt`.
+- Guard specs `WorkspaceSelectionBddSpec`, `SingleWorkspaceHostBddSpec`, `TabStateRetentionBddSpec`,
+  `LiveModeGateBddSpec`, `VenueHealthStagingBddSpec`, `AuditLedgerPresentationBddSpec` and
+  `AuditLedgerLayoutBddSpec`; the registry is pinned through C-64.
+
 ## [19.8] — 2026-11-24
 
 Evidence expires now: a rate from outside its in-force window is refused everywhere, and the window is a setting.

@@ -3,6 +3,7 @@ package com.aistudio.alphapulse.engine
 import com.aistudio.alphapulse.data.model.Campaign
 import com.aistudio.alphapulse.data.model.CampaignFamily
 import com.aistudio.alphapulse.data.model.CampaignState
+import com.aistudio.alphapulse.data.model.ExecutionMode
 import com.aistudio.alphapulse.data.model.RiskEnvelope
 import com.aistudio.alphapulse.data.model.VenueHealth
 import kotlin.math.abs
@@ -44,11 +45,16 @@ class RiskEngine {
     /**
      * Checks if new campaign violates symbol or gross exposure caps
      */
+    /**
+     * @param mode C-63: venue and hardware health block live routing, not planning. The
+     *   default keeps every existing planning caller on the same behaviour it had.
+     */
     fun validateCampaignStaging(
         newCampaign: Campaign,
         existingCampaigns: List<Campaign>,
         riskEnvelope: RiskEnvelope,
-        venueHealth: VenueHealth
+        venueHealth: VenueHealth,
+        mode: ExecutionMode = ExecutionMode.PAPER
     ): Pair<Boolean, String?> {
         if (riskEnvelope.isKillSwitchEngaged) {
             return Pair(false, "Emergency Kill-Switch is ENGAGED. Order placement locked.")
@@ -56,8 +62,11 @@ class RiskEngine {
         if (riskEnvelope.isDailyLossExceeded) {
             return Pair(false, "Daily loss limit (${riskEnvelope.dailyLossLimitR}R) hit. Automation paused.")
         }
-        if (!venueHealth.isHealthy) {
-            return Pair(false, "Venue or hardware health guardrail tripped (Check Diagnostics).")
+        // C-63: only a genuine block refuses here. Latency, power and memory are
+        // advisories in the planning modes, because those modes route nothing.
+        val venue = VenueHealthVerdict.assess(venueHealth, mode)
+        if (!venue.canStage) {
+            return Pair(false, venue.hardBlock ?: "Venue health guardrail tripped (Check Diagnostics).")
         }
 
         // Section 20 Exposure Safety Rules:

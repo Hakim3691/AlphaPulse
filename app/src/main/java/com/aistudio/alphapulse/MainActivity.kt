@@ -35,13 +35,23 @@ import com.aistudio.alphapulse.engine.proactive.ProactiveEvidenceRuntime
 import com.aistudio.alphapulse.service.AlphaPulseService
 import com.aistudio.alphapulse.ui.AlphaPulseScreen
 import com.aistudio.alphapulse.ui.AppShell
-import com.aistudio.alphapulse.ui.ProactiveMsTab
+import com.aistudio.alphapulse.ui.MainViewModel
+import com.aistudio.alphapulse.ui.ProactiveWorkspaceScreen
 import com.aistudio.alphapulse.ui.theme.MyApplicationTheme
 import com.aistudio.alphapulse.ui.viewmodel.AlphaPulseViewModel
 
 class MainActivity : ComponentActivity() {
 
     private val viewModel: AlphaPulseViewModel by viewModels()
+
+    /**
+     * C-62: the workspace's campaign engine lives in this activity too.
+     *
+     * It is created lazily — only the installed branch below touches it — so the paid
+     * engine is still not mounted for an unentitled user, and the AlphaPulse screen is
+     * never given it (C-22/C-33).
+     */
+    private val workspaceViewModel: MainViewModel by viewModels()
 
     /**
      * §38 base-view evidence: rendered frame durations of the analysis screen. The
@@ -94,34 +104,38 @@ class MainActivity : ComponentActivity() {
                 val installState by traderManager.installState.collectAsStateWithLifecycle()
                 val downloadProgress by traderManager.downloadProgress.collectAsStateWithLifecycle()
 
-                AppShell(
-                    installState = installState,
-                    downloadProgress = downloadProgress,
-                    onUnlockTrader = {
-                        if (installState == ModuleInstallState.NOT_INSTALLED ||
-                            installState == ModuleInstallState.ENTITLEMENT_REQUIRED
-                        ) {
-                            // The simulated Play sheet persists the entitlement and
-                            // starts the download progression.
-                            traderManager.requestPurchaseSimulation(this@MainActivity) { }
-                        } else {
-                            traderManager.startDynamicDownloadSimulation()
-                        }
-                    },
-                    onTraderTab = {
-                        // A WAITING tab is inert: launching before INSTALLED is a
-                        // no-op, never a crash or a half-installed dashboard.
-                        traderManager.launchTraderDashboard(this@MainActivity)
-                    },
-                    onSelectTab = { tab ->
-                        // C-57: the shared bar launches the requested tab. AlphaPulse
-                        // is this screen already, so only a workspace tab navigates.
-                        if (tab != ProactiveMsTab.ALPHA_PULSE) {
-                            traderManager.launchTraderTab(this@MainActivity, tab.name)
-                        }
+                if (installState == ModuleInstallState.INSTALLED) {
+                    // C-62: one host. The workspace renders in this activity, over the
+                    // same AlphaPulse view model and the campaign engine, so switching a
+                    // tab is a state change — not a new activity with a second boot, a
+                    // second view model and a lost forecast.
+                    ProactiveWorkspaceScreen(
+                        viewModel = workspaceViewModel,
+                        alphaPulseViewModel = viewModel
+                    )
+                } else {
+                    AppShell(
+                        installState = installState,
+                        downloadProgress = downloadProgress,
+                        onUnlockTrader = {
+                            if (installState == ModuleInstallState.NOT_INSTALLED ||
+                                installState == ModuleInstallState.ENTITLEMENT_REQUIRED
+                            ) {
+                                // The simulated Play sheet persists the entitlement and
+                                // starts the download progression.
+                                traderManager.requestPurchaseSimulation(this@MainActivity) { }
+                            } else {
+                                traderManager.startDynamicDownloadSimulation()
+                            }
+                        },
+                        // The installed workspace is this same composition now, so the
+                        // bar never launches a second host; the VIP slot only appears
+                        // before installation, where it is inert by design.
+                        onTraderTab = {},
+                        onSelectTab = { }
+                    ) {
+                        AlphaPulseScreen(viewModel = viewModel)
                     }
-                ) {
-                    AlphaPulseScreen(viewModel = viewModel)
                 }
             }
         }

@@ -121,7 +121,10 @@ class OrderStager(private val riskEngine: RiskEngine = RiskEngine()) {
         }
 
         for (campaign in campaigns) {
-            val (allowed, reason) = riskEngine.validateCampaignStaging(campaign, campaigns, envelope, venueHealth)
+            // C-63: this is the live routing path, so health is judged as a live mode.
+            val (allowed, reason) = riskEngine.validateCampaignStaging(
+                campaign, campaigns, envelope, venueHealth, mode
+            )
             if (!allowed) {
                 campaign.entryLadder.forEach { slice ->
                     rejections += rejection(

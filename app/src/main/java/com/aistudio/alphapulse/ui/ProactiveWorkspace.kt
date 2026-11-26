@@ -16,16 +16,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aistudio.alphapulse.data.model.Campaign
 import com.aistudio.alphapulse.data.model.ExecutionMode
 import com.aistudio.alphapulse.engine.SimulationScenario
+import com.aistudio.alphapulse.engine.VenueHealthVerdict
 import com.aistudio.alphapulse.domain.campaign.LayeredEvidencePresentation
 import com.aistudio.alphapulse.domain.campaign.ThresholdField
 import com.aistudio.alphapulse.domain.campaign.ThresholdPresentation
@@ -98,7 +105,9 @@ data class ProactiveWorkspaceActions(
     /** C-60: step one configured threshold by [delta] (ignored for a reset). */
     val onAdjustThreshold: (ThresholdField, Int) -> Unit = { _, _ -> },
     /** C-60: return the configuration to exactly 85.0% / 20 settled samples. */
-    val onResetThresholds: () -> Unit = {}
+    val onResetThresholds: () -> Unit = {},
+    /** C-63: close a mode refusal after reading why the mode did not switch. */
+    val onDismissLiveModeGate: () -> Unit = {}
 )
 
 /**
@@ -124,6 +133,12 @@ object ProactiveWorkspaceTags {
     const val PRE_LAUNCH_GATE = "proactive_pre_launch_gate"
     /** C-58: which of PRICE / PATTERN / STRATEGY are live for the inspected coin. */
     const val LAYERED_EVIDENCE = "guardrails_layered_evidence"
+
+    /** C-63: what the active execution mode does, and the advisories in force. */
+    const val MODE_BANNER = "mode_banner"
+
+    /** C-63: why a mode switch was refused. */
+    const val MODE_REFUSAL = "mode_refusal_dialog"
 
     /** C-60: the configured floor and sample floors the gate is applying. */
     const val THRESHOLDS = "guardrails_thresholds"
@@ -202,11 +217,20 @@ fun ProactiveWorkspaceScreen(
                 )
             )
 
+            // C-63: every mode says what it does. Shadow and Paper used to look like
+            // dead switches because nothing on screen changed when they were selected.
+            ModeBanner(state = state)
+
             // C-22: there is no second coin selector. AlphaPulse's institutional screen
             // picks the coin for every tab, so the workspace carries no symbol strip and
             // the retired `Screener` tab's mid-cap list is gone with it.
+            val tabStates = rememberSaveableStateHolder()
             Box(modifier = Modifier.fillMaxSize().weight(1f)) {
-                when (workspace.activeTab) {
+                // C-62: each tab keeps its own remembered state — scroll position,
+                // expanded card, open detail — across a tab switch, because the body is
+                // retained rather than rebuilt from scratch.
+                tabStates.SaveableStateProvider(workspace.activeTab.name) {
+                    when (workspace.activeTab) {
                     // C-22: the AlphaPulse tab is AlphaPulse, not a summary of it — its
                     // analysis body, under this workspace's single header and insets.
                     ProactiveMsTab.ALPHA_PULSE -> alphaPulseTab()
@@ -241,10 +265,17 @@ fun ProactiveWorkspaceScreen(
                     )
 
                     ProactiveMsTab.AUDIT -> ProactiveAuditTab(entries = state.auditLogs)
+                    }
                 }
             }
         }
     }
+
+    ModeRefusalDialog(
+        isOpen = state.isLiveModeBlocked,
+        refusal = state.modeRefusal,
+        onDismiss = actions.onDismissLiveModeGate
+    )
 
     ManualOverrideDialog(
         isOpen = state.isOverrideDialogOpen,
@@ -268,26 +299,28 @@ fun ProactiveWorkspaceScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     // C-57: the shared bar launches a *specific* tab, so the host hands the requested
-    // tab in rather than every cross-host launch landing on AlphaPulse.
-    var workspace by remember {
+    // tab in rather than every cross-host launch landing on AlphaPulse. C-62: the tab and
+    // the coin are one saveable value, so a rotation no longer strands the desk on
+    // AlphaPulse with no coin.
+    var workspace by rememberSaveable(
+        stateSaver = listSaver(
+            save = { value -> value.toSaveable() },
+            restore = { saved -> ProactiveMsWorkspaceState.fromSaveable(saved) }
+        )
+    ) {
         mutableStateOf(ProactiveMsWorkspaceState(activeTab = initialTab ?: ProactiveMsTab.ALPHA_PULSE))
     }
 
-    // The engine is the source of truth for the universe and the inspected coin. The
-    // workspace only mirrors it, so a selection can never drift between them.
-    LaunchedEffect(state.selectedAsset?.symbol) {
-        val symbol = state.selectedAsset?.symbol ?: return@LaunchedEffect
-        workspace = workspace.selectSymbol(symbol)
-    }
-
-    // C-22: AlphaPulse is the one coin selector. A coin chosen in its institutional
-    // screen becomes the workspace's coin *and* the campaign engine's asset, so every
-    // tab works from the screened universe rather than from a second picker.
+    // C-62: AlphaPulse is the one coin selector and the *only* source the workspace
+    // mirrors. The engine's own asset was a second source: that effect re-ran on every
+    // mount after the workspace reopened, which is how a tab switch could repoint the
+    // coin the operator had chosen.
     val alphaPulseState by alphaPulseViewModel.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(alphaPulseState.selectedSymbol) {
         val symbol = alphaPulseState.selectedSymbol
         if (symbol.isBlank()) return@LaunchedEffect
         workspace = workspace.selectSymbol(symbol)
+        WorkspaceSelectionStore.shared.select(symbol)
         if (state.selectedAsset?.symbol != symbol) viewModel.adoptScreenedUniverse(symbol)
     }
 
@@ -330,7 +363,8 @@ fun ProactiveWorkspaceScreen(
             onRunScenario = viewModel::runSimulationScenario,
             onRunReplay = { baseline -> viewModel.runReplay(baseline) },
             onAdjustThreshold = viewModel::adjustThresholds,
-            onResetThresholds = viewModel::resetThresholds
+            onResetThresholds = viewModel::resetThresholds,
+            onDismissLiveModeGate = viewModel::dismissLiveModeGate
         ),
         alphaPulseTab = { AlphaPulseScreenContent(viewModel = alphaPulseViewModel) }
     )
@@ -359,6 +393,72 @@ fun mountProactiveWorkspace(
             )
         }
     }
+}
+
+/**
+ * C-63: what the active mode does, plus the venue advisories in force.
+ *
+ * The banner is the reason Shadow and Paper no longer look inert: selecting them changes
+ * what the desk says it is doing, in the same place every tab can see.
+ */
+@Composable
+private fun ModeBanner(state: MainUiState) {
+    val tone = Color(state.executionMode.badgeColorHex)
+    val advisories = VenueHealthVerdict.assess(state.venueHealth, state.executionMode).advisories
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, top = 6.dp)
+            .background(tone.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+            .border(1.dp, tone.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .testTag(ProactiveWorkspaceTags.MODE_BANNER)
+    ) {
+        Text(
+            text = ExecutionModeGate.banner(state.executionMode),
+            color = tone,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace
+        )
+        advisories.forEach { advisory ->
+            Text(
+                text = "ADVISORY · $advisory",
+                color = AmberWarning,
+                fontSize = 8.sp,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(top = 3.dp)
+            )
+        }
+    }
+}
+
+/** The refused mode switch: the mode did not change, and this says why. */
+@Composable
+private fun ModeRefusalDialog(isOpen: Boolean, refusal: String?, onDismiss: () -> Unit) {
+    if (!isOpen || refusal.isNullOrBlank()) return
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag(ProactiveWorkspaceTags.MODE_REFUSAL),
+        containerColor = CardBackground,
+        title = {
+            Text(
+                text = "MODE NOT AVAILABLE",
+                color = AmberWarning,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        },
+        text = {
+            Text(text = refusal, color = SlateTextSecondary, fontSize = 11.sp)
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(text = "OK", color = CyanAccent, fontSize = 11.sp)
+            }
+        }
+    )
 }
 
 /**

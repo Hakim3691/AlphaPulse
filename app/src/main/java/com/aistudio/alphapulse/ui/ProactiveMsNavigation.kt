@@ -55,8 +55,26 @@ data class ProactiveMsWorkspaceState(
         return copy(activeSymbol = symbol)
     }
 
+    /**
+     * C-62: the state as one saveable list.
+     *
+     * The workspace used a plain `remember`, so a rotation put the desk back on
+     * AlphaPulse with no coin. Tab and coin are the whole state, so they are the whole
+     * saved payload.
+     */
+    fun toSaveable(): List<Any?> = listOf(activeTab.name, activeSymbol)
+
     companion object {
         /** The rendered tab order, for the bottom bar and for the UI contract test. */
         val TAB_ORDER: List<ProactiveMsTab> = ProactiveMsTab.entries.toList()
+
+        /** Restores [toSaveable]; an unknown tab name falls back to AlphaPulse. */
+        fun fromSaveable(saved: List<Any?>): ProactiveMsWorkspaceState {
+            val tab = (saved.getOrNull(0) as? String)
+                ?.let { name -> ProactiveMsTab.entries.firstOrNull { it.name == name } }
+                ?: ProactiveMsTab.ALPHA_PULSE
+            val symbol = (saved.getOrNull(1) as? String)?.takeIf { it.isNotBlank() }
+            return ProactiveMsWorkspaceState(activeTab = tab, activeSymbol = symbol)
+        }
     }
 }

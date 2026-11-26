@@ -31,6 +31,8 @@ import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.domain.screener.ScreenedUniverseRevalidation
 import com.aistudio.alphapulse.domain.screener.UniverseRefreshOutcome
+import com.aistudio.alphapulse.ui.WorkspaceSelection
+import com.aistudio.alphapulse.ui.WorkspaceSelectionStore
 import com.aistudio.alphapulse.ui.model.AppMode
 import com.aistudio.alphapulse.data.repository.AlphaPulseRepository
 import com.aistudio.alphapulse.data.repository.DecisionLedgerJoin
@@ -239,6 +241,13 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
     private var countdownJob: Job? = null
     private var calibrationJob: Job? = null
     private val sessionStartTimestamp = System.currentTimeMillis()
+
+    /**
+     * C-62: this screen is the workspace's only selector, so its pick is published to the
+     * one store the campaign engine reads. It also boots from that store, so reopening
+     * the app (or the workspace) no longer re-selects the cache's first row.
+     */
+    private val selectionStore = WorkspaceSelectionStore.shared
 
     init {
         ModelDownloadStore.init(application)
@@ -502,21 +511,31 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
             // Instant startup from the Room cache, with its age.
             val cached = repository.loadCachedScreenedUniverse()
             if (cached != null) {
-                val firstCoin = cached.coins.first()
-                _uiState.update {
-                    it.copy(
-                        screenedCoins = cached.coins,
-                        selectedSymbol = firstCoin.symbol,
-                        spotPrice = firstCoin.lastPrice,
-                        spotChange = firstCoin.priceChangePercent,
-                        high24h = firstCoin.highPrice,
-                        low24h = firstCoin.lowPrice,
-                        isReady = true
-                    )
+                // C-62: keep the coin the operator already chose. The cache's first row is
+                // the starting coin only when nothing has been selected at all.
+                val selected = selectionStore.selectedSymbol.value
+                val firstCoin = WorkspaceSelection
+                    .resolveSymbol(selected, cached.coins.map { it.symbol })
+                    ?.let { symbol -> cached.coins.first { it.symbol == symbol } }
+                if (firstCoin != null) {
+                    selectionStore.select(firstCoin.symbol)
+                    _uiState.update {
+                        it.copy(
+                            screenedCoins = cached.coins,
+                            selectedSymbol = firstCoin.symbol,
+                            spotPrice = firstCoin.lastPrice,
+                            spotChange = firstCoin.priceChangePercent,
+                            high24h = firstCoin.highPrice,
+                            low24h = firstCoin.lowPrice,
+                            isReady = true
+                        )
+                    }
+                    repository.wsManager.connect(firstCoin.symbol)
+                    startAssetCycle()
+                    calibrateSelectedCoin(firstCoin.symbol)
+                } else {
+                    _uiState.update { it.copy(screenedCoins = cached.coins, isReady = true) }
                 }
-                repository.wsManager.connect(firstCoin.symbol)
-                startAssetCycle()
-                calibrateSelectedCoin(firstCoin.symbol)
 
                 if (!forceRefresh && cached.isFresh(System.currentTimeMillis())) {
                     _uiState.update { it.copy(pipelineRunning = false, pipelineProgress = 1.0f) }
@@ -583,11 +602,17 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
                 )
             }
 
-            // Auto-select top-ranked coin if not already selected or if universe updated
+            // C-62: a refresh may update the inspected coin, never repoint the desk at
+            // another one. The top-ranked coin is chosen only when nothing is selected.
             if (screened.isNotEmpty()) {
                 val current = _uiState.value.selectedSymbol
-                if (current.isBlank() || screened.none { it.symbol == current }) {
-                    selectCoin(screened.first().symbol)
+                val preferred = WorkspaceSelection.resolveSymbol(
+                    current.takeIf { it.isNotBlank() },
+                    screened.map { it.symbol }
+                )
+                when {
+                    preferred != null && preferred != current -> selectCoin(preferred)
+                    preferred == null && current.isBlank() -> selectCoin(screened.first().symbol)
                 }
             }
         }
@@ -595,6 +620,8 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
 
     fun selectCoin(symbol: String) {
         val coin = _uiState.value.screenedCoins.find { it.symbol == symbol } ?: return
+        // C-62: the workspace's one selection is written here and read by the engine.
+        selectionStore.select(symbol)
         _uiState.update { it.withSelection(symbol, coin) }
         repository.wsManager.connect(symbol)
         startAssetCycle()
