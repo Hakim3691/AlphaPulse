@@ -221,6 +221,7 @@ private fun AlphaPulseAnalysis(
                 alphaVah = uiState.alphaVah,
                 alphaVal = uiState.alphaVal,
                 chartPoints = uiState.chartPoints,
+                spotPrice = uiState.spotPrice,
                 mountedModelIds = uiState.mountedModelIds
             )
 
@@ -230,7 +231,8 @@ private fun AlphaPulseAnalysis(
                 horizonFilter = uiState.horizonFilter,
                 onFilterChange = { viewModel.setHorizonFilter(it) },
                 onClearClick = { viewModel.clearLedger() },
-                onExportClick = { viewModel.exportAndShareAuditCsv() }
+                onExportClick = { viewModel.exportAndShareAuditCsv() },
+                catalogueIdeas = TradeIdeasCatalog.all
             )
 
             // §73 Secondary Pattern Prediction & Learning Ledger. Mounted directly
@@ -241,7 +243,8 @@ private fun AlphaPulseAnalysis(
                 horizonFilter = uiState.horizonFilter,
                 onFilterChange = { viewModel.setHorizonFilter(it) },
                 onExportClick = { viewModel.exportPatternLedgerCsv() },
-                onClearClick = { viewModel.clearPatternLedger() }
+                onClearClick = { viewModel.clearPatternLedger() },
+                catalogueIdeas = TradeIdeasCatalog.all
             )
 
             // Decisions Ledger — the §29 verdicts, graded against the price ledger's
@@ -259,12 +262,12 @@ private fun AlphaPulseAnalysis(
             // bars as the ledgers above, so the board never disagrees about history.
             QuantStrategyBoardSection(
                 screenerSignals = uiState.screenerSignals,
-                strategySignals = uiState.strategySignals
+                strategySignals = uiState.strategySignals,
+                catalogueIdeas = TradeIdeasCatalog.all
             )
 
-            // §3.1: the taxonomy the engine selects from, browsable by its four
-            // categories with a persisted Favorites tab.
-            TradeIdeasCatalogSection(ideas = TradeIdeasCatalog.all)
+            // C-66: the 44-setup catalogue is no longer a detached 44-row scroller; each
+            // of the PRICE, PATTERN and STRATEGY ledgers opens its own slice above.
 
             Spacer(modifier = Modifier.height(16.dp))
 

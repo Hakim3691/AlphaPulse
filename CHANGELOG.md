@@ -7,6 +7,33 @@ disagree about what shipped.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the app's
 own `versionName` (`1.0.<versionCode>+<sha>`), which is stamped by CI.
 
+## [19.10] — 2026-11-28
+
+The defects found on the shipped v1.0.38 build are fixed: the forecast no longer reports
+NaN, the catalogue is reachable from the ledgers, Guardrails scrolls, and the emergency
+controls say what they do.
+
+### Fixed
+
+- **Forecasts are withheld instead of zero-filled (C-65).** With no usable live price the
+  cycle ran the ensemble against `currentSpot = 0.0`, so every horizon card showed `$0.00000`
+  and `▲NaN%`, and the trajectory chart drew an empty `1.0..2.0` grid. `ForecastAvailabilityPolicy`
+  now gates the horizon loop and forward chart points on a positive finite spot, and both
+  accordions render a named withheld state; the delta pill can no longer print `NaN%`.
+- **All 44 catalogue setups are reachable from the ledgers (C-66).** The standalone 44-row
+  catalogue card is gone. The price, pattern and strategy ledgers each carry an info action
+  that opens their own slice — 8 indicator, 27 pattern and 9 quant setups — with regimes and
+  published baselines, partitioning the catalogue exactly once.
+- **Guardrails scrolls to the session controls (C-67).** The gate cards are now items of the
+  same `LazyColumn` as the risk envelope and Session API Key Manager, so the API key and secret
+  fields and the start-session button are reachable on a phone. Capped Live and Scaled Live were
+  never removed; they were refused because no session could be unlocked. Capped Live now unlocks
+  with a session, and Scaled Live still honestly requires the §38 pre-launch gate.
+- **The emergency controls are legible and both work (C-68).** The kill switch is labelled
+  `KILL-SWITCH · ARMED`/`ENGAGED` and asks for confirmation before changing state; the adjacent
+  control is labelled `ORPHAN ORDER GUARD` and now opens the orphan intercept, which only the
+  retired host used to observe.
+
 ## [19.9] — 2026-11-25
 
 One workspace, one coin, every mode reachable, and the Audit tab reads like a ledger.

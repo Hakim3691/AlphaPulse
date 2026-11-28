@@ -21,7 +21,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,10 +35,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aistudio.alphapulse.domain.catalogue.CatalogueLedger
+import com.aistudio.alphapulse.domain.catalogue.CatalogueLedgerInfo
+import com.aistudio.alphapulse.domain.catalogue.TradeIdea
+import com.aistudio.alphapulse.domain.catalogue.TradeIdeasCatalog
 import com.aistudio.alphapulse.domain.presentation.StrategyConflicts
 import com.aistudio.alphapulse.domain.presentation.StrategyLevels
 import com.aistudio.alphapulse.domain.presentation.ZoneMetadata
@@ -70,13 +78,26 @@ fun QuantStrategyBoardSection(
     screenerSignals: List<ScreenerSignal>,
     strategySignals: List<StrategySignal>,
     /** `SHOW ALL` is off by default: FLAT setups are noise until the user asks. */
-    initiallyShowAll: Boolean = false
+    initiallyShowAll: Boolean = false,
+    /** C-66: the quant catalogue the board evaluates, shown from its info action. */
+    catalogueIdeas: List<TradeIdea> = emptyList()
 ) {
     var showAll by remember { mutableStateOf(initiallyShowAll) }
+    var catalogueOpen by remember { mutableStateOf(false) }
+    val catalogue = catalogueIdeas.ifEmpty { TradeIdeasCatalog.all }
     val visibleStrategies = if (showAll) {
         strategySignals
     } else {
         strategySignals.filter { it.direction != SignalDirection.NEUTRAL }
+    }
+
+    if (catalogueOpen) {
+        CatalogueInfoDialog(
+            isOpen = true,
+            ledger = CatalogueLedger.STRATEGY,
+            ideas = CatalogueLedgerInfo.ideasFor(CatalogueLedger.STRATEGY, catalogue),
+            onDismiss = { catalogueOpen = false }
+        )
     }
 
     Column(
@@ -105,6 +126,15 @@ fun QuantStrategyBoardSection(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = "Trade ideas behind this ledger",
+                    tint = BrandAccent,
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clickable { catalogueOpen = true }
+                        .testTag("ledger_info_button")
+                )
                 Text(
                     text = "$active / ${strategySignals.size} ACTIVE",
                     color = BrandAmber,

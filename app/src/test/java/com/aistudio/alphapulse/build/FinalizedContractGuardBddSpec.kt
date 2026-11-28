@@ -49,8 +49,10 @@ class FinalizedContractGuardBddSpec {
         // (strategy grading), C-60 (the configured hit-rate thresholds) and C-61 (the
         // configured in-force expiry) extend the registry; C-62 (one workspace host and
         // one selection), C-63 (reachable modes with visible refusals) and C-64 (the
-        // audit ledger grammar) extend it again. No earlier row may disappear.
-        val expected = (1..64).map { "C-%02d".format(it) }.toSet()
+        // audit ledger grammar) extend it again; C-65 (forecast availability), C-66
+        // (catalogue-to-ledger access), C-67 (one scroll container on Guardrails) and
+        // C-68 (labelled emergency controls) close the 19.10 defects. No row may disappear.
+        val expected = (1..68).map { "C-%02d".format(it) }.toSet()
         assertEquals(
             "A contract row was deleted or renumbered. Removing a finalized decision is a " +
                 "deliberate commit that updates its guard scenario and this registry, never " +

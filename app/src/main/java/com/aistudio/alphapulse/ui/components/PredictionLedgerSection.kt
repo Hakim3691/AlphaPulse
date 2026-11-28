@@ -32,6 +32,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aistudio.alphapulse.data.db.PredictionEntity
+import com.aistudio.alphapulse.domain.catalogue.CatalogueLedger
+import com.aistudio.alphapulse.domain.catalogue.CatalogueLedgerInfo
+import com.aistudio.alphapulse.domain.catalogue.TradeIdea
+import com.aistudio.alphapulse.domain.catalogue.TradeIdeasCatalog
 import com.aistudio.alphapulse.domain.presentation.HorizonGroups
 import com.aistudio.alphapulse.ui.theme.*
 import com.aistudio.alphapulse.core.Formatters
@@ -50,9 +54,13 @@ fun PredictionLedgerSection(
     onClearClick: () -> Unit,
     onExportClick: () -> Unit,
     /** Settled rows are hidden by default; the toggle reveals them. */
-    initiallyShowSettled: Boolean = false
+    initiallyShowSettled: Boolean = false,
+    /** C-66: the catalogue the price ledger cites, shown from its info action. */
+    catalogueIdeas: List<TradeIdea> = emptyList()
 ) {
     var showSettled by remember { mutableStateOf(initiallyShowSettled) }
+    var catalogueOpen by remember { mutableStateOf(false) }
+    val catalogue = catalogueIdeas.ifEmpty { TradeIdeasCatalog.all }
 
     val pendingCount = predictions.count { !it.settled }
     val settledCount = predictions.count { it.settled }
@@ -84,6 +92,15 @@ fun PredictionLedgerSection(
         }
     }
 
+    if (catalogueOpen) {
+        CatalogueInfoDialog(
+            isOpen = true,
+            ledger = CatalogueLedger.PRICE,
+            ideas = CatalogueLedgerInfo.ideasFor(CatalogueLedger.PRICE, catalogue),
+            onDismiss = { catalogueOpen = false }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -93,6 +110,7 @@ fun PredictionLedgerSection(
     ) {
         LedgerHeader(
             title = "PRICE PREDICTION",
+            onInfoClick = { catalogueOpen = true },
             pendingCount = pendingCount,
             settledCount = settledCount,
             summary = hitRateText,

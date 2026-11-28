@@ -239,7 +239,7 @@ fun AlphaPulseHeader(
         }
 
         if (vip != null) {
-            // Row 3 — execution mode, emergency controls, published worst-case stop-out.
+            // Row 3 — execution mode and the published worst-case stop-out.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -249,21 +249,12 @@ fun AlphaPulseHeader(
                     executionMode = vip.executionMode,
                     onModeChange = vip.onModeChange
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    KillSwitchButton(
-                        engaged = vip.riskEnvelope.isKillSwitchEngaged,
-                        onClick = vip.onToggleKillSwitch
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    OrphanWarningButton(onClick = vip.onOpenOrphanWarning)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Stop-out ${vip.riskEnvelope.worstCaseStopOutR}R",
-                        style = MaterialThemeLabel,
-                        color = if (vip.riskEnvelope.worstCaseStopOutR > 1.2) CrimsonBear else CyanAccent,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Text(
+                    text = "Stop-out ${vip.riskEnvelope.worstCaseStopOutR}R",
+                    style = MaterialThemeLabel,
+                    color = if (vip.riskEnvelope.worstCaseStopOutR > 1.2) CrimsonBear else CyanAccent,
+                    fontWeight = FontWeight.Bold
+                )
             }
 
             // Row 4 — venue health and session security.
@@ -299,6 +290,25 @@ fun AlphaPulseHeader(
                         modifier = Modifier.size(13.dp)
                     )
                 }
+            }
+
+            // Row 5 — the two emergency controls, labelled so their function is legible at
+            // a glance. Unlabelled 28dp icon buttons were indistinguishable from decoration,
+            // and the kill switch had no visible state.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                KillSwitchButton(
+                    engaged = vip.riskEnvelope.isKillSwitchEngaged,
+                    onClick = vip.onToggleKillSwitch,
+                    modifier = Modifier.weight(1f)
+                )
+                OrphanWarningButton(
+                    onClick = vip.onOpenOrphanWarning,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
@@ -393,41 +403,67 @@ private fun ModeSelectorPill(
 }
 
 @Composable
-private fun KillSwitchButton(engaged: Boolean, onClick: () -> Unit) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier
+private fun KillSwitchButton(engaged: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
             .testTag("kill_switch_button")
-            .size(28.dp)
+            .height(30.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(if (engaged) CrimsonBear else Color(0xFF2A1519))
             .border(1.dp, CrimsonBear, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = Icons.Default.Dangerous,
-            contentDescription = "Emergency Kill Switch",
+            contentDescription = if (engaged) {
+                "Emergency kill switch engaged — tap to review reset"
+            } else {
+                "Emergency kill switch armed — tap to engage"
+            },
             tint = if (engaged) Color.White else CrimsonBear,
-            modifier = Modifier.size(16.dp)
+            modifier = Modifier.size(14.dp)
+        )
+        Text(
+            text = if (engaged) "KILL-SWITCH · ENGAGED" else "KILL-SWITCH · ARMED",
+            color = if (engaged) Color.White else CrimsonBear,
+            fontSize = 7.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
     }
 }
 
 @Composable
-private fun OrphanWarningButton(onClick: () -> Unit) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier
+private fun OrphanWarningButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
             .testTag("orphan_warning_button")
-            .size(28.dp)
+            .height(30.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(Color(0xFF2D2512))
             .border(1.dp, AmberWarning, RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = Icons.Default.Warning,
-            contentDescription = "Orphaned Order Guardrail Intercept",
+            contentDescription = "Orphaned order guard — open the intercept",
             tint = AmberWarning,
-            modifier = Modifier.size(15.dp)
+            modifier = Modifier.size(14.dp)
+        )
+        Text(
+            text = "ORPHAN ORDER GUARD",
+            color = AmberWarning,
+            fontSize = 7.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
     }
 }

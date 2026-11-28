@@ -77,6 +77,8 @@ fun RiskGuardrailsScreen(
     isDiagnosticsRunning: Boolean,
     hasLiveDiagnostics: Boolean,
     onRunDiagnostics: () -> Unit,
+    /** C-67: cards that must share this one scroll container with the guardrails. */
+    leading: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var apiKeyInput by remember { mutableStateOf("") }
@@ -89,6 +91,10 @@ fun RiskGuardrailsScreen(
             .testTag("risk_guardrails_screen"),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // C-67: the workspace's gate cards are items of this list, not a fixed header
+        // above a weighted box, so every control below them stays reachable on a phone.
+        leading?.let { header -> item { header() } }
+
         // Section Header
         item {
             Column(

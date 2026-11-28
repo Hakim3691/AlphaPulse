@@ -48,6 +48,7 @@ import com.aistudio.alphapulse.domain.campaign.ThresholdPresentation
 import com.aistudio.alphapulse.engine.proactive.ProductionExecutionConfig
 import com.aistudio.alphapulse.ui.components.AlphaPulseHeader
 import com.aistudio.alphapulse.ui.components.ManualOverrideDialog
+import com.aistudio.alphapulse.ui.components.OrphanedOrderWarningDialog
 import com.aistudio.alphapulse.ui.components.VipHeaderState
 import com.aistudio.alphapulse.ui.screens.DashboardScreen
 import com.aistudio.alphapulse.ui.screens.RiskGuardrailsScreen
@@ -56,6 +57,7 @@ import com.aistudio.alphapulse.ui.theme.AmberWarning
 import com.aistudio.alphapulse.ui.theme.BrandDark
 import com.aistudio.alphapulse.ui.theme.CardBackground
 import com.aistudio.alphapulse.ui.theme.CardBorder
+import com.aistudio.alphapulse.ui.theme.CrimsonBear
 import com.aistudio.alphapulse.ui.theme.CyanAccent
 import com.aistudio.alphapulse.ui.theme.EmeraldBull
 import com.aistudio.alphapulse.ui.theme.MyApplicationTheme
@@ -88,6 +90,10 @@ data class ProactiveWorkspaceActions(
     val onToggleKillSwitch: () -> Unit = {},
     val onModeChange: (ExecutionMode) -> Unit = {},
     val onOpenOrphanWarning: () -> Unit = {},
+    /** C-68: close the intercept without wiping the session. */
+    val onDismissOrphanWarning: () -> Unit = {},
+    /** C-68: acknowledge the intercept and wipe the in-memory session. */
+    val onAcknowledgeOrphanWarning: () -> Unit = {},
     val onSelectCampaign: (Campaign) -> Unit = {},
     val onOpenOverride: (Campaign) -> Unit = {},
     val onSoftCancel: (String) -> Unit = {},
@@ -171,6 +177,10 @@ fun ProactiveWorkspaceScreen(
     headerChrome: AlphaPulseHeaderChrome = AlphaPulseHeaderChrome(),
     modifier: Modifier = Modifier
 ) {
+    // C-68: the kill switch is a deliberate two-step action, and its state is named on
+    // the control itself. Tapping it used to toggle silently in both directions.
+    var killSwitchConfirm by remember { mutableStateOf(false) }
+
     Scaffold(
         modifier = modifier.fillMaxSize().testTag(ProactiveWorkspaceTags.WORKSPACE),
         containerColor = BrandDark,
@@ -214,7 +224,7 @@ fun ProactiveWorkspaceScreen(
                     isSessionActive = state.isSessionActive,
                     isLiveUniverse = state.isLiveUniverse,
                     onModeChange = actions.onModeChange,
-                    onToggleKillSwitch = actions.onToggleKillSwitch,
+                    onToggleKillSwitch = { killSwitchConfirm = true },
                     onOpenOrphanWarning = actions.onOpenOrphanWarning
                 )
             )
@@ -278,6 +288,64 @@ fun ProactiveWorkspaceScreen(
         refusal = state.modeRefusal,
         onDismiss = actions.onDismissLiveModeGate,
         onOpenGuardrails = actions.onOpenGuardrails
+    )
+
+    if (killSwitchConfirm) {
+        val engaged = state.riskEnvelope.isKillSwitchEngaged
+        AlertDialog(
+            onDismissRequest = { killSwitchConfirm = false },
+            modifier = Modifier.testTag("kill_switch_confirmation"),
+            containerColor = CardBackground,
+            title = {
+                Text(
+                    text = if (engaged) "RESET KILL-SWITCH?" else "ENGAGE KILL-SWITCH?",
+                    color = if (engaged) EmeraldBull else CrimsonBear,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+            },
+            text = {
+                Text(
+                    text = if (engaged) {
+                        "Staging resumes and the kill switch returns to standby. Only reset it when the emergency is over."
+                    } else {
+                        "All staging halts and resting orders are cancelled across every symbol. This is the emergency stop."
+                    },
+                    color = SlateTextSecondary,
+                    fontSize = 11.sp
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        killSwitchConfirm = false
+                        actions.onToggleKillSwitch()
+                    }
+                ) {
+                    Text(
+                        text = if (engaged) "RESET" else "ENGAGE",
+                        color = if (engaged) EmeraldBull else CrimsonBear,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { killSwitchConfirm = false }) {
+                    Text("CANCEL", color = SlateTextSecondary, fontSize = 11.sp)
+                }
+            }
+        )
+    }
+
+    // C-68: the orphan intercept is mounted by the shipped host. Only the retired
+    // TraderHostActivity observed this flag, so tapping the header button on the real
+    // single-host workspace did nothing at all.
+    OrphanedOrderWarningDialog(
+        isOpen = state.isOrphanedOrderWarningOpen,
+        onAcknowledgeAndWipe = actions.onAcknowledgeOrphanWarning,
+        onDismiss = actions.onDismissOrphanWarning
     )
 
     ManualOverrideDialog(
@@ -349,6 +417,8 @@ fun ProactiveWorkspaceScreen(
             onToggleKillSwitch = viewModel::toggleKillSwitch,
             onModeChange = viewModel::setExecutionMode,
             onOpenOrphanWarning = viewModel::openOrphanedOrderWarning,
+            onDismissOrphanWarning = viewModel::dismissOrphanedOrderWarning,
+            onAcknowledgeOrphanWarning = viewModel::acknowledgeOrphanedOrderWarning,
             onSelectCampaign = viewModel::selectCampaign,
             onOpenOverride = viewModel::openManualOverrideDialog,
             onSoftCancel = viewModel::triggerSoftCancel,
@@ -495,74 +565,75 @@ private fun ProactiveGuardrailsTab(
     actions: ProactiveWorkspaceActions
 ) {
     val config = ProductionExecutionConfig.PRODUCTION
-    Column(modifier = Modifier.fillMaxSize()) {
-        // C-58: the gate's own state, before the limits it acts on: the operator needs to
-        // know whether PATTERN and STRATEGY are inputs yet, not only that risk is capped.
-        LayeredEvidenceCard(state)
-        // C-60: the limits themselves, configured once and read by every gate.
-        ThresholdsCard(state = state, actions = actions)
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 14.dp, end = 14.dp, top = 12.dp)
-                .background(CardBackground, RoundedCornerShape(10.dp))
-                .border(1.dp, CardBorder, RoundedCornerShape(10.dp))
-                .padding(12.dp)
-                .testTag(ProactiveWorkspaceTags.PRE_LAUNCH_GATE)
-        ) {
-            Text(
-                text = "PRODUCTION LIMITS",
-                color = SlateTextSecondary,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-            Text(
-                text = "Risk ${config.accountRiskPerCampaignPct}% per campaign · " +
-                    "daily stop ${config.maxDailyLossR}R · " +
-                    "re-entry lockout ${config.reentryCooldownMinutes} min",
-                color = SlateTextPrimary,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-            Text(
-                text = "Soft / hard invalidation ${config.softInvalidationThreshold}/" +
-                    "${config.hardInvalidationThreshold} · " +
-                    "spread ceiling ${config.maxSpreadPct}%",
-                color = SlateTextMuted,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(top = 2.dp)
-            )
-            if (preLaunchVerdict.isNotBlank()) {
-                Text(
-                    text = "§38 pre-launch gate: $preLaunchVerdict",
-                    color = SlateTextSecondary,
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
+    // C-67: one scroll container for the whole tab. The gate cards used to sit in a fixed
+    // Column above a weight(1f) box, so on a phone they consumed the viewport and the
+    // LazyColumn holding the API key manager collapsed to zero height — the key fields
+    // existed but could not be reached.
+    RiskGuardrailsScreen(
+        riskEnvelope = state.riskEnvelope,
+        venueHealth = state.venueHealth,
+        isSessionActive = state.isSessionActive,
+        executionMode = state.executionMode,
+        liveWalletUsd = state.liveWalletUsd,
+        onToggleKillSwitch = actions.onToggleKillSwitch,
+        onStartSession = actions.onStartSession,
+        onTerminateSession = actions.onTerminateSession,
+        onUpdatePaperWallet = actions.onUpdatePaperWallet,
+        isDiagnosticsRunning = state.isDiagnosticsRunning,
+        hasLiveDiagnostics = state.hasLiveDiagnostics,
+        onRunDiagnostics = actions.onRunDiagnostics,
+        leading = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // C-58: the gate's own state, before the limits it acts on.
+                LayeredEvidenceCard(state)
+                // C-60: the limits themselves, configured once and read by every gate.
+                ThresholdsCard(state = state, actions = actions)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(CardBackground, RoundedCornerShape(10.dp))
+                        .border(1.dp, CardBorder, RoundedCornerShape(10.dp))
+                        .padding(12.dp)
+                        .testTag(ProactiveWorkspaceTags.PRE_LAUNCH_GATE)
+                ) {
+                    Text(
+                        text = "PRODUCTION LIMITS",
+                        color = SlateTextSecondary,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "Risk ${config.accountRiskPerCampaignPct}% per campaign · " +
+                            "daily stop ${config.maxDailyLossR}R · " +
+                            "re-entry lockout ${config.reentryCooldownMinutes} min",
+                        color = SlateTextPrimary,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                    Text(
+                        text = "Soft / hard invalidation ${config.softInvalidationThreshold}/" +
+                            "${config.hardInvalidationThreshold} · " +
+                            "spread ceiling ${config.maxSpreadPct}%",
+                        color = SlateTextMuted,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                    if (preLaunchVerdict.isNotBlank()) {
+                        Text(
+                            text = "§38 pre-launch gate: $preLaunchVerdict",
+                            color = SlateTextSecondary,
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                }
             }
         }
-
-        Box(modifier = Modifier.fillMaxSize().weight(1f)) {
-            RiskGuardrailsScreen(
-                riskEnvelope = state.riskEnvelope,
-            venueHealth = state.venueHealth,
-            isSessionActive = state.isSessionActive,
-            executionMode = state.executionMode,
-            liveWalletUsd = state.liveWalletUsd,
-            onToggleKillSwitch = actions.onToggleKillSwitch,
-            onStartSession = actions.onStartSession,
-            onTerminateSession = actions.onTerminateSession,
-            onUpdatePaperWallet = actions.onUpdatePaperWallet,
-            isDiagnosticsRunning = state.isDiagnosticsRunning,
-                hasLiveDiagnostics = state.hasLiveDiagnostics,
-                onRunDiagnostics = actions.onRunDiagnostics
-            )
-        }
-    }
+    )
 }
 
 /**
@@ -582,7 +653,7 @@ private fun LayeredEvidenceCard(state: MainUiState) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 14.dp, end = 14.dp, top = 12.dp)
+            .padding(top = 12.dp)
             .background(CardBackground, RoundedCornerShape(10.dp))
             .border(1.dp, CardBorder, RoundedCornerShape(10.dp))
             .padding(12.dp)
@@ -683,7 +754,7 @@ private fun ThresholdsCard(state: MainUiState, actions: ProactiveWorkspaceAction
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 14.dp, end = 14.dp, top = 12.dp)
+            .padding(top = 12.dp)
             .background(CardBackground, RoundedCornerShape(10.dp))
             .border(1.dp, CardBorder, RoundedCornerShape(10.dp))
             .padding(12.dp)

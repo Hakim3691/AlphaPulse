@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -35,6 +36,7 @@ import com.aistudio.alphapulse.data.model.ChartPoint
 import com.aistudio.alphapulse.data.model.ForecastTarget
 import com.aistudio.alphapulse.domain.quant.MarkovRegimeResult
 import com.aistudio.alphapulse.domain.ensemble.EnsembleWeighting
+import com.aistudio.alphapulse.domain.presentation.ForecastAvailabilityPolicy
 import com.aistudio.alphapulse.data.model.ScreenedCoin
 import com.aistudio.alphapulse.ui.theme.*
 import com.aistudio.alphapulse.core.Formatters
@@ -56,8 +58,11 @@ fun AccordionsSection(
     alphaVah: Double = 0.0,
     alphaVal: Double = 0.0,
     chartPoints: List<ChartPoint>,
+    spotPrice: Double,
     mountedModelIds: List<String> = emptyList()
 ) {
+    // C-65: a forecast is withheld, not zero-filled, when there is no usable live price.
+    val forecastAvailability = ForecastAvailabilityPolicy.assess(spotPrice)
     val mountedExtraIds = EnsembleWeighting.mountedExtraIds(mountedModelIds)
     val ensembleModelCount = EnsembleWeighting.activeModelCount(mountedModelIds)
     var openRiskAdjusted by remember { mutableStateOf(false) }
@@ -270,43 +275,47 @@ fun AccordionsSection(
             onToggle = { openForecasts = !openForecasts }
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = EnsembleWeighting.formula(ensembleModelCount),
-                    color = BrandNeural,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold
-                )
+                if (!forecastAvailability.available) {
+                    ForecastUnavailableNotice(forecastAvailability.reason.orEmpty())
+                } else {
+                    Text(
+                        text = EnsembleWeighting.formula(ensembleModelCount),
+                        color = BrandNeural,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
 
-                Text(
-                    text = buildString {
-                        append("ML Integration: W_k (Kinematic) + W_p (LOB Pain) + W_α (FRVP 50-Bin / VWAP / UQ-LOB)")
-                        if (EnsembleWeighting.CHRONOS_ID in mountedExtraIds) append(" + W4 (Chronos-Bolt)")
-                        if (EnsembleWeighting.TIMESFM_ID in mountedExtraIds) append(" + W5 (TimesFM)")
-                    },
-                    color = TextTertiary,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
-                )
+                    Text(
+                        text = buildString {
+                            append("ML Integration: W_k (Kinematic) + W_p (LOB Pain) + W_α (FRVP 50-Bin / VWAP / UQ-LOB)")
+                            if (EnsembleWeighting.CHRONOS_ID in mountedExtraIds) append(" + W4 (Chronos-Bolt)")
+                            if (EnsembleWeighting.TIMESFM_ID in mountedExtraIds) append(" + W5 (TimesFM)")
+                        },
+                        color = TextTertiary,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
 
-                // 5 horizon cards in responsive grid or columns
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    forecastTargets.take(3).forEach { target ->
-                        ForecastCard(modifier = Modifier.weight(1f), target = target)
+                    // 5 horizon cards in responsive grid or columns
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        forecastTargets.take(3).forEach { target ->
+                            ForecastCard(modifier = Modifier.weight(1f), target = target)
+                        }
                     }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    forecastTargets.drop(3).forEach { target ->
-                        ForecastCard(modifier = Modifier.weight(1f), target = target)
-                    }
-                    if (forecastTargets.size < 5) {
-                        Spacer(modifier = Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        forecastTargets.drop(3).forEach { target ->
+                            ForecastCard(modifier = Modifier.weight(1f), target = target)
+                        }
+                        if (forecastTargets.size < 5) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
                     }
                 }
             }
@@ -328,7 +337,11 @@ fun AccordionsSection(
                     fontFamily = FontFamily.Monospace
                 )
 
-                ForecastTrajectoryChart(chartPoints = chartPoints)
+                if (forecastAvailability.available) {
+                    ForecastTrajectoryChart(chartPoints = chartPoints)
+                } else {
+                    ForecastUnavailableNotice(forecastAvailability.reason.orEmpty())
+                }
             }
         }
     }
@@ -575,7 +588,7 @@ fun ForecastCard(
                         .padding(horizontal = 4.dp, vertical = 1.dp)
                 ) {
                     Text(
-                        text = "${if (target.isBullish) "▲" else "▼"}${String.format(Locale.US, "%.2f", abs(target.deltaPct))}%",
+                        text = ForecastAvailabilityPolicy.deltaLabel(target.deltaPct, target.isBullish),
                         color = deltaColor,
                         fontSize = 8.sp,
                         fontFamily = FontFamily.Monospace,
@@ -617,6 +630,34 @@ fun ForecastCard(
                 )
             }
         }
+    }
+}
+
+/** The honest state shown wherever a forecast would have been: no usable live price. */
+@Composable
+fun ForecastUnavailableNotice(reason: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BrandCard)
+            .border(1.dp, BrandBorder, RoundedCornerShape(6.dp))
+            .padding(10.dp)
+            .testTag("forecast_unavailable"),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = "FORECAST WITHHELD",
+            color = AmberWarning,
+            fontSize = 10.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = reason,
+            color = TextTertiary,
+            fontSize = 9.sp,
+            fontFamily = FontFamily.Monospace
+        )
     }
 }
 

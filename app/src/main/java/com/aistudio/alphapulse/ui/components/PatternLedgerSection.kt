@@ -33,6 +33,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.aistudio.alphapulse.domain.catalogue.CatalogueLedger
+import com.aistudio.alphapulse.domain.catalogue.CatalogueLedgerInfo
+import com.aistudio.alphapulse.domain.catalogue.TradeIdea
+import com.aistudio.alphapulse.domain.catalogue.TradeIdeasCatalog
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEngine
 import com.aistudio.alphapulse.domain.pattern.PatternLedgerEntry
 import com.aistudio.alphapulse.domain.presentation.SgdActionTag
@@ -51,9 +55,13 @@ fun PatternLedgerSection(
     onExportClick: () -> Unit,
     onClearClick: () -> Unit = {},
     /** Settled rows are hidden by default; the toggle reveals them. */
-    initiallyShowSettled: Boolean = false
+    initiallyShowSettled: Boolean = false,
+    /** C-66: the catalogue the pattern ledger grades, shown from its info action. */
+    catalogueIdeas: List<TradeIdea> = emptyList()
 ) {
     var showSettled by remember { mutableStateOf(initiallyShowSettled) }
+    var catalogueOpen by remember { mutableStateOf(false) }
+    val catalogue = catalogueIdeas.ifEmpty { TradeIdeasCatalog.all }
 
     val filteredList = if (horizonFilter == "ALL") {
         entries
@@ -94,6 +102,15 @@ fun PatternLedgerSection(
     val timeFmt = remember { SimpleDateFormat("HH:mm:ss", Locale.US) }
     val scrollState = rememberScrollState()
 
+    if (catalogueOpen) {
+        CatalogueInfoDialog(
+            isOpen = true,
+            ledger = CatalogueLedger.PATTERN,
+            ideas = CatalogueLedgerInfo.ideasFor(CatalogueLedger.PATTERN, catalogue),
+            onDismiss = { catalogueOpen = false }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -103,6 +120,7 @@ fun PatternLedgerSection(
     ) {
         LedgerHeader(
             title = "PATTERN PREDICTION",
+            onInfoClick = { catalogueOpen = true },
             pendingCount = pendingCount,
             settledCount = settledCount,
             summary = hitRateText,

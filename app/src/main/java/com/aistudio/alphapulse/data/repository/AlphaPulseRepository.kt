@@ -22,6 +22,7 @@ import com.aistudio.alphapulse.domain.quant.ModelState
 import com.aistudio.alphapulse.domain.agent.MarketStateAgent
 import com.aistudio.alphapulse.domain.agent.MarketStateInput
 import com.aistudio.alphapulse.domain.catalogue.TradeIdea
+import com.aistudio.alphapulse.domain.presentation.ForecastAvailabilityPolicy
 import com.aistudio.alphapulse.domain.presentation.PainPathPrior
 import com.aistudio.alphapulse.domain.decision.CoinCalibrationOrchestrator
 import com.aistudio.alphapulse.domain.decision.DecisionReport
@@ -1101,7 +1102,12 @@ class AlphaPulseRepository(
         val legDrifts = mutableMapOf<String, ForecastLegs>()
         val existingPredictions = database.predictionDao().getPredictionsBySymbol(symbol)
 
+        // C-65: no usable spot means no forecast. The old cycle still ran this loop with
+        // `currentSpot = 0.0`, producing `$0.00000` targets and a `0/0` NaN delta.
+        val forecastAvailability = ForecastAvailabilityPolicy.assess(currentSpot)
+
         for (h in HORIZONS) {
+            if (!forecastAvailability.available) break
             val muKinematic = when {
                 h.minutes <= 5 -> 0.0
                 h.minutes <= 30 -> mtfMetrics.muKinematic
@@ -1277,7 +1283,7 @@ class AlphaPulseRepository(
             )
         }
 
-        for (target in forecastTargets) {
+        for (target in if (forecastAvailability.available) forecastTargets else emptyList()) {
             chartPoints.add(
                 ChartPoint(
                     timestamp = now,

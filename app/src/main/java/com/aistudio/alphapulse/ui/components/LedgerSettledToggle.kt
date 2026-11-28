@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -129,7 +131,9 @@ fun LedgerHeader(
     showSettled: Boolean,
     onToggleSettled: () -> Unit,
     onExportClick: () -> Unit,
-    onClearClick: () -> Unit
+    onClearClick: () -> Unit,
+    /** C-66: the catalogue slice behind this ledger, when the caller has one. */
+    onInfoClick: (() -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
@@ -158,6 +162,17 @@ fun LedgerHeader(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
+                if (onInfoClick != null) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = "Trade ideas behind this ledger",
+                        tint = BrandAccent,
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clickable { onInfoClick() }
+                            .testTag("ledger_info_button")
+                    )
+                }
             }
 
             Row(
