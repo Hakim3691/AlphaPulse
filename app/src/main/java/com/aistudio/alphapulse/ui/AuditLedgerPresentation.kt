@@ -11,17 +11,33 @@ import com.aistudio.alphapulse.data.model.AuditLogEntry
  * its full message. The classification and counting are pure functions here so the
  * layout cannot disagree with the filter chips it renders.
  *
+ * The scopes follow the decision lifecycle the operator reasons about — what was staged,
+ * what filled, what was cancelled, and what the risk layer did — rather than mirroring
+ * enum names. Engine housekeeping rows (`SYS_`/`MODE_` campaign ids) are `CAMPAIGN_STAGED`
+ * actions and therefore appear under `STAGED` with the rest of the staging decisions.
+ *
  * Spec Ref: §29, §71, §72, C-64
  */
-enum class AuditLedgerCategory { ORDERS, RISK, OPERATOR, SYSTEM }
+enum class AuditLedgerFilter(val label: String) {
+    ALL("ALL"),
+    STAGED("STAGED"),
+    FILLS("FILLS"),
+    CANCELS("CANCELS"),
+    RISK("RISK");
 
-/** The scopes the ledger can be filtered to; `ALL` keeps every row. */
-enum class AuditLedgerFilter(val label: String, val category: AuditLedgerCategory?) {
-    ALL("ALL", null),
-    ORDERS("ORDERS", AuditLedgerCategory.ORDERS),
-    RISK("RISK", AuditLedgerCategory.RISK),
-    OPERATOR("OPERATOR", AuditLedgerCategory.OPERATOR),
-    SYSTEM("SYSTEM", AuditLedgerCategory.SYSTEM)
+    /** Whether [entry] belongs to this scope. `ALL` admits every row. */
+    fun admits(entry: AuditLogEntry): Boolean = when (this) {
+        ALL -> true
+        STAGED -> entry.action == AuditLogAction.CAMPAIGN_STAGED ||
+            entry.action == AuditLogAction.BOARD_PROMOTED
+        FILLS -> entry.action == AuditLogAction.SLICE_FILLED
+        CANCELS -> entry.action == AuditLogAction.SOFT_CANCEL ||
+            entry.action == AuditLogAction.DEFENSIVE_SCALED
+        RISK -> entry.action == AuditLogAction.HARD_FLATTEN ||
+            entry.action == AuditLogAction.EMERGENCY_KILL ||
+            entry.action == AuditLogAction.ORPHANED_ALERT ||
+            entry.action == AuditLogAction.MANUAL_OVERRIDE
+    }
 }
 
 data class AuditLedgerCounts(val total: Int, val shown: Int)
@@ -31,42 +47,28 @@ data class AuditLedgerFilterCount(val filter: AuditLedgerFilter, val count: Int)
 object AuditLedgerPresentation {
 
     /** The columns the table renders, matching the Alpha Pulse ledger grammar. */
-    val COLUMNS: List<String> = listOf("TIME", "ACTION", "SYMBOL", "REASON", "MESSAGE")
+    val COLUMNS: List<String> =
+        listOf("TIME", "ASSET", "ACTION", "BOARD", "REASON", "MESSAGE")
 
     /**
-     * Which scope a row belongs to.
-     *
-     * Engine and host housekeeping (boot, mode switch, pre-flight diagnostics, symbol
-     * routing) writes `CAMPAIGN_STAGED` just like a real board, so it is classified by
-     * its `SYS_`/`MODE_`/`ACTIVE_` campaign id first rather than pretending to be a
-     * trade decision.
+     * The one non-`ALL` scope a row belongs to. Kept total: an action added later still
+     * classifies (as `RISK`, the conservative default) instead of crashing or vanishing.
      */
-    fun category(entry: AuditLogEntry): AuditLedgerCategory {
-        if (entry.asset == "PORTFOLIO" || entry.campaignId.startsWith("SYS_") ||
-            entry.campaignId.startsWith("MODE_") || entry.campaignId.startsWith("ACTIVE_")
-        ) {
-            return AuditLedgerCategory.SYSTEM
-        }
-        return when (entry.action) {
-            AuditLogAction.CAMPAIGN_STAGED,
-            AuditLogAction.SLICE_FILLED,
-            AuditLogAction.BOARD_PROMOTED,
-            AuditLogAction.DEFENSIVE_SCALED -> AuditLedgerCategory.ORDERS
+    fun group(entry: AuditLogEntry): AuditLedgerFilter =
+        AuditLedgerFilter.entries.firstOrNull { it != AuditLedgerFilter.ALL && it.admits(entry) }
+            ?: AuditLedgerFilter.RISK
 
-            AuditLogAction.SOFT_CANCEL,
-            AuditLogAction.HARD_FLATTEN -> AuditLedgerCategory.RISK
+    /** The asset column; a portfolio-wide row has no coin and says so. */
+    fun displayAsset(entry: AuditLogEntry): String =
+        entry.asset.takeIf { it.isNotBlank() } ?: "PORTFOLIO"
 
-            AuditLogAction.EMERGENCY_KILL,
-            AuditLogAction.MANUAL_OVERRIDE,
-            AuditLogAction.ORPHANED_ALERT -> AuditLedgerCategory.OPERATOR
-        }
-    }
+    /** The board/campaign column, parsed here rather than in the composable. */
+    fun displayBoard(entry: AuditLogEntry): String =
+        entry.campaignId.takeIf { it.isNotBlank() } ?: "—"
 
     /** The rows a scope shows, in the ledger's own order (newest first). */
-    fun visible(entries: List<AuditLogEntry>, filter: AuditLedgerFilter): List<AuditLogEntry> {
-        val category = filter.category ?: return entries
-        return entries.filter { category(it) == category }
-    }
+    fun visible(entries: List<AuditLogEntry>, filter: AuditLedgerFilter): List<AuditLogEntry> =
+        entries.filter { filter.admits(it) }
 
     fun counts(entries: List<AuditLogEntry>, filter: AuditLedgerFilter): AuditLedgerCounts =
         AuditLedgerCounts(total = entries.size, shown = visible(entries, filter).size)

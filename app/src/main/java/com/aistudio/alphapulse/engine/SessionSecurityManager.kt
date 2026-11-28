@@ -78,10 +78,11 @@ class SessionSecurityManager {
         availableRamMb: Int
     ) {
         val isRamConstrained = availableRamMb < RAM_FLOOR_MB
-        val isLatencySpike = pingBinance > LATENCY_SPIKE_BINANCE_MS ||
-            pingCoinGlass > LATENCY_SPIKE_COINGLASS_MS
-        val unreachableProbe = pingBinance >= HardwareDiagnosticsProvider.UNREACHABLE_LATENCY_MS ||
-            pingCoinGlass >= HardwareDiagnosticsProvider.UNREACHABLE_LATENCY_MS
+        // C-63: the mandatory execution feed is Binance. The optional CoinGlass probe
+        // answering slowly must not mark that feed stale — it was the reason every Paper
+        // board was suppressed on a device whose CoinGlass endpoint was unreachable.
+        val isLatencySpike = pingBinance > LATENCY_SPIKE_BINANCE_MS
+        val isFeedStale = pingBinance >= HardwareDiagnosticsProvider.UNREACHABLE_LATENCY_MS
 
         _venueHealth.value = _venueHealth.value.copy(
             binancePingMs = pingBinance,
@@ -91,7 +92,7 @@ class SessionSecurityManager {
             isThermallyThrottled = isThrottled,
             availableRamMb = availableRamMb,
             isRamConstrained = isRamConstrained,
-            isFeedStale = unreachableProbe
+            isFeedStale = isFeedStale
         )
     }
 

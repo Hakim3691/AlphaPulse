@@ -23,8 +23,10 @@ import org.junit.Test
  *
  * Every board was suppressed with `STAGING_GATE_PAPER / Venue or hardware health
  * guardrail tripped` because one optional feed answered slowly (CoinGlass 9999ms) and
- * Binance had a latency spike. Paper mode routes nothing, so those are advisories there;
- * a live mode still refuses. A stale market feed and the kill switch block everywhere.
+ * Binance had a latency spike. The optional probe is now never a staging block, Paper
+ * treats execution latency as an advisory, a stale Binance feed / thermal throttling /
+ * the RAM floor block every mode, and a live mode still refuses to route while latency
+ * or low power is in force. The kill switch and daily stop stay in `RiskEngine`.
  *
  * Spec Ref: §2, §22, §23, §36, C-63
  */
@@ -71,7 +73,38 @@ class VenueHealthStagingBddSpec {
             campaign(), emptyList(), envelope, latencySpike, ExecutionMode.SCALED_LIVE
         )
         assertFalse("live routing must stay blocked", allowed)
-        assertTrue("the refusal must name the venue: $reason", reason!!.contains("Venue"))
+        assertTrue("the refusal must name the latency: $reason", reason!!.contains("Binance"))
+    }
+
+    @Test
+    fun `given only the optional CoinGlass feed is unreachable when assessed then no mode is blocked and the advisory names it`() {
+        val optionalFeedDown = VenueHealth(
+            binancePingMs = 30,
+            coinglassPingMs = 9_999,
+            isFeedStale = false,
+            isLatencySpike = false
+        )
+
+        for (mode in ExecutionMode.entries) {
+            val verdict = VenueHealthVerdict.assess(optionalFeedDown, mode)
+            assertNull(
+                "an optional feed must not block ${mode.name}: ${verdict.hardBlock}",
+                verdict.hardBlock
+            )
+            assertTrue(
+                "the optional feed is still reported to ${mode.name}",
+                verdict.advisories.any { it.contains("CoinGlass") }
+            )
+        }
+
+        val (paperAllowed, paperReason) = risk.validateCampaignStaging(
+            campaign(), emptyList(), envelope, optionalFeedDown, ExecutionMode.PAPER
+        )
+        assertTrue("paper staging must be allowed: $paperReason", paperAllowed)
+        val (liveAllowed, liveReason) = risk.validateCampaignStaging(
+            campaign(), emptyList(), envelope, optionalFeedDown, ExecutionMode.CAPPED_LIVE
+        )
+        assertTrue("live staging must not be refused for the optional feed: $liveReason", liveAllowed)
     }
 
     @Test
@@ -93,11 +126,35 @@ class VenueHealthStagingBddSpec {
     }
 
     @Test
-    fun `given low power or thermal throttling in Paper mode when assessed then it is advisory, and in a live mode it blocks`() {
-        val constrained = VenueHealth(isLowPowerMode = true, isThermallyThrottled = true)
+    fun `given thermal throttling when assessed then every mode is blocked, including Paper`() {
+        val throttled = VenueHealth(isThermallyThrottled = true)
 
-        assertNull(VenueHealthVerdict.assess(constrained, ExecutionMode.PAPER).hardBlock)
-        assertNotNull(VenueHealthVerdict.assess(constrained, ExecutionMode.SCALED_LIVE).hardBlock)
+        for (mode in ExecutionMode.entries) {
+            assertNotNull(
+                "thermal throttling must block ${mode.name}",
+                VenueHealthVerdict.assess(throttled, mode).hardBlock
+            )
+        }
+    }
+
+    @Test
+    fun `given the memory floor is breached when assessed then every mode is blocked`() {
+        val starved = VenueHealth(availableRamMb = 256, isRamConstrained = true)
+
+        for (mode in ExecutionMode.entries) {
+            assertNotNull(
+                "the RAM floor must block ${mode.name}",
+                VenueHealthVerdict.assess(starved, mode).hardBlock
+            )
+        }
+    }
+
+    @Test
+    fun `given low power in Paper mode when assessed then it is advisory, and in a live mode it blocks`() {
+        val lowPower = VenueHealth(isLowPowerMode = true)
+
+        assertNull(VenueHealthVerdict.assess(lowPower, ExecutionMode.PAPER).hardBlock)
+        assertNotNull(VenueHealthVerdict.assess(lowPower, ExecutionMode.SCALED_LIVE).hardBlock)
     }
 
     @Test

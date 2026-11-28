@@ -294,6 +294,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var paperRealizedPnlUsd = 0.0
 
     init {
+        // C-62: the persisted selection is live before the first universe load.
+        selectionStore.attach(application)
         // Optional CoinGlass key from the secrets-managed environment (never persisted).
         runCatching {
             CoinGlassClient.apiKey = BuildConfig.COINGLASS_API_KEY
@@ -313,6 +315,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             thresholds = Thresholds.current(),
             executionMode = if (restoredDecision.allowed) restoredMode else ExecutionMode.PAPER
         )
+        // C-63: a live preference that cannot be restored is not silently dropped; it is
+        // recorded so the ledger explains why the desk came back in Paper.
+        if (!restoredDecision.allowed && restoredMode != ExecutionMode.PAPER) {
+            viewModelScope.launch {
+                repository.logAction(
+                    asset = "ALL",
+                    campaignId = "MODE_SWITCH",
+                    action = AuditLogAction.CAMPAIGN_STAGED,
+                    reasonCode = "MODE_RESTORED_WITHOUT_SESSION",
+                    message = "${restoredMode.displayName} could not be restored: " +
+                        (restoredDecision.refusal ?: "its prerequisites are not met") +
+                        " Running Paper instead."
+                )
+            }
+        }
         applyStoredPaperWallet()
         loadInitialData()
         observeAuditLogs()
@@ -723,15 +740,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // §36/§38: one gate decides and one sentence explains. The refusal used to be
         // stored in `isLiveModeBlocked` and never rendered, so every mode but Paper
         // looked like it did nothing.
+        val preLaunch = preLaunchVerdict()
         val decision = ExecutionModeGate.evaluate(
             mode = mode,
             hasActiveSession = sessionManager.hasValidActiveSession(),
-            preLaunchUnlocked = preLaunchVerdict().unlocked
+            preLaunchUnlocked = preLaunch.unlocked
         )
+        // The plan asks the Scaled refusal to name the exact unmet §38 criteria, not just
+        // the name of the gate; the verdict already formats them.
+        val refusal = if (mode == ExecutionMode.SCALED_LIVE &&
+            !decision.allowed &&
+            sessionManager.hasValidActiveSession()
+        ) {
+            "${decision.refusal} ${preLaunch.summary}"
+        } else {
+            decision.refusal
+        }
         if (!decision.allowed) {
             _uiState.value = _uiState.value.copy(
                 isLiveModeBlocked = true,
-                modeRefusal = decision.refusal
+                modeRefusal = refusal
             )
             viewModelScope.launch {
                 repository.logAction(
@@ -739,7 +767,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     campaignId = "MODE_SWITCH",
                     action = AuditLogAction.CAMPAIGN_STAGED,
                     reasonCode = "LIVE_MODE_GATE",
-                    message = decision.refusal ?: "${mode.displayName} is not available"
+                    message = refusal ?: "${mode.displayName} is not available"
                 )
             }
             return

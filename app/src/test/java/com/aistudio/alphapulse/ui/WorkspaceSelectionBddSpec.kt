@@ -96,6 +96,31 @@ class WorkspaceSelectionBddSpec {
         )
         // The workspace has no second coin source of its own.
         assertEquals(true, workspace.contains("WorkspaceSelectionStore"))
+        // Neither host is the only writer: the screen follows the store too, and starts
+        // its pipeline on first display rather than at construction (A4).
+        assertEquals(true, alphaPulse.contains("observeSelectionStore()"))
+        assertEquals(true, alphaPulse.contains("fun ensureBooted()"))
+    }
+
+    @Test
+    fun `given a stored selection when a new store opens then it restores the coin and persists every later selection`() {
+        val fake = object : SelectionPersistence {
+            var saved: String? = "PAXGUSDT"
+            override fun load(): String? = saved
+            override fun save(symbol: String) {
+                saved = symbol
+            }
+        }
+
+        val store = WorkspaceSelectionStore(fake)
+        assertEquals("The desk reopens on the persisted coin", "PAXGUSDT", store.selectedSymbol.value)
+
+        store.select("BTWUSDT")
+        assertEquals("BTWUSDT", fake.saved)
+        assertEquals("A restarted process reads the new coin", "BTWUSDT", WorkspaceSelectionStore(fake).selectedSymbol.value)
+
+        store.select("   ")
+        assertEquals("A blank write never overwrites the stored coin", "BTWUSDT", fake.saved)
     }
 
     private fun repoFile(relativePath: String): java.io.File = RepoFiles.of(relativePath)

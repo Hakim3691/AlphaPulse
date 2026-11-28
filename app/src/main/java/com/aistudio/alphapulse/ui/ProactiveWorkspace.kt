@@ -107,7 +107,9 @@ data class ProactiveWorkspaceActions(
     /** C-60: return the configuration to exactly 85.0% / 20 settled samples. */
     val onResetThresholds: () -> Unit = {},
     /** C-63: close a mode refusal after reading why the mode did not switch. */
-    val onDismissLiveModeGate: () -> Unit = {}
+    val onDismissLiveModeGate: () -> Unit = {},
+    /** C-63: take the operator to the Guardrails gate that holds the missing prerequisite. */
+    val onOpenGuardrails: () -> Unit = {}
 )
 
 /**
@@ -138,7 +140,7 @@ object ProactiveWorkspaceTags {
     const val MODE_BANNER = "mode_banner"
 
     /** C-63: why a mode switch was refused. */
-    const val MODE_REFUSAL = "mode_refusal_dialog"
+    const val MODE_REFUSAL = "live_mode_gate_dialog"
 
     /** C-60: the configured floor and sample floors the gate is applying. */
     const val THRESHOLDS = "guardrails_thresholds"
@@ -274,7 +276,8 @@ fun ProactiveWorkspaceScreen(
     ModeRefusalDialog(
         isOpen = state.isLiveModeBlocked,
         refusal = state.modeRefusal,
-        onDismiss = actions.onDismissLiveModeGate
+        onDismiss = actions.onDismissLiveModeGate,
+        onOpenGuardrails = actions.onOpenGuardrails
     )
 
     ManualOverrideDialog(
@@ -364,7 +367,11 @@ fun ProactiveWorkspaceScreen(
             onRunReplay = { baseline -> viewModel.runReplay(baseline) },
             onAdjustThreshold = viewModel::adjustThresholds,
             onResetThresholds = viewModel::resetThresholds,
-            onDismissLiveModeGate = viewModel::dismissLiveModeGate
+            onDismissLiveModeGate = viewModel::dismissLiveModeGate,
+            onOpenGuardrails = {
+                workspace = workspace.selectTab(ProactiveMsTab.GUARDRAILS)
+                viewModel.dismissLiveModeGate()
+            }
         ),
         alphaPulseTab = { AlphaPulseScreenContent(viewModel = alphaPulseViewModel) }
     )
@@ -435,7 +442,12 @@ private fun ModeBanner(state: MainUiState) {
 
 /** The refused mode switch: the mode did not change, and this says why. */
 @Composable
-private fun ModeRefusalDialog(isOpen: Boolean, refusal: String?, onDismiss: () -> Unit) {
+internal fun ModeRefusalDialog(
+    isOpen: Boolean,
+    refusal: String?,
+    onDismiss: () -> Unit,
+    onOpenGuardrails: () -> Unit = {}
+) {
     if (!isOpen || refusal.isNullOrBlank()) return
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -454,8 +466,18 @@ private fun ModeRefusalDialog(isOpen: Boolean, refusal: String?, onDismiss: () -
             Text(text = refusal, color = SlateTextSecondary, fontSize = 11.sp)
         },
         confirmButton = {
+            TextButton(
+                onClick = {
+                    onDismiss()
+                    onOpenGuardrails()
+                }
+            ) {
+                Text(text = "OPEN GUARDRAILS", color = CyanAccent, fontSize = 11.sp)
+            }
+        },
+        dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(text = "OK", color = CyanAccent, fontSize = 11.sp)
+                Text(text = "DISMISS", color = SlateTextSecondary, fontSize = 11.sp)
             }
         }
     )

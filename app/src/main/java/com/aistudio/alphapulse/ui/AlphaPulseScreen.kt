@@ -46,6 +46,9 @@ fun AlphaPulseScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // C-62/A4: the pipeline boots when this screen is actually shown.
+    LaunchedEffect(Unit) { viewModel.ensureBooted() }
+
     AlphaPulseMessages(viewModel, uiState.snackbarMessage, snackbarHostState)
 
     Scaffold(
@@ -99,6 +102,9 @@ fun AlphaPulseScreenContent(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // C-62/A4: opening the tab is what starts the screen, not constructing the host.
+    LaunchedEffect(Unit) { viewModel.ensureBooted() }
 
     AlphaPulseMessages(viewModel, uiState.snackbarMessage, snackbarHostState)
 

@@ -250,6 +250,8 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
     private val selectionStore = WorkspaceSelectionStore.shared
 
     init {
+        // C-62: restore the persisted selection before anything reads it.
+        selectionStore.attach(application)
         ModelDownloadStore.init(application)
         val mounted = EnsembleWeighting.mountedExtraIds(ModelDownloadStore.readyModelIds())
         _uiState.update { state ->
@@ -271,7 +273,35 @@ class AlphaPulseViewModel(application: Application) : AndroidViewModel(applicati
         observeDecisionHistory()
         observePatternLedger()
         observeWebSocketTelemetry()
+        // C-62: a selection made elsewhere (or restored) reaches this screen too.
+        observeSelectionStore()
+        // C-62/A4: the screening pipeline starts when the AlphaPulse tab is first shown,
+        // not when the view model is constructed, so opening the Dashboard no longer
+        // re-runs the screen underneath the operator.
+    }
+
+    /** Starts the screening pipeline once, the first time the AlphaPulse surface is shown. */
+    fun ensureBooted() {
+        if (bootStarted) return
+        bootStarted = true
         bootPipeline()
+    }
+
+    private var bootStarted = false
+
+    /**
+     * C-62: this view model is not the only writer of the shared selection (the engine
+     * records its own adoptions), so it follows the store as well as publishing to it.
+     */
+    private fun observeSelectionStore() {
+        viewModelScope.launch {
+            selectionStore.selectedSymbol.collect { symbol ->
+                if (symbol.isNullOrBlank()) return@collect
+                if (symbol == _uiState.value.selectedSymbol) return@collect
+                if (_uiState.value.screenedCoins.none { it.symbol == symbol }) return@collect
+                selectCoin(symbol)
+            }
+        }
     }
 
     /**

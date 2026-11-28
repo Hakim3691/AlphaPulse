@@ -1,5 +1,7 @@
 package com.aistudio.alphapulse.ui
 
+import android.content.Context
+import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,6 +15,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * another coin. The selection now lives in exactly one process-wide store: AlphaPulse
  * writes it, the engine reads it on boot and on every refresh, and the workspace mirrors
  * it. Nothing else may choose a coin.
+ *
+ * The selection is persisted (`workspace_selection_prefs`) so a process restart reopens
+ * the desk on the coin the operator left it on. Only a known-good, non-blank symbol is
+ * restored; anything else falls back to "no selection yet", which the resolve rule below
+ * turns into the leading admitted row.
  *
  * [resolveSymbol] is the one rule for turning that selection into a coin to inspect:
  * the selected coin when it is admitted, the first admitted row only when nothing has
@@ -43,20 +50,68 @@ object WorkspaceSelection {
         currentId?.takeIf { id -> nextIds.any { it == id } } ?: nextIds.firstOrNull()
 }
 
+/** Where a selection is remembered between processes. Deliberately tiny and fakeable. */
+interface SelectionPersistence {
+    fun load(): String?
+    fun save(symbol: String)
+}
+
+/** The persisted payload. Only a non-blank symbol is ever written or read back. */
+private class PreferencesSelectionPersistence(
+    private val prefs: SharedPreferences
+) : SelectionPersistence {
+
+    override fun load(): String? = prefs.getString(KEY_SYMBOL, null)?.takeIf { it.isNotBlank() }
+
+    override fun save(symbol: String) {
+        prefs.edit().putString(KEY_SYMBOL, symbol).apply()
+    }
+
+    companion object {
+        const val PREFS = "workspace_selection_prefs"
+        const val KEY_SYMBOL = "selected_symbol"
+    }
+}
+
 /**
  * The process-wide selected symbol.
  *
- * @param initial the restored selection, if the host has one
+ * @param persistence optional backing store; the shared instance is attached to
+ *   SharedPreferences by the first view model that owns an `Application`
  */
-class WorkspaceSelectionStore(initial: String? = null) {
+class WorkspaceSelectionStore(
+    private var persistence: SelectionPersistence? = null
+) {
 
-    private val _selectedSymbol = MutableStateFlow(initial?.takeIf { it.isNotBlank() })
+    private val _selectedSymbol = MutableStateFlow(
+        persistence?.load()?.takeIf { it.isNotBlank() }
+    )
     val selectedSymbol: StateFlow<String?> = _selectedSymbol.asStateFlow()
 
     /** Records a selection. A blank value is not a selection and changes nothing. */
     fun select(symbol: String) {
         if (symbol.isBlank()) return
+        if (_selectedSymbol.value == symbol) return
         _selectedSymbol.value = symbol
+        persistence?.save(symbol)
+    }
+
+    /**
+     * Backs [shared] with the app's preferences once, keeping any in-memory selection
+     * that is newer than the stored one.
+     */
+    fun attach(context: Context) {
+        if (persistence != null) return
+        val stored = PreferencesSelectionPersistence(
+            context.getSharedPreferences(
+                PreferencesSelectionPersistence.PREFS,
+                Context.MODE_PRIVATE
+            )
+        )
+        persistence = stored
+        if (_selectedSymbol.value == null) {
+            _selectedSymbol.value = stored.load()
+        }
     }
 
     companion object {

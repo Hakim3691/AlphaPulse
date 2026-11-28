@@ -151,7 +151,7 @@ private fun AuditLedgerSummary(entries: List<AuditLogEntry>, filter: AuditLedger
             )
         }
         Text(
-            text = "${counts.shown}/${counts.total} ROWS",
+            text = "NEWEST ${counts.shown} OF ${counts.total}",
             color = SlateTextSecondary,
             fontSize = 9.sp,
             fontWeight = FontWeight.Bold,
@@ -225,7 +225,7 @@ private fun AuditLedgerTable(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AuditHeaderCell("TIME", 54.dp)
-                AuditHeaderCell("ACTION", 104.dp)
+                AuditHeaderCell("ASSET", 84.dp)
             }
             Row(
                 modifier = Modifier
@@ -235,9 +235,10 @@ private fun AuditLedgerTable(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AuditHeaderCell("SYMBOL", 84.dp)
-                AuditHeaderCell("REASON", 168.dp)
-                AuditHeaderCell("MESSAGE", 260.dp)
+                AuditHeaderCell("ACTION", 112.dp)
+                AuditHeaderCell("BOARD", 104.dp)
+                AuditHeaderCell("REASON", 160.dp)
+                AuditHeaderCell("MESSAGE", 250.dp)
             }
         }
 
@@ -267,11 +268,10 @@ private fun AuditLedgerTable(
                             width = 54.dp
                         )
                         AuditCell(
-                            text = entry.action.label.uppercase(),
-                            color = tint,
-                            width = 104.dp,
-                            bold = true,
-                            maxLines = 2
+                            text = AuditLedgerPresentation.displayAsset(entry),
+                            color = SlateTextPrimary,
+                            width = 84.dp,
+                            bold = true
                         )
                     }
                     Row(
@@ -283,20 +283,26 @@ private fun AuditLedgerTable(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         AuditCell(
-                            text = entry.asset,
-                            color = SlateTextPrimary,
-                            width = 84.dp,
-                            bold = true
+                            text = entry.action.label.uppercase(),
+                            color = tint,
+                            width = 112.dp,
+                            bold = true,
+                            maxLines = 2
+                        )
+                        AuditCell(
+                            text = AuditLedgerPresentation.displayBoard(entry),
+                            color = SlateTextSecondary,
+                            width = 104.dp
                         )
                         AuditCell(
                             text = entry.reasonCode,
                             color = SlateTextSecondary,
-                            width = 168.dp
+                            width = 160.dp
                         )
                         AuditCell(
                             text = entry.message,
                             color = SlateTextMuted,
-                            width = 260.dp
+                            width = 250.dp
                         )
                     }
                 }
@@ -315,7 +321,7 @@ private fun AuditRowDetailDialog(entry: AuditLogEntry, onDismiss: () -> Unit) {
         containerColor = BrandCard,
         title = {
             Text(
-                text = "${entry.action.label.uppercase()} · ${entry.asset}",
+                text = "${entry.action.label.uppercase()} · ${AuditLedgerPresentation.displayAsset(entry)}",
                 color = entry.tone(),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -325,7 +331,7 @@ private fun AuditRowDetailDialog(entry: AuditLogEntry, onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 AuditDetailLine("TIME", timeFormat.format(Date(entry.timestamp)))
-                AuditDetailLine("CAMPAIGN", entry.campaignId)
+                AuditDetailLine("BOARD", AuditLedgerPresentation.displayBoard(entry))
                 AuditDetailLine("REASON", entry.reasonCode)
                 Text(
                     text = entry.message,
@@ -393,7 +399,7 @@ private fun RowScope.AuditCell(
     )
 }
 
-private val PINNED_WIDTH = 186.dp
+private val PINNED_WIDTH = 166.dp
 
 /** Row tint: what the action means, not what it happened to. */
 private fun AuditLogEntry.tone(): Color = when (action) {

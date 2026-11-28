@@ -91,6 +91,29 @@ class SingleWorkspaceHostBddSpec {
     }
 
     @Test
+    fun `given a Dashboard launch when the host is constructed then the screening pipeline does not start until the AlphaPulse tab is shown`() {
+        val alphaPulse = RepoFiles.of(
+            "app/src/main/java/com/aistudio/alphapulse/ui/viewmodel/AlphaPulseViewModel.kt"
+        ).readText()
+        val screen = RepoFiles.of(
+            "app/src/main/java/com/aistudio/alphapulse/ui/AlphaPulseScreen.kt"
+        ).readText()
+
+        val initBlock = alphaPulse
+            .substringAfter("    init {")
+            .substringBefore("Starts the screening pipeline once")
+        assertFalse(
+            "The view model's init must not boot the screen pipeline",
+            initBlock.contains("bootPipeline()")
+        )
+        assertTrue(
+            "The pipeline is started explicitly the first time the surface is shown",
+            alphaPulse.contains("fun ensureBooted()") &&
+                screen.contains("viewModel.ensureBooted()")
+        )
+    }
+
+    @Test
     fun `given the campaign engine when the universe is reapplied then the inspected campaign is kept by id`() {
         val engine = RepoFiles.of("app/src/main/java/com/aistudio/alphapulse/ui/MainViewModel.kt").readText()
 

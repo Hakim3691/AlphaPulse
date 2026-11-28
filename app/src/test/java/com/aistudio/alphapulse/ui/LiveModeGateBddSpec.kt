@@ -132,6 +132,25 @@ class LiveModeGateBddSpec {
         )
     }
 
+    @Test
+    fun `given a persisted live mode without a session when the engine boots then it records that it fell back`() {
+        val engine = RepoFiles.of("app/src/main/java/com/aistudio/alphapulse/ui/MainViewModel.kt").readText()
+
+        assertTrue(
+            "The persisted mode must be restored through the gate, never trusted blindly",
+            engine.contains("executionModeStore.load()") &&
+                engine.contains("restoredDecision.allowed")
+        )
+        assertTrue(
+            "A fallback to Paper must be explainable in the ledger",
+            engine.contains("MODE_RESTORED_WITHOUT_SESSION")
+        )
+        assertTrue(
+            "The Scaled refusal must name the unmet §38 criteria, not just the gate",
+            engine.contains("preLaunch.summary")
+        )
+    }
+
     /** A tiny in-memory stand-in for the persisted store the view model owns. */
     private class RecordingModeStore(initial: ExecutionMode) {
         var selected: ExecutionMode = initial

@@ -19,7 +19,9 @@ One workspace, one coin, every mode reachable, and the Audit tab reads like a le
   view models, re-running the screening boot under the operator. The selection is now one
   process-wide `WorkspaceSelectionStore`: AlphaPulse publishes it, the engine adopts it, a
   universe refresh keeps it (the first-row fallbacks are gone), and `WorkspaceSelection.resolveSymbol`
-  makes "the selected coin, never a substitute" a single tested rule.
+  makes "the selected coin, never a substitute" a single tested rule. The choice is persisted
+  (`workspace_selection_prefs`), both hosts observe the same store, and the screening pipeline starts
+  only when the AlphaPulse tab is first shown instead of at host construction.
 - **Switching tabs no longer interrupts the desk (C-62).** `MainActivity` mounts the workspace in
   the same composition as the analysis screen once the module is installed, so a tab switch is
   local state instead of `FLAG_ACTIVITY_NEW_TASK`. The tab and coin are saveable across rotation,
@@ -27,18 +29,22 @@ One workspace, one coin, every mode reachable, and the Audit tab reads like a le
   inspected board by id instead of resetting to the book's first board.
 - **Every execution mode switches, or says why it cannot (C-63).** Shadow and Paper previously
   changed the pill and nothing else, and the live-mode refusal was recorded but never rendered.
-  `ExecutionModeGate` now decides, the workspace shows the refusal in a dialog, a mode banner
-  states what the active mode does, and the accepted mode is persisted across launches.
+  `ExecutionModeGate` now decides, the workspace shows the refusal in the `live_mode_gate_dialog`
+  with an **Open Guardrails** action, a mode banner states what the active mode does, and the accepted
+  mode is persisted across launches. A persisted live mode whose prerequisites no longer hold falls back
+  to Paper and records `MODE_RESTORED_WITHOUT_SESSION` instead of degrading silently.
 - **Paper mode is no longer suppressed by venue latency (C-63).** `VenueHealth.isHealthy` folded a
   stale feed, a Binance latency spike, an unreachable optional CoinGlass feed and device power
   state into one refusal, so every Paper board was logged as `STAGING_GATE_PAPER / Venue or
-  hardware health guardrail tripped`. `VenueHealthVerdict` keeps a stale feed hard for every mode,
-  keeps latency/power/thermal/memory hard for the live modes, and reports them as advisories in
-  Shadow and Paper — which route nothing.
-- **The Audit tab is a pinned ledger, not 200 cards (C-64).** One header with `shown/total` counts,
-  one filter row (`ALL` / `ORDERS` / `RISK` / `OPERATOR` / `SYSTEM`) with per-scope counts, and one
-  `LazyColumn` table whose `TIME`/`ACTION` columns stay pinned while `SYMBOL`/`REASON`/`MESSAGE`
-  share a scroll. Tapping a row opens its full message.
+  hardware health guardrail tripped`. `SessionSecurityManager` now derives feed staleness from the
+  mandatory Binance probe only, and `VenueHealthVerdict` blocks every mode on a stale feed, thermal
+  throttling or the RAM floor, blocks only the live modes on a Binance latency spike or low-power
+  mode, and reports the optional CoinGlass probe as an advisory everywhere — it gates the heatmap,
+  not staging.
+- **The Audit tab is a pinned ledger, not 200 cards (C-64).** One header with `NEWEST n OF m` counts,
+  one filter row (`ALL` / `STAGED` / `FILLS` / `CANCELS` / `RISK`) with per-scope counts, and one
+  `LazyColumn` table whose `TIME`/`ASSET` columns stay pinned while `ACTION`/`BOARD`/`REASON`/
+  `MESSAGE` share a scroll. Tapping a row opens its full message.
 
 ### Added
 
